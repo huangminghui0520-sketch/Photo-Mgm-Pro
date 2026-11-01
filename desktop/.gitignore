@@ -6,5 +6,7 @@ packaging/build/
 packaging/output/
 # 便携版解压后的运行时镜像，体积大且可由 jlink 重建
 packaging/runtime/
+# 最终交付产物（MSI/便携 zip 体积大且可重建，不入库；SHA256 校验值见交付文档）
+packaging/dist/
 # Kotlin 2.0 的编译会话/错误日志（首次编译 :ui 后才会生成，根 .gitignore 未覆盖）
 .kotlin/
