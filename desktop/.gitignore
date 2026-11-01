@@ -1,0 +1,6 @@
+# 打包/运行产物（build/ 与 .gradle/ 已由根 .gitignore 覆盖）
+*.msi
+*.exe
+packaging/output/
+# 便携版解压后的运行时镜像，体积大且可由 jlink 重建
+packaging/runtime/
