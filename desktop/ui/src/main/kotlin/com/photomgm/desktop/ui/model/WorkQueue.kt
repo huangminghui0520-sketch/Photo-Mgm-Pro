@@ -1,0 +1,98 @@
+// ui/model/WorkQueue.kt —— 复核队列：把 AppState 算成"还需要人做什么"
+//
+// ★ 这一层存在的理由：核心只给事实（事件、照片、hints、未匹配 id），
+//   而人在复核时关心的是**缺口**——哪个事件没照片、哪个有时间冲突、哪些照片无处可去。
+//   缺口的计算放在这里（纯函数、可测），界面只负责画。
+//   任何"业务口径"都不许写到 Composable 里——那会让口径散落在几十个 @Composable 中，
+//   改一次口径要翻遍界面代码，最终必然出现"事件列表说有 3 个问题、导出时却是 4 个"。
+package com.photomgm.desktop.ui.model
+
+import com.photomgm.desktop.core.api.AppState
+import com.photomgm.desktop.core.api.EventSnapshot
+import com.photomgm.desktop.core.api.PhotoInfo
+
+object WorkQueue {
+
+    /**
+     * 某事件是否需要人工确认。
+     *
+     * 三个来源，全部来自核心的事实而非 UI 猜测：
+     *   · hints 非空 —— 核心 classify 阶段判定"GPS 偏远 / 时间重叠 / 簇跨度过大"等；
+     *   · 无照片 —— 导出会生成空事件文件夹，台账那一行的两个照片列都是空的；
+     *   · 待定事件（isPending，日志里没有时间）—— 照片不会被自动归入，必须人工指定。
+     */
+    fun needsReview(e: EventSnapshot): Boolean =
+        e.hints.isNotEmpty() || e.photoIds.isEmpty() || e.isPending
+
+    /** 事件的"问题标签"：用于列表行上的角标，顺序即优先级。 */
+    fun issueLabels(e: EventSnapshot): List<String> = buildList {
+        if (e.isPending) add("无时间")
+        if (e.photoIds.isEmpty()) add("无照片")
+        if (e.hints.isNotEmpty()) add("${e.hints.size} 条提示")
+    }
+
+    /** 顶部/状态栏用的总览统计。 */
+    data class Stats(
+        val events: Int,
+        val photos: Int,
+        val unmatched: Int,
+        val needReview: Int,
+        val noPhoto: Int,
+        val pending: Int,
+        val withHints: Int,
+        val matched: Int,
+    )
+
+    fun stats(state: AppState): Stats = Stats(
+        events = state.events.size,
+        photos = state.photos.size,
+        unmatched = state.unmatchedPhotoIds.size,
+        needReview = state.events.count { needsReview(it) },
+        noPhoto = state.events.count { it.photoIds.isEmpty() },
+        pending = state.events.count { it.isPending },
+        withHints = state.events.count { it.hints.isNotEmpty() },
+        matched = state.events.sumOf { it.photoIds.size },
+    )
+
+    /** 筛选 + 搜索。搜索覆盖地点、描述、事件类型（这三个是用户记得住的信息）。 */
+    fun filter(state: AppState, filter: ReviewFilter, query: String): List<EventSnapshot> {
+        val q = query.trim()
+        return state.events.filter { e ->
+            val byFilter = when (filter) {
+                ReviewFilter.ALL -> true
+                ReviewFilter.NEEDS_REVIEW -> needsReview(e)
+                ReviewFilter.NO_PHOTO -> e.photoIds.isEmpty()
+                ReviewFilter.PENDING -> e.isPending
+                // 未匹配照片不属于任何事件；选中这一档时事件列表应清空（照片区显示未匹配池）
+                ReviewFilter.UNMATCHED -> false
+            }
+            byFilter && (q.isEmpty() || matches(e, q))
+        }
+    }
+
+    private fun matches(e: EventSnapshot, q: String): Boolean =
+        e.location.contains(q, ignoreCase = true) ||
+            e.description.contains(q, ignoreCase = true) ||
+            e.eventType.contains(q, ignoreCase = true)
+
+    /** 当前照片区该显示的照片（按 EventSnapshot.photoIds 的顺序 = 核心给的顺序）。 */
+    fun photosOf(state: AppState, selection: Selection, byId: Map<Long, PhotoInfo>): List<PhotoInfo> =
+        when (selection) {
+            is Selection.Event -> {
+                val ids = state.eventPhotoIds[selection.id] ?: emptyList()
+                ids.mapNotNull { byId[it] }
+            }
+
+            Selection.Unmatched -> state.unmatchedPhotoIds.mapNotNull { byId[it] }
+            Selection.None -> emptyList()
+        }
+
+    fun byId(state: AppState): Map<Long, PhotoInfo> = state.photos.associateBy { it.id }
+
+    /** 导出前的阻断项（顺序即修复顺序）。空列表 = 可以导出。 */
+    fun exportBlockers(state: AppState): List<String> = buildList {
+        if (state.events.isEmpty()) add("还没有解析出任何事件，先导入巡查日志")
+        if (state.settings.outputDir == null) add("还没有选择导出目录")
+        if (state.status != com.photomgm.desktop.core.api.CoreStatus.READY) add("当前状态不可导出（${state.status}）")
+    }
+}

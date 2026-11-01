@@ -1,94 +1,121 @@
-// desktop/ui/dev/DemoFixture.kt —— U1 的"真实 AppState 渲染数据源"（仅 --demo 时启用）
+// ui/dev/DemoFixture.kt —— --demo：造一套真实素材，走真实流水线
 //
-// 为什么需要它：U1 的验收是「骨架能吃真实 AppState」，但开发机上没有内业照片库。
-// 如果只跑空状态，日志只能证明 `status=IDLE photos=0`，"能渲染"这件事等于没被验证。
-//
-// 做法：造一个**临时目录 + 真实 JPEG + 真实巡查日志文本**，走核心的 analyze() 流水线，
-// 让 AppState 由真实的分类逻辑产出。不是 mock，不是硬编码的快照。
-//
-// ★ 两个刻意的设计：
-//   1. 数据目录独立（%APPDATA%\PhotoMgm-demo）：绝不污染用户的 settings.json。
-//   2. 生成的 JPEG **不带 EXIF GPS**：这恰好是内业现场最常见的情况（水印相机抹掉 GPS）。
-//      所以事件来自日志、照片全进未匹配池 —— 正好把 U3 最难的两块（事件卡空照片、
-//      未匹配池满）压出来。带 GPS 的照片要等 U3 用真实数据走查。
+// ★ 目的只有一个：让"界面在真实 AppState 下长什么样"这件事可复现、可截图、可对比。
+//   所以它不打桩 AppState，而是造出真实的照片文件（带 EXIF 时间与 GPS）与真实日志文本，
+//   调 core.updateSettings / setLogText / analyze()，等状态真的变成 READY。
+//   如果哪天界面只在假数据上正常、真实数据上塌了，用 --demo 就能立刻看见。
 package com.photomgm.desktop.ui.dev
 
+import algorithm.AppZone
 import com.photomgm.desktop.core.api.CoreStatus
 import com.photomgm.desktop.core.api.PhotoMgmCore
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import java.awt.Color
-import java.awt.GradientPaint
-import java.awt.RenderingHints
-import java.awt.image.BufferedImage
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import javax.imageio.ImageIO
 
 object DemoFixture {
 
-    private val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
+    /** 返回 true 表示演示数据已就绪（分析完成）。 */
+    fun install(core: PhotoMgmCore, dataDir: Path): Boolean {
+        val day = LocalDate.now(AppZone.ID)
+        val root = dataDir.resolve("demo")
+        val srcA = root.resolve("src-a")
+        val srcB = root.resolve("src-b")
+        val out = root.resolve("导出")
+        Files.createDirectories(srcA)
+        Files.createDirectories(srcB)
+        Files.createDirectories(out)
 
-    /** 8 张照片的拍摄时刻（时, 分），与日志时间一一对应。 */
-    private val SHOTS = listOf(8 to 32, 8 to 41, 9 to 12, 9 to 15, 9 to 40, 10 to 2, 10 to 20, 10 to 55)
+        val stamp = day.format(DateTimeFormatter.BASIC_ISO_DATE)          // 20261101
+        val exifDay = day.format(DateTimeFormatter.ofPattern("yyyy:MM:dd"))
 
-    private val LOG_TEXT = """
-        上午8时30分 与早班巡查人员张某某、李某某在A收费管理中心进行交接班，检查巡查装备齐全完好，车况正常，开启粤E00001车载视频监控，视频清晰，已报监控中心。记录人：王某某。
-        8时30分 到达上行K138+700M处，检查交安设施，发现护栏损坏，已拍照取证。
-        8时45分 巡查至B收费站，检查收费站设施，收费车道设备运行正常，未发现异常。
-        9时10分 在B收费站往北行方向，发现路面有抛洒物，已清理，拍照取证。
-        9时30分 巡查至E互通，检查匝道情况正常。
-        9时40分 巡查至下行K140+200M处，发现桥梁伸缩缝有轻微裂缝，未影响通行，记录在案。
-        10时00分 接报K145+000M处发生两车追尾事故，立即前往，10时15分到达现场，事故涉及粤A11111和粤B22222，造成路产损坏，已拍照取证，交警到场处理。
-    """.trimIndent()
+        // 每条事件配 1~2 张照片；GPS 沿桩号递增（同一路段，聚类才成立）。
+        // K138+700 / K139+100 / K140+200 / K142+300 / K146+500 / 事故点 K145+000
+        val shots = listOf(
+            Shot("08:31:12", 30.2500, 120.5000, Color(90, 110, 130), srcA),
+            Shot("08:32:05", 30.2502, 120.5006, Color(80, 120, 140), srcA),
+            Shot("08:43:20", 30.2530, 120.5060, Color(120, 110, 95), srcA),
+            Shot("08:56:40", 30.2620, 120.5180, Color(110, 105, 120), srcA),
+            Shot("08:57:10", 30.2622, 120.5185, Color(100, 95, 110), srcA),
+            Shot("09:11:30", 30.2790, 120.5410, Color(95, 115, 105), srcA),
+            Shot("09:41:15", 30.3150, 120.5900, Color(115, 100, 90), srcA),
+            Shot("09:42:00", 30.3153, 120.5906, Color(105, 95, 85), srcA),
+            Shot("10:16:20", 30.3030, 120.5720, Color(130, 90, 85), srcB),
+            Shot("10:17:05", 30.3032, 120.5725, Color(125, 85, 80), srcB),
+            // 两张**没有 EXIF 时间**的照片：演示未匹配池。
+            // ★ 光让 GPS 偏远不会进未匹配池——分类器有"终点兜底"，时间晚于末条记录就归末条。
+            //   真正会留在池里的是"读不到拍摄时间"的照片（换机、被压缩过、导出时丢了 EXIF），
+            //   这也是现场最常见的一类。
+            Shot("08:35:00", 30.2500, 120.5000, Color(70, 70, 70), srcB, noExif = true),
+            Shot("08:36:00", 30.2501, 120.5002, Color(65, 65, 65), srcB, noExif = true),
+        )
 
-    /** 造数据并跑完整分析流水线；返回临时源目录（调用方可删除）。 */
-    fun prepare(core: PhotoMgmCore): Path {
-        val root = Files.createTempDirectory("photomgm-demo-")
-        val day = core.state.value.settings.patrolDate
-        val stamp = day.format(STAMP)
-
-        SHOTS.forEachIndexed { i, (h, m) ->
-            val name = "IMG_${stamp}_%02d%02d%02d.jpg".format(h, m, i * 7 % 60)
-            writeJpeg(root.resolve(name), i)
+        shots.forEachIndexed { index, shot ->
+            val name = "IMG_${stamp}_${shot.time.replace(":", "")}.jpg"
+            val target = shot.dir.resolve(name)
+            if (!Files.exists(target)) {
+                if (shot.noExif) {
+                    ExifJpeg.writePlain(target, shot.color)
+                } else {
+                    ExifJpeg.write(
+                        path = target,
+                        exifDateTime = "$exifDay ${shot.time}",
+                        lat = shot.lat,
+                        lng = shot.lng,
+                        color = shot.color,
+                    )
+                }
+            }
+            // 一张派生副本（水印相机的 _original）：用来演示三态去重的"合并组"
+            if (index == 0) {
+                val derived = shot.dir.resolve("IMG_${stamp}_${shot.time.replace(":", "")}_original.jpg")
+                if (!Files.exists(derived)) Files.copy(target, derived)
+            }
         }
 
         core.updateSettings {
-            it.copy(sourceDirs = listOf(root.toString().replace('\\', '/')))
+            it.copy(
+                patrolDate = day,
+                sourceDirs = listOf(normalize(srcA), normalize(srcB)),
+                outputDir = normalize(out),
+                namingTemplate = 1,
+                window = null,
+            )
         }
-        core.setLogText(LOG_TEXT)
+        core.setLogText(LOG)
+
         core.analyze()
-
-        // 等流水线收敛，让窗口一打开就是 READY（而不是闪一下 ANALYZING）。
-        val done = runBlocking {
-            withTimeoutOrNull(30_000) {
-                core.state.first { it.status == CoreStatus.READY || it.status == CoreStatus.FAILED }
-            }
+        val deadline = System.currentTimeMillis() + 40_000
+        while (System.currentTimeMillis() < deadline) {
+            val s = core.state.value
+            if (s.status == CoreStatus.READY || s.status == CoreStatus.FAILED) return true
+            Thread.sleep(50)
         }
-        requireNotNull(done) { "演示数据分析超时" }
-        // 分析前那几次 updateSettings 会留一条「设置已更新，请重新分析」的提示；
-        // 分析已经跑完，这条提示就是过期信息，不清掉会让状态栏一直挂着黄字。
-        core.clearMessage()
-        return root
+        return false
     }
 
-    /** 造一张 640×480 的渐变 JPEG —— 内容无所谓，要的是"能被 ImageIO 解码的真实文件"。 */
-    private fun writeJpeg(file: Path, index: Int) {
-        val img = BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB)
-        val g = img.createGraphics()
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF)
-        val hue = (index * 37 % 360) / 360f
-        val top = Color.getHSBColor(hue, 0.18f, 0.86f)
-        val bottom = Color.getHSBColor(hue, 0.34f, 0.52f)
-        g.paint = GradientPaint(0f, 0f, top, 0f, 480f, bottom)
-        g.fillRect(0, 0, 640, 480)
-        g.color = Color(255, 255, 255, 200)
-        g.font = g.font.deriveFont(72f)
-        // 只画数字：不依赖中文字体，避免在缺字体的机器上画出方块。
-        g.drawString("%02d".format(index + 1), 40, 110)
-        g.dispose()
-        Files.newOutputStream(file).use { ImageIO.write(img, "jpg", it) }
-    }
+    private fun normalize(p: Path): String = p.toAbsolutePath().toString().replace('\\', '/')
+
+    private data class Shot(
+        val time: String,
+        val lat: Double,
+        val lng: Double,
+        val color: Color,
+        val dir: Path,
+        val noExif: Boolean = false,
+    )
+
+    /** 与现场格式一致的巡查日志：只有时分，日期由"巡查日期"补全。 */
+    private val LOG = """
+08时15分 出发，巡查人员张某某、李某某从A收费管理中心出发，往北行方向巡查。
+08时30分 到达上行K138+700M处，检查交安设施，发现护栏损坏，已拍照取证。
+08时42分 巡查至上行K139+100M处，发现路面有抛洒物，已清理，拍照取证。
+08时55分 巡查至下行K140+200M处桥梁，检查支座，发现伸缩缝轻微裂缝，已记录并拍照取证。
+09时10分 巡查至上行K142+300M处，进行高边坡巡查，发现边坡有少量落石，已拍照取证。
+09时25分 巡查至D服务区，检查服务区消防设施齐全，卫生状况良好。
+09时40分 巡查至上行K146+500M处，发现路面有坑槽，已记录并拍照取证。
+10时00分 接报K145+000M处发生两车追尾事故，立即前往，10时15分到达现场，事故涉及粤A11111和粤B22222，造成路产损坏，已拍照取证，交警到场处理。
+    """.trimIndent()
 }
