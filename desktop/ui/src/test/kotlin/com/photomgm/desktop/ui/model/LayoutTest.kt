@@ -9,6 +9,29 @@ import kotlin.test.assertTrue
 
 class LayoutTest {
 
+
+    @Test
+    fun `卡片高度由栅格推算`() {
+        // 14 + 30 + 8 + 80 = 146：卡片内边距 14、头部 30、头部与照片条间距 8、照片格 80
+        assertEquals(146, cardHeight(80))
+        assertEquals(138, cardHeight(72))
+        // 无照片的占位行固定 40，所以空卡片一定比同宽度的有照片卡片矮
+        assertEquals(106, emptyCardHeight())
+        assertTrue(emptyCardHeight() < cardHeight(72))
+    }
+
+    @Test
+    fun `卡片头部三列固定宽，最窄窗口下每列都放得下`() {
+        // 头部：序号 26 + 时间 96 + 标题(weight 1) + 标签 + 张数 56 + 箭头 16
+        assertEquals(26, CARD_INDEX_W)
+        assertEquals(96, CARD_TIME_W)
+        assertEquals(56, CARD_COUNT_W)
+        assertEquals(30, CARD_HEADER_H)
+        val usable = 640 - PAGE_PAD * 2 - CARD_PAD * 2
+        val fixed = CARD_INDEX_W + CARD_TIME_W + CARD_COUNT_W + 16 + CARD_PAD
+        assertTrue(fixed < usable * 2 / 3, "固定列 $fixed 应远小于可用宽 $usable，标题才有地方")
+    }
+
     @Test
     fun `照片格按宽度分四档`() {
         assertEquals(72, tileSize(700))

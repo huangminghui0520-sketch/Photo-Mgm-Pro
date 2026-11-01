@@ -111,11 +111,15 @@ v2.0 的"四阶段切换"也已删除。它把 **数据阶段**（输入/复核/
 | 日志条 | 未解析：72 dp 粘贴区 + 「开始分析」；**解析后自动收成一行摘要**（事件 N · 照片 M · 未匹配 K） |
 | 结果条 | 上次导出成功了吗（仅导出后出现，可收起） |
 | 工具条 | 看哪一批事件（全部/待确认/无照片/无时间/未匹配 + 搜索 + 去重口径） |
-| 事件卡片 | 一屏 3~5 张，一张卡 = 一个事件：标题行 + 照片行，点开进照片层 |
+| 事件卡片 | 一屏 3~5 张，一张卡 = 一个事件：标题行（序号 26 / 时间 96 / 标题 / 标签 / 张数 56）+ 照片行 |
 | 状态栏 | 口径与快捷键 |
 
 覆盖层（同一时刻最多一个）：**设置 / 某事件的照片 / 移动到某事件 / 重新分析确认**。
 除设置外，所有动作都在页面上；照片操作在弹窗里，因为"哪个事件"本身就是那块上下文。
+
+**为什么是卡片而不是表格**：照片是"一组、数量可变（0~5）"的字段，表格行高会被撑成锯齿；而复核的动作是
+"整体看这个事件对不对"，不是跨行比字段。所以卡片**内部按表格排**——序号/时间/张数三列固定宽（26/96/56）、
+头部行高 30、照片条与序号列同一左边缘；高度随内容变化（无照片时占位行 40 dp），不强行等高。
 
 **结构仍然是从 core 反推的**：`EventSnapshot.photoIds` 是事件字段 → 事件和它的照片必须是同一张卡片；
 core 没有 `EXPORTED` 状态 → 结果条靠 `state.lastExport.exportDir` 的边沿检测出现；
@@ -133,6 +137,9 @@ core 没有 `EXPORTED` 状态 → 结果条靠 `state.lastExport.exportDir` 的�
 | ≥ 880 | 80 dp | 9~10 格 | 内业机最小窗（900 - 14 = 886）走这一档 |
 | < 880 | 72 dp | 8 格 | |
 
+卡片栅格常量：`CARD_INDEX_W=26 / CARD_TIME_W=96 / CARD_COUNT_W=56 / CARD_HEADER_H=30 / EMPTY_STRIP_H=40`，
+`cardHeight(tile)` 与 `emptyCardHeight()` 一起盯住"列宽不变、高度随内容"（见 `model/Layout.kt`）。
+
 两条硬约束（已写成单测）：
 
 1. **卡片内照片条永不溢出卡片宽度** —— 7 dp 步长扫 640~3840 全部成立。
@@ -146,7 +153,7 @@ core 没有 `EXPORTED` 状态 → 结果条靠 `state.lastExport.exportDir` 的�
 ./gradlew :ui:run --args="--smoke"                                   # 渲染后自动退出
 ./gradlew :ui:run --args="--demo --smoke --size 900x540 --shot l.png"          # 事件列表（最小窗）
 ./gradlew :ui:run --args="--demo --smoke --sheet photos --shot p.png"           # 照片层
-./gradlew :ui:run --args="--demo --smoke --sheet settings --shot s.png"         # 设置层
+./gradlew :ui:run --args="--demo --smoke --sheet settings --shot s.png"         # 设置层（点日期展开日历）
 ./gradlew :ui:run --args="--sheet log"                                          # 强制展开日志条
 ```
 
@@ -248,7 +255,7 @@ cd desktop
 export JAVA_HOME="/c/Users/28988/.workbuddy/jdks/jdk-17.0.2"
 export PATH="$JAVA_HOME/bin:$PATH"
 
-./gradlew test              # 全部测试（原算法 316 + 桌面核心 43 + 界面 48 = 407 全绿）
+./gradlew test              # 全部测试（原算法 316 + 桌面核心 43 + 界面 60 = 419 全绿）
 ./gradlew :ui:run --args="--smoke"   # UI 冒烟
 ./gradlew :cli:installDist  # 可分发命令行到 cli/build/install/cli/
 ```

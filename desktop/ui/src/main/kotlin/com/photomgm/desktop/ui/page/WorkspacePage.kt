@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -44,6 +46,8 @@ import com.photomgm.desktop.ui.component.ButtonKind
 import com.photomgm.desktop.ui.component.EmptyBlock
 import com.photomgm.desktop.ui.component.EventCard
 import com.photomgm.desktop.ui.component.FilterChip
+import com.photomgm.desktop.ui.component.Hairline
+import com.photomgm.desktop.ui.component.InlineNotice
 import com.photomgm.desktop.ui.component.PmButton
 import com.photomgm.desktop.ui.component.PmTextField
 import com.photomgm.desktop.ui.component.Segmented
@@ -105,7 +109,7 @@ fun WorkspacePage(
                 contentPadding = PaddingValues(
                     start = PAGE_PAD.dp,
                     end = PAGE_PAD.dp,
-                    top = PmSpace.m,
+                    top = PmSpace.l,
                     bottom = PmSpace.xl,
                 ),
                 verticalArrangement = Arrangement.spacedBy(PmSpace.m),
@@ -167,54 +171,58 @@ private fun Toolbar(
     if (state.events.isEmpty() && state.unmatchedPhotoIds.isEmpty()) return
     var draft by remember(ui.query) { mutableStateOf(ui.query) }
 
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(PmColor.surface)
-            .padding(horizontal = PmSpace.xl, vertical = PmSpace.m),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ReviewFilter.entries.forEach { f ->
-            FilterChip(
-                label = f.label,
-                count = countOf(f, stats),
-                selected = ui.filter == f,
-                onClick = { onUi(ui.copy(filter = f)) },
-                tone = if (f == ReviewFilter.ALL) Tone.NEUTRAL else Tone.WARN,
-            )
-            Spacer(Modifier.width(PmSpace.xs))
-        }
-
-        Spacer(Modifier.weight(1f))
-
-        PmTextField(
-            value = draft,
-            onValueChange = {
-                draft = it
-                onUi(ui.copy(query = it))
-            },
-            modifier = Modifier.width(180.dp),
-            placeholder = "搜索地点 / 描述",
-        )
-        Spacer(Modifier.width(PmSpace.m))
-        // ★ 去重模式是**视图参数**（core 同步重算，不重新扫描），所以放在工具条上、不进设置。
-        Segmented(
-            options = listOf("全部保留" to "", "仅水印" to "", "仅原图" to ""),
-            selectedIndex = when (state.dedupMode) {
-                DedupKeepMode.KEEP_BOTH -> 0
-                DedupKeepMode.KEEP_WATERMARKED -> 1
-                DedupKeepMode.KEEP_PLAIN -> 2
-            },
-            onSelect = { index ->
-                actions.setDedupMode(
-                    when (index) {
-                        0 -> DedupKeepMode.KEEP_BOTH
-                        1 -> DedupKeepMode.KEEP_WATERMARKED
-                        else -> DedupKeepMode.KEEP_PLAIN
-                    },
+    Column(Modifier.fillMaxWidth().background(PmColor.surface)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = PmSpace.xl, vertical = PmSpace.m),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReviewFilter.entries.forEach { f ->
+                FilterChip(
+                    label = f.label,
+                    count = countOf(f, stats),
+                    selected = ui.filter == f,
+                    onClick = { onUi(ui.copy(filter = f)) },
+                    tone = if (f == ReviewFilter.ALL) Tone.NEUTRAL else Tone.WARN,
                 )
-            },
-        )
+                Spacer(Modifier.width(PmSpace.xs))
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            PmTextField(
+                value = draft,
+                onValueChange = {
+                    draft = it
+                    onUi(ui.copy(query = it))
+                },
+                modifier = Modifier.width(180.dp),
+                placeholder = "搜索地点 / 描述",
+            )
+            Spacer(Modifier.width(PmSpace.m))
+            // ★ 去重模式是**视图参数**（core 同步重算，不重新扫描），所以放在工具条上、不进设置。
+            Segmented(
+                options = listOf("全部保留" to "", "仅水印" to "", "仅原图" to ""),
+                selectedIndex = when (state.dedupMode) {
+                    DedupKeepMode.KEEP_BOTH -> 0
+                    DedupKeepMode.KEEP_WATERMARKED -> 1
+                    DedupKeepMode.KEEP_PLAIN -> 2
+                },
+                onSelect = { index ->
+                    actions.setDedupMode(
+                        when (index) {
+                            0 -> DedupKeepMode.KEEP_BOTH
+                            1 -> DedupKeepMode.KEEP_WATERMARKED
+                            else -> DedupKeepMode.KEEP_PLAIN
+                        },
+                    )
+                },
+            )
+        }
+        // 工具条与列表之间的这条线不是装饰：没有它，白色工具条和浅灰列表之间只靠背景差一档区分，
+        // 125% 缩放的笔记本屏上几乎看不出来，"我在看的是筛选结果"这层关系就丢了。
+        Hairline()
     }
 }
 
@@ -232,23 +240,26 @@ private fun EmptyState(state: AppState) {
     Column(
         Modifier.fillMaxSize().padding(PAGE_PAD.dp),
         verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        EmptyBlock(
-            icon = Icons.Filled.Description,
-            title = if (hasInput) "还没有开始分析" else "解析后，事件会一条条排在下面",
-            body = if (hasInput) {
-                "日志已就绪：点上方「开始分析」，会依次解析日志 → 扫描源目录 → 读 EXIF → 按 GPS 与时间分组。"
-            } else {
-                "日志里的「时间 + 桩号 + 病害」会被拆成事件，每个事件配一张卡片，卡片里是它对应的照片。点卡片可以放大看、整理照片。"
-            },
-        )
-        if (state.settings.sourceDirs.isEmpty()) {
-            Text(
-                "提示：还没选源目录，分析只能解析日志、匹配不到照片。源目录在右上角「设置」里加。",
-                style = PmType.caption,
-                color = PmColor.ink3,
-                modifier = Modifier.fillMaxWidth(),
+        // 空状态限宽 520：通栏一段说明文字在大屏上会拉到 1400 dp 宽，眼睛要来回扫。
+        Column(Modifier.widthIn(max = 520.dp)) {
+            EmptyBlock(
+                icon = Icons.Filled.Description,
+                title = if (hasInput) "还没有开始分析" else "解析后，事件会一条条排在下面",
+                body = if (hasInput) {
+                    "日志已就绪：点上方「开始分析」，会依次解析日志 → 扫描源目录 → 读 EXIF → 按 GPS 与时间分组。"
+                } else {
+                    "日志里的「时间 + 桩号 + 病害」会被拆成事件，每个事件配一张卡片，卡片里是它对应的照片。点卡片可以放大看、整理照片。"
+                },
             )
+            if (state.settings.sourceDirs.isEmpty()) {
+                Spacer(Modifier.height(PmSpace.m))
+                InlineNotice(
+                    tone = Tone.WARN,
+                    text = "还没选源目录：分析只能解析日志，匹配不到照片。源目录在右上角「设置」里加。",
+                )
+            }
         }
     }
 }

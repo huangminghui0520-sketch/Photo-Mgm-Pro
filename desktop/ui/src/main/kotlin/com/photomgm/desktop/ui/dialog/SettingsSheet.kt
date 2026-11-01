@@ -90,7 +90,14 @@ fun SettingsSheet(
             ) {
                 Field(
                     label = "巡查日期",
-                    hint = "只扫文件名包含这天的照片；日志里只有月日时，按这天的年份补全。",
+                    hint = "点日期展开日历；只扫文件名包含这天的照片，日志里只有月日时按这天的年份补全。",
+                    trailing = {
+                        Text(
+                            "改完需要重新分析",
+                            style = PmType.caption,
+                            color = PmColor.ink3,
+                        )
+                    },
                 ) {
                     PmDateField(state.settings.patrolDate, actions.setPatrolDate)
                 }
