@@ -4,13 +4,15 @@
 //     顶栏   —— 这是什么工具、现在能不能导出？（品牌 + 状态 + 导出 + 设置）
 //     消息   —— 出什么事了？（错误必须由人确认才消失，不自动隐藏）
 //     页面   —— 唯一的页面：巡查日期 + 日志条 + 事件卡片列表（见 ui/page/WorkspacePage）
-//     状态栏 —— 数据是什么口径？（永不遮挡内容）
+//     状态栏 —— 数据是什么口径？有哪些快捷键？（永不遮挡内容）
 //
-// ★ 这一版把**全部键盘操作**删掉了（用户明确要求）：没有 F5 / Ctrl+O / Ctrl+E / Ctrl+, / Esc，
-//   也没有任何 Modifier.focusable / onPreviewKeyEvent。所有动作都有点得到的入口：
-//   分析在日志条旁、导入 .txt 在输入框右上、导出/设置在顶栏、关闭在弹窗右上角。
-//   代价是屏幕上必须写明入口（状态栏右下就是"点哪里"，不是"按哪个键"），
-//   收益是没有"按键被输入框吞掉"这类排查不完的问题 —— 内业机多数时候没人碰键盘。
+// ★ 快捷键在这里一次性收口（onPreviewKeyEvent）：F5 分析、Ctrl+O 导入日志、Ctrl+E 导出、
+//   Ctrl+, 设置、Esc 关闭覆盖层 / 清空选择。键盘只是**加速**，不是唯一入口 ——
+//   分析在日志条旁、导入 .txt 在输入框右上、导出/设置在顶栏、关闭在弹窗右上角，全都点得到，
+//   所以状态栏右下角仍然写按键表，而不是"点哪里"。
+// ★ 唯一不吃键盘的是日历（见 ui/component/DateField.kt）：它有意不接方向键/回车/Tab
+//   这类"在日期网格里移动"的操作，选日期一律用鼠标点格子。日期在这里被当成一个
+//   一次性的选择器，不是需要连续编辑的表格 —— 多一套网格键盘导航，收益远小于走查成本。
 //
 // ★ 上一版有"步骤栏 + 四个互斥页面"，这一版把步骤栏整个删掉：
 //   单页结构里没有"第几步"，只有"在不在看某个事件"——那件事由弹窗表达。
@@ -18,6 +20,7 @@ package com.photomgm.desktop.ui.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -36,9 +39,18 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,10 +87,45 @@ fun AppShell(
     onUi: (UiState) -> Unit,
     actions: Actions,
 ) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(PmColor.canvas),
+            .background(PmColor.canvas)
+            .focusRequester(focus)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when {
+                    event.key == Key.F5 -> {
+                        if (state.events.isNotEmpty()) onUi(ui.copy(sheet = Sheet.ConfirmReanalyze)) else actions.analyze()
+                        true
+                    }
+
+                    event.isCtrlPressed && event.key == Key.O -> {
+                        actions.importLogFile(); true
+                    }
+
+                    event.isCtrlPressed && event.key == Key.E -> {
+                        if (state.canExport) actions.export(); true
+                    }
+
+                    event.isCtrlPressed && event.key == Key.Comma -> {
+                        onUi(ui.copy(sheet = Sheet.Settings)); true
+                    }
+
+                    event.key == Key.Escape -> {
+                        // Esc 只做一件事：关掉当前覆盖层/选择。不退出、不改数据。
+                        if (ui.sheet != null) onUi(ui.copy(sheet = null))
+                        else onUi(ui.copy(selectedPhotoIds = emptySet()))
+                        true
+                    }
+
+                    else -> false
+                }
+            },
     ) {
         val width = maxWidth.value.toInt()
         val height = maxHeight.value.toInt()
@@ -285,8 +332,7 @@ private fun StatusBar(state: AppState, ui: UiState, onUi: (UiState) -> Unit) {
             )
         }
         Text(
-            // 没有快捷键可提示了，所以这里写"点哪里"：新加的搜索/复制如果没人知道，就等于没做。
-            "点事件卡片看照片 · 弹窗里可搜索 / 复制到其他事件",
+            "F5 分析 · Ctrl+O 导入日志 · Ctrl+E 导出 · Ctrl+, 设置 · Esc 关闭",
             style = PmType.caption,
             color = PmColor.ink3,
             maxLines = 1,

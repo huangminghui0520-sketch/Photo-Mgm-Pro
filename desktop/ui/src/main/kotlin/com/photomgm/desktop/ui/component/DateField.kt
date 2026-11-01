@@ -11,11 +11,20 @@
 //   展开时把下面的日志/列表往下推。做成浮层就要处理 z 序、点外部关闭、贴着窗口下沿时的翻转，
 //   而"往下推"在桌面端本来就是可预测的行为，也不需要额外状态
 //   （open 是组件本地状态，不污染 UiState —— 它是一次瞬时展开，不是业务状态）。
+//
+// ★ 这个组件**有意不参与键盘**（用户明确要求，是全项目唯一的例外）：
+//   · 日期格子与日期字段都走 `pmPress`（pointerInput），不是 `clickable`：
+//     没有 focus 节点，于是 Tab 进不来、Enter/Space 不会选中日期、方向键也不会在
+//     网格里移动 —— 选日期只有一条路：用鼠标点格子。
+//   · 理由：网格键盘导航要自己维护"光标在哪格、跨月怎么翻、回车与空格语义"，
+//     而日期是一次性选择，不值得为它多养一套走查不了的交互。
+//   · 面板里的"翻月 / 今天 / 关闭"是普通按钮（和别处同一个 PmButton），不在此列：
+//     它们不是"在日历里选日期"，就是普通按钮。
 package com.photomgm.desktop.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
@@ -120,7 +129,9 @@ private fun DateButton(date: LocalDate, open: Boolean, onClick: () -> Unit) {
             .background(PmColor.surface)
             .border(1.dp, if (open || hovered) PmColor.accent.copy(alpha = 0.55f) else PmColor.lineStrong, shape)
             .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .hoverable(interaction)
+            // 不用 clickable：它会带来 focus 节点，于是 Tab / Enter / Space 也能开合日历。
+            .pmPress { onClick() }
             .padding(horizontal = PmSpace.m),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -246,7 +257,9 @@ private fun DayCellView(cell: DayCell, selected: Boolean, today: Boolean, onClic
                 if (today && !selected) Modifier.border(1.dp, PmColor.accent.copy(alpha = 0.5f), shape) else Modifier,
             )
             .pointerHoverIcon(PointerIcon.Hand)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .hoverable(interaction)
+            // 同上：格子不吃键盘。日历里没有"当前格"这个概念，也就不存在方向键移动。
+            .pmPress { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(

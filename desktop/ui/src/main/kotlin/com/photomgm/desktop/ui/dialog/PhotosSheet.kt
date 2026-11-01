@@ -197,7 +197,22 @@ fun PhotosSheet(
                     photos.isNotEmpty() -> "没有匹配「${ui.photoQuery.trim()}」的照片"
                     else -> "没有照片"
                 },
-                onActivate = { photo -> onUi(ui.copy(activePhotoId = photo.id)) },
+                // ★ 点图有两种结果，靠 Ctrl 区分（键鼠都在时按键盘习惯走）：
+                //   Ctrl+点 = 切换这张的勾选（保留已勾的），普通点 = 只看这张、且只勾这张。
+                //   不按 Ctrl 时清掉其它勾选，是为了避免"看着 A、操作着一堆之前勾的"这种错觉。
+                //   完全不用键盘也能选多张：点右上角方格逐张勾（见 Strip 的 onToggle）。
+                onActivate = { photo, additive ->
+                    val next = if (additive) {
+                        if (ui.selectedPhotoIds.contains(photo.id)) {
+                            ui.selectedPhotoIds - photo.id
+                        } else {
+                            ui.selectedPhotoIds + photo.id
+                        }
+                    } else {
+                        setOf(photo.id)
+                    }
+                    onUi(ui.copy(activePhotoId = photo.id, selectedPhotoIds = next))
+                },
                 onToggle = { photo ->
                     val next = if (ui.selectedPhotoIds.contains(photo.id)) {
                         ui.selectedPhotoIds - photo.id
@@ -495,10 +510,11 @@ private fun SlotRow(slot: Int, photo: PhotoInfo?, active: PhotoInfo?, onMark: (I
 /**
  * 缩略条。
  *
- * ★ 一次点击只做一件事：
- *   · 点图 → 切换大图（看）；
- *   · 点右上角方格 → 加入/移出待操作（选）。
- *   移除键盘多选之后必须给"选"一个独立的、看得见的落点，否则"移到其他事件"只能一张一张来。
+ * ★ "选"有两个落点，任选一个都能完成多选：
+ *   · Ctrl+点图 —— 键鼠习惯，来回切换这张的勾选；
+ *   · 点右上角方格 —— 不用键盘也能逐张勾，方格是看得见的状态指示。
+ *   只有一个落点是不够的：只留 Ctrl 的话，不知道快捷键的人选不了第二张；
+ *   只留方格的话，习惯 Ctrl 的人会以为多选坏了。
  */
 @Composable
 private fun Strip(
@@ -509,7 +525,7 @@ private fun Strip(
     tile: Int,
     height: Int,
     emptyText: String,
-    onActivate: (PhotoInfo) -> Unit,
+    onActivate: (PhotoInfo, additive: Boolean) -> Unit,
     onToggle: (PhotoInfo) -> Unit,
 ) {
     if (photos.isEmpty()) {
@@ -543,7 +559,7 @@ private fun Strip(
                         shape = RoundedCornerShape(PmRadius.control),
                     )
                     .pointerHoverIcon(PointerIcon.Hand)
-                    .pmPress { onActivate(photo) },
+                    .pmPress { additive -> onActivate(photo, additive) },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -626,12 +642,14 @@ private fun ActionBar(
     ) {
         Text(
             when {
-                ui.selectedPhotoIds.isNotEmpty() -> "已勾选 ${ui.selectedPhotoIds.size} 张"
-                photoCount > 0 -> "$photoCount 张 · 没勾选就操作当前这张"
+                // 只有真多选（≥2）时"已勾选 N 张"才有信息量：单张时它就是"当前这张"，
+                // 而普通点击本来就会重置成一张，那句话会一直挂着当噪音。
+                ui.selectedPhotoIds.size > 1 -> "已勾选 ${ui.selectedPhotoIds.size} 张"
+                photoCount > 0 -> "$photoCount 张 · 点图切换 · Ctrl+点 加选"
                 else -> "无照片"
             },
             style = PmType.caption,
-            color = if (ui.selectedPhotoIds.isNotEmpty()) PmColor.accent else PmColor.ink3,
+            color = if (ui.selectedPhotoIds.size > 1) PmColor.accent else PmColor.ink3,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
