@@ -29,8 +29,11 @@ class Actions(
     val export: () -> Unit = {},
     val cancelExport: () -> Unit = {},
     // ── 照片操作 ──────────────────────────────────────────────────────────
-    val movePhotosTo: (photoIds: List<Long>, eventId: Int?) -> Unit = { _, _ -> },
-    val copyPhotosTo: (photoIds: List<Long>, eventId: Int) -> Unit = { _, _ -> },
+    // ★ 两个都返回"真正生效的张数"：core 在导出中、目标就是它现在的家、照片已不在结果里时
+    //   都不会真的改动数据。界面要靠这个数字决定"说成功了"还是"解释为什么没生效"，
+    //   一律报成功等于在系统拒绝执行时装作成功。
+    val movePhotosTo: (photoIds: List<Long>, eventId: Int?) -> Int = { _, _ -> 0 },
+    val copyPhotosTo: (photoIds: List<Long>, eventId: Int) -> Int = { _, _ -> 0 },
     val markLedgerPhoto: (eventId: Int, slot: Int, photoId: Long?) -> Unit = { _, _, _ -> },
     val resetAdjustments: () -> Unit = {},
     val setDedupMode: (DedupKeepMode) -> Unit = {},

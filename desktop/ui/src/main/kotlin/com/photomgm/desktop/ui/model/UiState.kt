@@ -125,8 +125,15 @@ data class UiState(
      *   新错误会被一并吞掉——那是最糟的一种静默失败。
      */
     val dismissedError: String? = null,
-    /** 界面侧自己产生的提示（文件读不了、路径打不开）。 */
-    val localMessage: String? = null,
+    /**
+     * 界面侧自己产生的一次性提示：文件读不了、路径打不开，**以及某个动作的结果**。
+     *
+     * ★ 为什么替换掉原来的 `localMessage: String?` 而改成 [LocalNotice]：
+     *   加了"移动 / 复制"之后，同一个地方要显示三种截然不同的结果 —— 成了、没生效、出错。
+     *   全用同一张灰条的话，用户只能靠读字判断这次点成功了没；而"成了/没生效/出错"
+     *   是必须一眼分开的三件事，所以语气（OK/WARN/DANGER）属于数据，不该由界面猜。
+     */
+    val notice: LocalNotice? = null,
 )
 
 /**
@@ -179,6 +186,13 @@ fun reduce(ui: UiState, state: AppState): UiState {
     }
     if (next.sheet !is Sheet.Assign && next.moveQuery.isNotEmpty()) {
         next = next.copy(moveQuery = "")
+    }
+
+    // ⑦ 提示只负责"刚做完的那个动作"：一旦打开新的弹窗，人已经转向下一件事，
+    //    留着上一件事的结果会让人误读（比如"已复制 1 张"挂在分配弹窗上方，
+    //    看着像这次也会复制）。反过来不成立 —— 关掉弹窗后结果仍要看得见。
+    if (ui.sheet == null && next.sheet != null && next.notice != null) {
+        next = next.copy(notice = null)
     }
 
     return next

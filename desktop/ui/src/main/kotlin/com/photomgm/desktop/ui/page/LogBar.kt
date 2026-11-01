@@ -56,6 +56,8 @@ import com.photomgm.desktop.ui.component.PmTextArea
 import com.photomgm.desktop.ui.component.Tag
 import com.photomgm.desktop.ui.component.Tone
 import com.photomgm.desktop.ui.format.dateText
+import com.photomgm.desktop.ui.model.LocalNotice
+import com.photomgm.desktop.ui.model.NoticeTone
 import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.theme.PmColor
@@ -123,8 +125,11 @@ private fun DateSection(
                 if (state.events.isNotEmpty()) {
                     onUi(
                         ui.copy(
-                            localMessage = "巡查日期已改为 ${dateText(picked)}：" +
-                                "点「重新分析」按新日期重扫照片，已有的事件与人工调整会重算。",
+                            notice = LocalNotice(
+                                "巡查日期已改为 ${dateText(picked)}：" +
+                                    "点「重新分析」按新日期重扫照片，已有的事件与人工调整会重算。",
+                                NoticeTone.WARN,
+                            ),
                         ),
                     )
                 }

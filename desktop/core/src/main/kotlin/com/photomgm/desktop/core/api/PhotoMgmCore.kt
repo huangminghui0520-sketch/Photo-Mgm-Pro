@@ -143,8 +143,13 @@ interface PhotoMgmCore : AutoCloseable {
      *
      * ★ 移动会**清掉这几张照片的复制关系**（见 [copyPhotos]）：移动表达的是"它归那边"，
      *   如果同时保留旧的复制份，用户会看到"明明移走了却还在原来那条里"。
+     *
+     * 返回**真正改变了归属的张数**：目标已经是它的归属时会返回 0（重复移动不产生变化）。
+     * ★ 为什么要有返回值：导出中、分析结果被替换、目标就是它现在的家，这几种情况下
+     *   移动其实什么都没做。若界面一律说"已移动"，等于在系统拒绝执行时装作成功 ——
+     *   那比直接报错更糟，因为它会让人以为数据改了。
      */
-    fun movePhotos(photoIds: List<Long>, targetEventId: Int?)
+    fun movePhotos(photoIds: List<Long>, targetEventId: Int?): Int
 
     /**
      * 把照片**复制**到另一个事件：目标事件多一份，原事件保持不变。

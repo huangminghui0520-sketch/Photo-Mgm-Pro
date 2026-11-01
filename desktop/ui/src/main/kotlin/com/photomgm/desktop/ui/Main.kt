@@ -42,6 +42,8 @@ import com.photomgm.desktop.ui.app.UiLog
 import com.photomgm.desktop.ui.app.WindowGeometry
 import com.photomgm.desktop.ui.dev.DemoFixture
 import com.photomgm.desktop.ui.model.AssignMode
+import com.photomgm.desktop.ui.model.LocalNotice
+import com.photomgm.desktop.ui.model.NoticeTone
 import com.photomgm.desktop.ui.model.Busy
 import com.photomgm.desktop.ui.model.Selection
 import com.photomgm.desktop.ui.model.Sheet
@@ -204,7 +206,7 @@ private fun rememberActions(
             }
         },
         revealPath = { path ->
-            if (!ShellActions.reveal(path)) setUi(ui().copy(localMessage = "打不开该路径：$path"))
+            if (!ShellActions.reveal(path)) setUi(ui().copy(notice = LocalNotice("打不开该路径：$path", NoticeTone.DANGER)))
         },
         importLogFile = {
             val file = NativeDialogs.pickLogFile()
@@ -214,7 +216,7 @@ private fun rememberActions(
                         core.setLogText(text)
                         setUi(ui().copy(logRevision = ui().logRevision + 1))
                     }
-                    .onFailure { setUi(ui().copy(localMessage = "导入失败：${it.message}")) }
+                    .onFailure { setUi(ui().copy(notice = LocalNotice("导入失败：${it.message}", NoticeTone.DANGER))) }
             }
         },
         setLogText = { core.setLogText(it) },
@@ -226,7 +228,7 @@ private fun rememberActions(
         export = {
             val out = core.state.value.settings.outputDir
             if (out == null) {
-                setUi(ui().copy(localMessage = "还没有选择导出目录"))
+                setUi(ui().copy(notice = LocalNotice("还没有选择导出目录", NoticeTone.WARN)))
             } else {
                 val request = ExportRequest(
                     outputDir = Paths.get(out),

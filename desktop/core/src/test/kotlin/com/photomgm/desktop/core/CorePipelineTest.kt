@@ -163,6 +163,19 @@ class CorePipelineTest {
     }
 
     @Test
+    fun `移动的返回值是真正改了归属的张数`() {
+        readyCore().use { core ->
+            val photoId = core.state.value.events.first { it.id == 2 }.photoIds.first()
+
+            assertEquals(1, core.movePhotos(listOf(photoId), 3), "第一次移动：1 张真的换了归属")
+            assertEquals(0, core.movePhotos(listOf(photoId), 3), "已经在事件 3：重复移动不该算变化")
+            assertEquals(1, core.movePhotos(listOf(photoId), null), "移进未匹配池：算一次变化")
+            assertEquals(0, core.movePhotos(listOf(photoId), null), "已经在那儿了：不再算变化")
+            assertEquals(0, core.movePhotos(listOf(999_999L), 1), "照片不存在：不算变化")
+        }
+    }
+
+    @Test
     fun `复制照片到另一个事件`() {
         readyCore().use { core ->
             val photoId = core.state.value.events.first { it.id == 2 }.photoIds.first()

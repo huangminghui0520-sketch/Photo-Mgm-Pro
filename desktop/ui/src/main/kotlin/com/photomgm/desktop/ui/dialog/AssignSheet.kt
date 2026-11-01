@@ -50,11 +50,18 @@ import com.photomgm.desktop.ui.component.Tag
 import com.photomgm.desktop.ui.component.Tone
 import com.photomgm.desktop.ui.format.timeRange
 import com.photomgm.desktop.ui.model.AssignMode
+import com.photomgm.desktop.ui.model.LocalNotice
+import com.photomgm.desktop.ui.model.NoticeTone
 import com.photomgm.desktop.ui.model.Selection
 import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
+import com.photomgm.desktop.ui.model.assignFailureNotice
+import com.photomgm.desktop.ui.model.assignSuccessNotice
+import com.photomgm.desktop.ui.model.assignSuccessText
+import com.photomgm.desktop.ui.model.copyPartialText
 import com.photomgm.desktop.ui.model.dialogHeight
 import com.photomgm.desktop.ui.model.dialogWidth
+import com.photomgm.desktop.ui.model.rejectReason
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius
 import com.photomgm.desktop.ui.theme.PmSpace
@@ -93,10 +100,66 @@ fun AssignSheet(
     //   而且没有滚动条可抓（LazyColumn 的滚动只在鼠标悬停时生效）。永远取可用高度的 min。
     val height = minOf(520, dialogHeight(windowHeight))
 
+    fun targetLabel(eventId: Int?): String {
+        if (eventId == null) return "未匹配照片池"
+        val e = state.events.firstOrNull { it.id == eventId } ?: return "失效的事件"
+        val index = state.events.indexOfFirst { it.id == eventId } + 1
+        return "事件 %02d · ${timeRange(e.startTimeMs, e.endTimeMs)} ${e.location}"
+    }
+
+    /**
+     * 真正执行。三步：先问"能不能做"，再做，最后按**回来的数字**决定说什么。
+     *
+     * ★ 为什么要在动手之前校验一遍（core 自己也会跳过不合法的照片）：
+     *   core 只会"静默跳过"，界面若跟着沉默，用户看到的就是"点了没反应"。
+     *   校验拿到的理由才是能念给用户听的那句话（"目标事件已经有这 1 张了"）。
+     *
+     * ★ 成功后为什么清掉 core 的 message：移动 N 张照片这件事 core 会带一句
+     *   "已移动 1 张照片"，而这里还要说"已把 1 张照片移到 事件 03 · …"。两句同现，
+     *   同一件事说两遍，反而让人不确定到底发生了几件事。目标信息在这里写，core 那条就撤掉。
+     */
     fun assignTo(eventId: Int?) {
-        if (copy && eventId != null) actions.copyPhotosTo(sheet.photoIds, eventId)
-        else actions.movePhotosTo(sheet.photoIds, eventId)
-        onUi(ui.copy(sheet = null, selectedPhotoIds = emptySet()))
+        val ids = sheet.photoIds
+        val label = targetLabel(eventId)
+
+        val reject = rejectReason(state, ids, eventId, sheet.mode)
+        if (reject != null) {
+            onUi(ui.copy(sheet = null, selectedPhotoIds = emptySet(), notice = assignFailureNotice(reject)))
+            return
+        }
+
+        val notice = if (copy) {
+            val added = actions.copyPhotosTo(ids, eventId ?: return)
+            if (added <= 0) {
+                assignFailureNotice("目标事件没有变化：这几张照片没能复制过去")
+            } else {
+                actions.clearMessage()
+                val skipped = ids.distinct().size - added
+                LocalNotice(
+                    if (skipped == 0) {
+                        assignSuccessText(AssignMode.COPY, added, label)
+                    } else {
+                        copyPartialText(added, skipped, label)
+                    },
+                    NoticeTone.OK,
+                )
+            }
+        } else {
+            val changed = actions.movePhotosTo(ids, eventId)
+            if (changed > 0) {
+                actions.clearMessage()
+                assignSuccessNotice(AssignMode.MOVE, changed, label)
+            } else {
+                assignFailureNotice(
+                    if (eventId == null) {
+                        "这几张照片已经在未匹配池里了，没有变化"
+                    } else {
+                        "这几张照片已经在这个事件里了，没有变化"
+                    },
+                )
+            }
+        }
+        onUi(ui.copy(sheet = null, selectedPhotoIds = emptySet(), notice = notice))
     }
 
     SheetHost(onDismiss = { onUi(ui.copy(sheet = null)) }) {

@@ -29,15 +29,27 @@
 //     暖色底+边 —— 未匹配池（它不是事件，是整个列表的"第 N+1 个待处理单元"）。
 //   优先级：未匹配 > 有照片 > 待确认 > 悬停 > 静止。有照片的卡片即使待确认也走红边，
 //   但它的序号仍用强调色、问题标签仍在 —— 待确认的信息没有丢，只是不再抢描边。
+// ★ 缩略图上的两个动作（移动 / 复制）藏在**悬停覆盖层**里，不常驻显示：
+//   ① 一张 72~96 dp 的格子若常驻两个按钮，照片本身就没地方了，而"这是哪张照片"
+//      （时刻）正是卡片要传达的第一件事；
+//   ② 复核时鼠标扫过一列卡片，常驻按钮会让人误以为"这张正在被操作"；
+//   ③ 悬停才出现，等于把"可以动手"和"正在看"分成两个时刻，一次点击只承担一件事：
+//      点格子 = 打开这个事件（看），点悬停层里的按钮 = 对这一张动手。
+//   代价是"不知道这里有入口"。弥补方式是这里的按钮带**文字**（不只图标）：
+//   图标在 72 dp 的格子里可以猜，但"移动"和"复制"不是能靠形状区分的动词。
+// ★ 未匹配池的缩略图只给"移动"：复制的前提是"它有家"，未匹配照片没有家，
+//   core 也直接拒绝复制（见 Feedbacl.rejectReason 里的同一条理由）。
 package com.photomgm.desktop.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,6 +61,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -58,6 +72,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.SpanStyle
@@ -71,6 +87,7 @@ import com.photomgm.desktop.core.api.EventSnapshot
 import com.photomgm.desktop.core.api.PhotoInfo
 import com.photomgm.desktop.ui.format.hhmm
 import com.photomgm.desktop.ui.format.timeRange
+import com.photomgm.desktop.ui.model.AssignMode
 import com.photomgm.desktop.ui.model.CARD_COUNT_W
 import com.photomgm.desktop.ui.model.CARD_HEADER_H
 import com.photomgm.desktop.ui.model.CARD_INDEX_W
@@ -95,6 +112,8 @@ fun EventCard(
     tile: Int,
     maxTiles: Int,
     onClick: () -> Unit,
+    /** 对卡片里某张照片动手（移动到另一个事件 / 复制到另一个事件）。 */
+    onAssignPhoto: (photoId: Long, mode: AssignMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val needReview = WorkQueue.needsReview(event)
@@ -121,7 +140,15 @@ fun EventCard(
             photoCount = photos.size,
         )
         Spacer(Modifier.height(PmSpace.m))
-        PhotoStrip(photos = photos, slots = slots, tile = tile, maxTiles = maxTiles, event = event)
+        PhotoStrip(
+            photos = photos,
+            slots = slots,
+            tile = tile,
+            maxTiles = maxTiles,
+            event = event,
+            canCopy = true,
+            onAssign = { photo, mode -> onAssignPhoto(photo.id, mode) },
+        )
     }
 }
 
@@ -132,6 +159,8 @@ fun UnmatchedCard(
     tile: Int,
     maxTiles: Int,
     onClick: () -> Unit,
+    /** 未匹配照片只能"移动"（它没有归属事件，复制没有意义），所以这里只有一个方向。 */
+    onMovePhoto: (photoId: Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     CardFrame(onClick = onClick, modifier = modifier, accent = true, warm = true) {
@@ -148,7 +177,15 @@ fun UnmatchedCard(
             photoCount = photos.size,
         )
         Spacer(Modifier.height(PmSpace.m))
-        PhotoStrip(photos = photos, slots = emptyMap(), tile = tile, maxTiles = maxTiles, event = null)
+        PhotoStrip(
+            photos = photos,
+            slots = emptyMap(),
+            tile = tile,
+            maxTiles = maxTiles,
+            event = null,
+            canCopy = false,
+            onAssign = { photo, _ -> onMovePhoto(photo.id) },
+        )
     }
 }
 
@@ -270,6 +307,9 @@ private fun PhotoStrip(
     tile: Int,
     maxTiles: Int,
     event: EventSnapshot?,
+    /** 能否复制：未匹配照片没有归属事件，只给"移动"。 */
+    canCopy: Boolean,
+    onAssign: (PhotoInfo, AssignMode) -> Unit,
 ) {
     if (photos.isEmpty()) {
         // 无照片：一条 40 dp 的占位行，与照片条同一左边缘、同一圆角、同一底色体系——
@@ -306,20 +346,31 @@ private fun PhotoStrip(
 
     Row(horizontalArrangement = Arrangement.spacedBy(TILE_GAP.dp)) {
         photos.take(shown).forEach { photo ->
-            PhotoThumb(photo, slots[photo.id], tile)
+            PhotoThumb(photo, slots[photo.id], tile, canCopy, { mode -> onAssign(photo, mode) })
         }
         if (overflow > 0) OverflowTile(overflow, tile)
     }
 }
 
 @Composable
-private fun PhotoThumb(photo: PhotoInfo, slot: Int?, tile: Int) {
+private fun PhotoThumb(
+    photo: PhotoInfo,
+    slot: Int?,
+    tile: Int,
+    canCopy: Boolean,
+    onAssign: (AssignMode) -> Unit,
+) {
     val tone = PmColor.placeholder[(photo.id.hashCode() and 0x7fffffff) % PmColor.placeholder.size]
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
     Box(
         Modifier
             .size(tile.dp)
             .clip(RoundedCornerShape(PmRadius.control))
-            .background(tone),
+            .background(tone)
+            // hoverable（不是 clickable）：格子本身不承担点击 —— 点它是"打开这个事件"，
+            //   那是整张卡片 CardFrame 的职责。这里只需要知道鼠标在不在它上面。
+            .hoverable(interaction),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -351,6 +402,55 @@ private fun PhotoThumb(photo: PhotoInfo, slot: Int?, tile: Int) {
                     .background(PmColor.ink3),
             )
         }
+        if (hovered) {
+            ThumbActions(canCopy = canCopy, onAssign = onAssign)
+        }
+    }
+}
+
+/**
+ * 缩略图的悬停操作层：蒙一层半透明深底，里面是「移动」「复制」两个按钮。
+ *
+ * ★ 为什么要蒙底：格子本身的背景是一组浅色占位色，白底黑字的按钮压在上面会看不清边界，
+ *   用户不确定"我点下去点的是哪个动词"。加深色底等于临时把这张格子变成一个操作台。
+ * ★ 按钮必须带文字：15 dp 图标 + 10 sp 文字竖排。只给图标的话，"两只箭头=移动、两张纸=复制"
+ *   这种约定在一个 72 dp 的格子里是猜的，猜错一次就是一次误移动（移动改的是归属关系）。
+ */
+@Composable
+private fun BoxScope.ThumbActions(canCopy: Boolean, onAssign: (AssignMode) -> Unit) {
+    Row(
+        Modifier
+            .matchParentSize()
+            .background(PmColor.ink.copy(alpha = 0.66f)),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ThumbAction(Icons.Filled.SwapHoriz, "移动") { onAssign(AssignMode.MOVE) }
+        if (canCopy) {
+            ThumbAction(Icons.Filled.ContentCopy, "复制") { onAssign(AssignMode.COPY) }
+        }
+    }
+}
+
+@Composable
+private fun ThumbAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Column(
+        Modifier
+            .width(38.dp)
+            .clip(RoundedCornerShape(PmRadius.control))
+            .background(if (hovered) Color.White.copy(alpha = 0.18f) else Color.Transparent)
+            .pointerHoverIcon(PointerIcon.Hand)
+            // ★ 这里的 clickable 会消费掉按下事件，所以点按钮不会顺带打开整个事件的照片弹窗。
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.height(2.dp))
+        Text(label, style = PmType.micro, color = Color.White, maxLines = 1)
     }
 }
 

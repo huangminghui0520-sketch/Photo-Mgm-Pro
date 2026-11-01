@@ -53,6 +53,7 @@ import com.photomgm.desktop.ui.component.PmTextField
 import com.photomgm.desktop.ui.component.Segmented
 import com.photomgm.desktop.ui.component.Tone
 import com.photomgm.desktop.ui.component.UnmatchedCard
+import com.photomgm.desktop.ui.model.AssignMode
 import com.photomgm.desktop.ui.model.PAGE_PAD
 import com.photomgm.desktop.ui.model.ReviewFilter
 import com.photomgm.desktop.ui.model.Selection
@@ -124,6 +125,21 @@ fun WorkspacePage(
                         tile = tile,
                         maxTiles = maxTiles,
                         onClick = { open(Selection.Event(event.id), event.photoIds.firstOrNull()) },
+                        // 卡片里单张照片的"移动/复制"：复用照片弹窗用的那个目标选择层，
+                        // 只是这里的对象固定为这一张。 from 必须是它现在所在的事件 ——
+                        // 目标列表要据此把"它自己所在的事件"排除掉（不能把照片移到它正在的地方）。
+                        onAssignPhoto = { photoId, mode ->
+                            onUi(
+                                ui.copy(
+                                    sheet = Sheet.Assign(
+                                        photoIds = listOf(photoId),
+                                        from = Selection.Event(event.id),
+                                        mode = mode,
+                                    ),
+                                    selectedPhotoIds = emptySet(),
+                                ),
+                            )
+                        },
                     )
                 }
 
@@ -135,6 +151,19 @@ fun WorkspacePage(
                             tile = tile,
                             maxTiles = maxTiles,
                             onClick = { open(Selection.Unmatched, state.unmatchedPhotoIds.firstOrNull()) },
+                            // 未匹配照片只能"移到某个事件"：它没有家，复制会让它同时出现在两个地方。
+                            onMovePhoto = { photoId ->
+                                onUi(
+                                    ui.copy(
+                                        sheet = Sheet.Assign(
+                                            photoIds = listOf(photoId),
+                                            from = Selection.Unmatched,
+                                            mode = AssignMode.MOVE,
+                                        ),
+                                        selectedPhotoIds = emptySet(),
+                                    ),
+                                )
+                            },
                         )
                     }
                 }

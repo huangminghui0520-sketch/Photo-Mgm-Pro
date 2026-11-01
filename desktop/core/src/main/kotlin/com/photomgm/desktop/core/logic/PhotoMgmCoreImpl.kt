@@ -352,21 +352,39 @@ class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
 
     // ── 人工调整 ──────────────────────────────────────────────────────────
 
-    override fun movePhotos(photoIds: List<Long>, targetEventId: Int?) {
+    override fun movePhotos(photoIds: List<Long>, targetEventId: Int?): Int {
         synchronized(lock) {
-            if (classifyResult == null) return
-            if (_state.value.status == CoreStatus.EXPORTING) return
-            if (photoIds.isEmpty()) return
-            val known = photosById.keys
-            photoIds.filter { it in known }.forEach { pid ->
+            val c = classifyResult ?: return 0
+            if (_state.value.status == CoreStatus.EXPORTING) return 0
+            val ids = photoIds.distinct().filter { it in photosById.keys }
+            if (ids.isEmpty()) return 0
+
+            // ★ 变更前后各量一次"这张照片现在属于哪些事件"，差集才是真正移动的张数。
+            //   直接用 photoIds.size 会高估：目标本来就是它的家时什么都没发生，
+            //   而"已移动 1 张照片"在那时候是一句假话。
+            val before = ownerSets(c, ids)
+            ids.forEach { pid ->
                 overrideMap[pid] = targetEventId ?: -1
                 // 移动即"归属变更"：旧的复制份必须一起清掉，否则移走之后原事件里还留着一份。
                 copyMap.remove(pid)
             }
+            val changed = ids.count { pid -> before[pid] != ownerOf(c, pid) }
             // classify 永远保持最初结果，人工移动只是叠加层（与 Android 一致）
-            republishViews(CoreStatus.READY, message = "已移动 ${photoIds.size} 张照片")
+            if (changed > 0) republishViews(CoreStatus.READY, message = "已移动 $changed 张照片")
+            return changed
         }
     }
+
+    /**
+     * 一张照片当前"同属于哪些事件"（含复制份）。
+     *
+     * 未匹配池里的照片返回空集 —— 它此刻不属于任何事件，这是"能不能复制"的判据之一。
+     */
+    private fun ownerOf(c: ClassifyResult, photoId: Long): Set<Int> =
+        effectiveMap(c).entries.filter { photoId in it.value }.mapTo(java.util.TreeSet()) { it.key }
+
+    private fun ownerSets(c: ClassifyResult, photoIds: List<Long>): Map<Long, Set<Int>> =
+        photoIds.associateWith { ownerOf(c, it) }
 
     override fun copyPhotos(photoIds: List<Long>, targetEventId: Int): Int {
         synchronized(lock) {

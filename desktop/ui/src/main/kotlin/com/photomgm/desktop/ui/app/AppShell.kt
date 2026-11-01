@@ -69,6 +69,7 @@ import com.photomgm.desktop.ui.dialog.ConfirmReanalyzeSheet
 import com.photomgm.desktop.ui.dialog.PhotosSheet
 import com.photomgm.desktop.ui.dialog.SettingsSheet
 import com.photomgm.desktop.ui.model.Busy
+import com.photomgm.desktop.ui.model.NoticeTone
 import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.model.WorkQueue
@@ -280,12 +281,19 @@ private fun MessageArea(state: AppState, ui: UiState, onUi: (UiState) -> Unit, a
             onDismiss = actions.clearMessage,
         )
     }
-    val local = ui.localMessage
-    if (local != null) {
+    val notice = ui.notice
+    if (notice != null) {
         InlineNotice(
-            tone = Tone.WARN,
-            text = local,
-            onDismiss = { onUi(ui.copy(localMessage = null)) },
+            // 语气由数据决定（model.Feedback 已经选好了 OK / WARN / DANGER）：
+            // 界面不该再猜一次，否则同一个动作的结果在两个地方会有两种颜色。
+            tone = when (notice.tone) {
+                NoticeTone.INFO -> Tone.INFO
+                NoticeTone.OK -> Tone.OK
+                NoticeTone.WARN -> Tone.WARN
+                NoticeTone.DANGER -> Tone.DANGER
+            },
+            text = notice.text,
+            onDismiss = { onUi(ui.copy(notice = null)) },
         )
     }
 }
