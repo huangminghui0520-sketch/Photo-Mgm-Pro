@@ -1,0 +1,3 @@
+# 保证 shell 脚本在任何 checkout 下都是 LF —— 否则 Git Bash 执行时报
+# "/usr/bin/env: 'bash\r': No such file or directory"
+*.sh text eol=lf

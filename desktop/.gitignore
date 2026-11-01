@@ -1,6 +1,10 @@
 # 打包/运行产物（build/ 与 .gradle/ 已由根 .gitignore 覆盖）
 *.msi
 *.exe
+# 打包脚本的全部产物都落在这里：app-image 目录、裁剪运行时、冒烟日志
+packaging/build/
 packaging/output/
 # 便携版解压后的运行时镜像，体积大且可由 jlink 重建
 packaging/runtime/
+# Kotlin 2.0 的编译会话/错误日志（首次编译 :ui 后才会生成，根 .gitignore 未覆盖）
+.kotlin/

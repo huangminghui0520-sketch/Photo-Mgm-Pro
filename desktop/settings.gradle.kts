@@ -5,11 +5,20 @@
 // 复用策略：把原工程的 :algorithm 以「外部目录挂载」方式引入（不复制、不移动、不改动），
 //   单一事实来源 → 桌面端与 Android 端行为不会漂移。
 //
-// 仓库源：本机实测 mavenCentral 直连可用（2s），阿里云镜像在本网络不可达（超时），
-//   Gradle 分发走腾讯云镜像（与根工程 wrapper 一致）。CI 环境如需切换另加判断。
+// 仓库源（U0 实测结论）：
+//   1) mavenCentral 直连可用（~2s）—— Kotlin / Compose Multiplatform / metadata-extractor 都在这里
+//   2) 阿里云镜像在本网络不可达（超时），不要配
+//   3) ★ google() 必须保留：org.jetbrains.compose.ui:ui-desktop 会传递依赖
+//      org.jetbrains.androidx.lifecycle → androidx.lifecycle:*:2.8.5，
+//      而 androidx 构件**只发布在 Google Maven**，mavenCentral 上查不到。
+//      缺了它 :ui 会在解析阶段直接失败（不是编译失败，是“Could not find androidx.lifecycle”）。
+//   4) google() 指向 https://dl.google.com/dl/android/maven2/（实测 200/0.4s）；
+//      注意不是 maven.google.com —— 那个域名在本网络 DNS/连接超时。
+//   Gradle 分发走腾讯云镜像（与根工程 wrapper 一致）。
 pluginManagement {
     repositories {
         mavenCentral()
+        google()
         gradlePluginPortal()
         mavenLocal()
     }
@@ -18,6 +27,7 @@ pluginManagement {
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
+        google()
         mavenLocal()
     }
 }
@@ -27,8 +37,11 @@ rootProject.name = "PhotoMgmDesktop"
 // :core = 纯逻辑核心（UI 无关）
 include(":core")
 
-// :cli = 无头命令行入口（逻辑核心的第一个消费者；UI 延后开发期间的验收与批处理通道）
+// :cli = 无头命令行入口（逻辑核心的第一个消费者；也是 M7-tech 打包验证的 main class）
 include(":cli")
+
+// :ui = Compose Multiplatform 桌面界面（只依赖 :core 的 api 包，禁止越层）
+include(":ui")
 
 // :algorithm = 直接挂载原工程算法模块（不改动其任何文件）
 include(":algorithm")
