@@ -95,12 +95,12 @@ class LedgerEngineTest {
     }
 
     @Test fun `folderName与ZIP文件夹命名一致`() {
-        // 回归 P1-3/P2-4：namingTemplate=0 → 事件类型；=1 → 月日+日志内容；均带序号前缀（与 ZipExporter 同规则）
+        // 回归 P1-3/P2-4：namingTemplate=0 → 事件类型；=1 → 巡查日志内容；均带序号前缀（与 ZipExporter 同规则）
         val e = ev(1, at(10, 5), at(10, 30), type = "交通事故处置")
         val rows0 = engine.buildLedger(listOf(e), emptyMap(), byId(emptyList()), namingTemplate = 0)
         assertEquals("01_交通事故处置", rows0[0].folderName)
         val rows1 = engine.buildLedger(listOf(e), emptyMap(), byId(emptyList()), namingTemplate = 1)
-        assertEquals("01_0903_描述1", rows1[0].folderName)
+        assertEquals("01_描述1", rows1[0].folderName)
     }
 
     // ──────────────────────────────────────────────────────────────

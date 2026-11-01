@@ -60,13 +60,13 @@ class ZipExporterTest {
         assertTrue("01_交安设施巡查/b.jpg" in names)
     }
 
-    @Test fun `模板二=月日+日志内容`() {
+    @Test fun `模板二=巡查日志内容`() {
         val (p1, _) = makePhoto(1, "a.jpg", "AAA")
         val e = ev(1, at(8, 30), at(10, 0))
         val zip = File(tmp, "out2.zip")
         ZipExporter().export(listOf(e), mapOf(1 to listOf(1L)), emptyList(),
             { p1 }, 1, zip, null) { _, _ -> }
-        assertEquals(listOf("01_0903_描述1/a.jpg"), zipNames(zip))
+        assertEquals(listOf("01_描述1/a.jpg"), zipNames(zip))
     }
 
     @Test fun `模板二日志内容截断与换行合并`() {
@@ -77,9 +77,9 @@ class ZipExporterTest {
         val zip = File(tmp, "out3.zip")
         ZipExporter().export(listOf(e), mapOf(1 to listOf(1L)), emptyList(),
             { p1 }, 1, zip, null) { _, _ -> }
-        // 换行合并为空格；描述 23 字符 < 50 上限，不截断；月日格式
+        // 换行合并为空格；描述 23 字符 < 50 上限，不截断；不再含月日前缀
         assertEquals(
-            "01_0903_发现路面障碍物并已清理 现场通知养护单位跟进处理/a.jpg",
+            "01_发现路面障碍物并已清理 现场通知养护单位跟进处理/a.jpg",
             zipNames(zip).first()
         )
     }
@@ -94,7 +94,7 @@ class ZipExporterTest {
             { p1 }, 1, zip, null) { _, _ -> }
         // 开头 "8时30分 " 被去除
         assertEquals(
-            "01_0903_到达上行K138+700M处，检查交安设施/a.jpg",
+            "01_到达上行K138+700M处，检查交安设施/a.jpg",
             zipNames(zip).first()
         )
     }
@@ -320,7 +320,7 @@ class ZipExporterTest {
             mapOf(1 to listOf(1L), 2 to listOf(2L), 3 to listOf(3L)), listOf(9L),
             { id -> when (id) { 1L -> p1; 2L -> p2; 3L -> p3; else -> pu } }, 1, zip, null) { _, _ -> }
         assertEquals(
-            listOf("01_0903_描述2/b.jpg", "02_0903_描述3/c.jpg", "03_0903_描述1/a.jpg", "99_未分类/u.jpg"),
+            listOf("01_描述2/b.jpg", "02_描述3/c.jpg", "03_描述1/a.jpg", "99_未分类/u.jpg"),
             zipNames(zip)
         )
     }

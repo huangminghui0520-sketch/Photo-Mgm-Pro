@@ -24,7 +24,7 @@ PATROL_DATE="${COMPAT_DATE:-2026-10-24}"
 LOG_FILE="${COMPAT_LOG:-C:/Users/28988/Desktop/ceshi/10月24日巡查日志.txt}"
 OUT_DIR="${COMPAT_OUT:-C:/Users/28988/Desktop/ceshi/导出结果}"
 DATA_DIR="${COMPAT_DATA_DIR:-/tmp/photomgm-compat-test}"
-TEMPLATE="${COMPAT_TEMPLATE:-1}"          # 0=事件类型 / 1=月日+事件类型+日志内容
+TEMPLATE="${COMPAT_TEMPLATE:-1}"          # 0=事件类型 / 1=序号+巡查日志内容
 DEDUP="${COMPAT_DEDUP:-keep-watermarked}" # keep-watermarked / keep-plain / keep-both
 JAVA_HOME="${JAVA_HOME:-C:/Users/28988/.workbuddy/jdks/jdk-17.0.2}"
 

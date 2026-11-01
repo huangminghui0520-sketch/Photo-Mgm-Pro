@@ -39,7 +39,7 @@ class LedgerEngine(private val zone: ZoneId = AppZone.ID) {
      * @param eventPhotoMap eventId -> photoIds（来自 §6 分类结果，应已合并人工移动）
      * @param photoById 照片解析回调；返回 null 的照片跳过
      * @param marked 人工台账标记：eventId -> (照片1, 照片2)；某一侧为 null 表示该侧用默认（最早/最晚）
-     * @param namingTemplate 事件文件夹命名模板（与 ZipExporter 一致，0=事件类型 1=月日+日志内容）；
+     * @param namingTemplate 事件文件夹命名模板（与 ZipExporter 一致，0=事件类型 1=巡查日志内容）；
      *                       用于照片列的"文件夹名/文件名"前缀（P1-3）
      */
     fun buildLedger(

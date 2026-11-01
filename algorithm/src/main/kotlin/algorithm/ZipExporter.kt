@@ -10,13 +10,12 @@ import algorithm.model.Photo
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-/** @param zone 文件夹名里的月日/时间文本所用时区（默认北京时间，见 [AppZone]）。 */
+/** @param zone 文件夹名所用时区（默认北京时间，见 [AppZone]）。 */
 class ZipExporter(private val zone: ZoneId = AppZone.ID) {
 
     data class Result(
@@ -35,7 +34,7 @@ class ZipExporter(private val zone: ZoneId = AppZone.ID) {
      * @param eventPhotoMap 已合并人工移动后的 eventId -> photoIds（app 侧 effectiveMap）
      * @param unmatched     未匹配照片 id（§7.4 → 「未分类」）
      * @param photoById     照片解析（Android=物理路径 data 层；PC=文件列表）
-     * @param namingTemplate 0=事件类型｜1=月日+巡查日志内容（§7.4）
+     * @param namingTemplate 0=事件类型｜1=巡查日志内容（§7.4）
      * @param outFile       ZIP 输出文件
      * @param stateFile     断点续传状态（上次全部完成后跳过）
      * @param extraFiles    ZIP 内路径 -> 字节（如台账 Excel）；非空时整包跳过失效（保证内容最新）
@@ -159,18 +158,21 @@ class ZipExporter(private val zone: ZoneId = AppZone.ID) {
 
     /**
      * 事件分类文件夹名（§7.4）。
-     * 模板 1 = 月日 + 巡查日志内容（描述去开头时间、截断 50 字符、换行合并为空格）。
-     * 例：0908_巡查至北行K123+000M处发现护栏损坏
+     * 模板 1 = 巡查日志内容（描述去开头时间、截断 50 字符、换行合并为空格）。
+     * 例：巡查至北行K123+000M处发现护栏损坏
      * ★ 本函数只产出"无序号前缀"的文件夹名；带前缀的最终文件夹名见 [numberedFolderNames]（P2-4）。
+     * ★ 2026-11-01 实测决策：去掉原「月日_」前缀，目录名改为「序号_巡查日志内容」。
+     *   原因：长日志（>50 字符）被 [truncate] 硬截断到 50 字符，实测「…做好记录，继」末尾缺「续巡查。」；
+     *   月日信息已在台账的「日期/结束时间」列完整保留，目录名里再带月日无必要且挤占描述空间。
+     *   截断规则统一收敛到 [truncate]（描述 50 字符、换行合并空格、末尾 trimEnd），见该函数注释。
      */
     fun folderName(e: LogEvent, namingTemplate: Int): String {
         return if (namingTemplate == 1) {
-            val parts = mutableListOf<String>()
-            e.startTimeMs?.let { ms ->
-                parts += Instant.ofEpochMilli(ms).atZone(zone).toLocalDate().format(MONTH_DAY)
+            if (e.description.isNotBlank()) {
+                sanitize(truncate(stripLeadingTime(e.description), 50))
+            } else {
+                sanitize(e.eventType)
             }
-            if (e.description.isNotBlank()) parts += truncate(stripLeadingTime(e.description), 50)
-            sanitize(parts.joinToString("_"))
         } else {
             sanitize(e.eventType)
         }
@@ -205,7 +207,16 @@ class ZipExporter(private val zone: ZoneId = AppZone.ID) {
         return if (m != null) s.substring(m.range.last + 1).trimStart() else s
     }
 
-    /** 描述单行化 + 截断（保留语义，避免文件夹名过长）。 */
+    /**
+     * 描述单行化 + 截断（保留语义，避免文件夹名过长）。
+     *
+     * ★ 截断规则（模板 1 目录名「序号_巡查日志内容」的唯一实现处，实测决策 2026-11-01）：
+     *   1. 换行/连续空白 → 合并为单个空格；
+     *   2. 超 [max]（50）字符 → 硬截断到前 50 个字符（**按字符数，非字节**；中文、英文、数字各占 1）；
+     *   3. 截断后末尾空白 trimEnd（避免留下尾随空格或半截标点前导空格）；
+     *   —— 截断发生在**目录名拼接之前**，故最终目录名长度 = 序号前缀(2) + "_"(1) + 描述(≤50) ≤ 53 字符，
+     *      远低于 Windows 单段名 255 上限，不会触发系统级截断；末尾缺字是 50 字符规则所致，属预期行为。
+     */
     private fun truncate(s: String, max: Int): String {
         val oneLine = s.replace(Regex("\\s+"), " ").trim()
         return if (oneLine.length <= max) oneLine else oneLine.take(max).trimEnd()
@@ -353,7 +364,6 @@ class ZipExporter(private val zone: ZoneId = AppZone.ID) {
 
     private companion object {
         val BASIC_DATE: DateTimeFormatter = DateTimeFormatter.BASIC_ISO_DATE
-        val MONTH_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("MMdd")
         /** 未匹配照片的固定文件夹（P2-4：99_ 前缀保证按名称排序时始终最后）。 */
         const val UNMATCHED_FOLDER = "99_未分类"
         /** 开头时间前缀：上午/下午可选 + 时点 + 可选"至终点" + 尾随空格 */

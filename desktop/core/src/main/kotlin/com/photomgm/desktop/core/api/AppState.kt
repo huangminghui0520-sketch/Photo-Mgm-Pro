@@ -16,7 +16,7 @@ import java.time.LocalDate
  * 用户设置（持久化于 `%APPDATA%\PhotoMgm\settings.json`）。
  *
  * ★ 字段与 Android 端 SettingsStore 一一对应（默认值也保持一致）：
- *   namingTemplate 默认 1（月日+日志内容），dedupMode 默认 KEEP_WATERMARKED（仅保留带水印）。
+ *   namingTemplate 默认 1（巡查日志内容），dedupMode 默认 KEEP_WATERMARKED（仅保留带水印）。
  */
 data class Settings(
     /** 源目录（绝对路径，统一正斜杠）。空 = 未选择，分析将只做日志解析。 */
@@ -25,7 +25,7 @@ data class Settings(
     val outputDir: String? = null,
     /** 巡查日期（默认今天，按业务时区 AppZone.ID 计算，不看系统时区）。 */
     val patrolDate: LocalDate = LocalDate.now(AppZone.ID),
-    /** 命名模板：0 = 事件类型，1 = 月日+日志内容（与核心 ZipExporter.folderName 语义一致）。 */
+    /** 命名模板：0 = 事件类型，1 = 巡查日志内容（与核心 ZipExporter.folderName 语义一致）。 */
     val namingTemplate: Int = 1,
     /** 重复照片保留策略（三态去重）。 */
     val dedupMode: DedupKeepMode = DedupKeepMode.KEEP_WATERMARKED,

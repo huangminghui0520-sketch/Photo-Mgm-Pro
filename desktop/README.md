@@ -307,7 +307,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 | `--log, -l` | 巡查日志文件（UTF-8 / GBK 自动识别） |
 | `--log-text` | 直接传日志文本（与 `--log` 二选一） |
 | `--out, -o` | 导出父目录 |
-| `--template, -t` | 命名模板 `0`=事件类型，`1`=月日+事件类型+日志内容（默认 1） |
+| `--template, -t` | 命名模板 `0`=事件类型，`1`=序号+巡查日志内容（默认 1） |
 | `--dedup` | `keep-watermarked`（默认）/ `keep-plain` / `keep-both` |
 | `--no-ledger` | 不生成台账，只复制照片 |
 | `--data-dir` | 数据目录（默认 `%APPDATA%\PhotoMgm`） |

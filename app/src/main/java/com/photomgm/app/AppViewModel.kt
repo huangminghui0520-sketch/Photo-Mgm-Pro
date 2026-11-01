@@ -49,7 +49,7 @@ data class UiState(
     val date: LocalDate = LocalDate.now(AppZone.ID),
     val sourceDirs: List<String> = emptyList(),
     val outputDir: String? = null,
-    val namingTemplate: Int = 1,          // 0=事件类型，1=月日+巡查日志内容（默认1）
+    val namingTemplate: Int = 1,          // 0=事件类型，1=巡查日志内容（默认1）
     /** ★ 2026-10-24 B1：重复照片保留策略（带水印/不带水印/都保留），默认仅保留带水印。 */
     val dedupKeepMode: DedupKeepMode = DedupKeepMode.KEEP_WATERMARKED,
     val coarseCount: Int? = null,          // 粗筛「已筛出 N 张」
