@@ -17,7 +17,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-class ExportLogWriter(
+internal class ExportLogWriter(
     private val file: Path,
     private val zone: ZoneId,
 ) : AutoCloseable {

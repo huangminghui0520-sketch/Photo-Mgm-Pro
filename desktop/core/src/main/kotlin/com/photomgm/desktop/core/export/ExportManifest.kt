@@ -19,7 +19,7 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 
 /** 单个产物的留证记录。 */
-data class ManifestEntry(
+internal data class ManifestEntry(
     val relativePath: String,
     val size: Long,
     val sha256: String,
@@ -33,7 +33,7 @@ data class ManifestEntry(
  * @param ledgerFingerprint 台账内容指纹（行内容哈希）；台账随人工标记变化，必须一并比对
  * @param complete 上次是否完整跑完（失败/取消 → false，永不命中续传）
  */
-data class ExportManifest(
+internal data class ExportManifest(
     val version: Int = CURRENT_VERSION,
     val namingTemplate: Int,
     val photoSetHash: String,

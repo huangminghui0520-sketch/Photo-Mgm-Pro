@@ -9,7 +9,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.security.MessageDigest
 
-class PcFileHasher {
+internal class PcFileHasher {
 
     /** 文件 SHA-256（小写十六进制）；读失败返回 null（不抛异常，调用方按"哈希未知"保守处理）。 */
     fun sha256(path: String): String? = runCatching {

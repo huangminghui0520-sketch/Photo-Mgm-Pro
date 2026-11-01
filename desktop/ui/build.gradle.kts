@@ -4,10 +4,10 @@
 //   :ui  →  :core/api  （只认门面 / AppState 快照 / ExportModels 三份契约）
 //   :ui  ✗→  :core/logic、:core/platform、:algorithm   （禁止越层直接调用）
 //
-// 注意：这条**目前是约定，不是编译期强制**。Gradle 的 implementation(project(":core"))
-// 会把 core 主源码里所有 public 类型暴露给 :ui，所以编译能过不代表没越层。
-// 真正的强制手段是后续把 logic/platform 的类改为 internal（对模块外不可见），
-// 但那属于修改 core 的可见性，按「api 只增不改」的规则单独立项，不在 UI 阶段顺手做。
+// ★ 这条从「约定」升级成了「编译期强制」：core 的 logic / platform / state / infra / export
+//   包下所有类型已标记 internal，对 :ui、:cli 等外部模块不可见。所以「编译能过」现在就是
+//   「没越层」的证明 —— 试图 import PcPaths / PhotoMgmCoreImpl / PcFolderExporter 会直接编译失败。
+//   （core 自己的测试是 friend module，仍可见 internal 成员，不受影响。）
 //
 // 线程约定：Swift/Compose 组合运行在 AWT EDT；核心的 analyze/export 是阻塞任务，
 //   必须经 Dispatchers.Default 调度后再把结果推回 StateFlow，ui 侧只 collect。

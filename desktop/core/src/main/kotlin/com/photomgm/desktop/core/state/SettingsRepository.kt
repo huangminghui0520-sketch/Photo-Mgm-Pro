@@ -25,7 +25,7 @@ import java.nio.file.StandardOpenOption
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
 
-class SettingsRepository(private val file: Path) {
+internal class SettingsRepository(private val file: Path) {
 
     fun load(): Settings {
         if (!Files.isRegularFile(file)) return Settings()

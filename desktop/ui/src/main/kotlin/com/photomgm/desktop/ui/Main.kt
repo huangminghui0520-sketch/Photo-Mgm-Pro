@@ -78,6 +78,10 @@ fun main(args: Array<String>) {
     }
 
     val opts = parse(args)
+    // ★ 诊断日志只在「走查/冒烟/演示/显式 log」下开启：正常双击运行 args 为空，保持静默，
+    //   避免 AppShell 每帧的 render 日志刷控制台、拖慢窗口缩放与悬停。
+    val diagnostic = opts.smoke || opts.demo || opts.shot != null || opts.logFile != null
+    UiLog.enable(diagnostic)
     UiLog.attach(opts.logFile?.let { Paths.get(it) })
     UiLog.line("启动 options=$opts")
 

@@ -13,7 +13,7 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
-class LogsTextStore(
+internal class LogsTextStore(
     private val file: Path,
     private val scheduler: ScheduledExecutorService,
     private val debounceMs: Long = DEFAULT_DEBOUNCE_MS,

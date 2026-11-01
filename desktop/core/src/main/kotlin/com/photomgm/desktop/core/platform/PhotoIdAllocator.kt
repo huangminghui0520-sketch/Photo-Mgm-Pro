@@ -13,7 +13,7 @@ package com.photomgm.desktop.core.platform
 
 import java.security.MessageDigest
 
-class PhotoIdAllocator(
+internal class PhotoIdAllocator(
     /**
      * 哈希函数（可注入）。默认 [hashToPositiveId]。
      * ★ 注入点存在的理由：碰撞是"概率极低但后果严重（静默丢照片）"的路径，

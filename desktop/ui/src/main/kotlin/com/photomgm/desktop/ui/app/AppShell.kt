@@ -132,7 +132,9 @@ fun AppShell(
         val height = maxHeight.value.toInt()
 
         // 渲染日志：把"这个宽度下排成了什么样"写成可 diff 的一行（DPI 走查与回归对比用）。
+        // ★ 正常运行时 UiLog 静默，这里直接跳过 —— 不构造字符串、不触碰任何 IO。
         LaunchedEffect(width, height, ui.sheet, ui.busy, ui.logEntryVisible, state.events.size) {
+            if (!UiLog.isEnabled) return@LaunchedEffect
             val sheet = when (val s = ui.sheet) {
                 null -> if (ui.logEntryVisible) "none+logentry" else "none"
                 Sheet.Settings -> "settings"

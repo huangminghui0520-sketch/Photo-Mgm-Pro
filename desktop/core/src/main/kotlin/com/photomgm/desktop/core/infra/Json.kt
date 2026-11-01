@@ -12,7 +12,7 @@
 package com.photomgm.desktop.core.infra
 
 /** JSON 值模型。 */
-sealed interface JsonValue {
+internal sealed interface JsonValue {
     data class Obj(val fields: LinkedHashMap<String, JsonValue> = LinkedHashMap()) : JsonValue
 
     data class Arr(val items: List<JsonValue> = emptyList()) : JsonValue
@@ -28,18 +28,18 @@ sealed interface JsonValue {
 }
 
 /** 便捷构造。 */
-fun jsonNum(value: Long): JsonValue = JsonValue.Num(value.toString())
-fun jsonNum(value: Int): JsonValue = JsonValue.Num(value.toString())
-fun jsonNum(value: Double): JsonValue = if (value == value.toLong().toDouble()) {
+internal fun jsonNum(value: Long): JsonValue = JsonValue.Num(value.toString())
+internal fun jsonNum(value: Int): JsonValue = JsonValue.Num(value.toString())
+internal fun jsonNum(value: Double): JsonValue = if (value == value.toLong().toDouble()) {
     JsonValue.Num(value.toLong().toString())
 } else {
     JsonValue.Num(value.toString())
 }
 
 /** 对象构造 DSL：`json { put("a", 1); put("b", "x") }`。 */
-fun json(build: JsonObjBuilder.() -> Unit): JsonValue.Obj = JsonObjBuilder().apply(build).build()
+internal fun json(build: JsonObjBuilder.() -> Unit): JsonValue.Obj = JsonObjBuilder().apply(build).build()
 
-class JsonObjBuilder {
+internal class JsonObjBuilder {
     private val map = LinkedHashMap<String, JsonValue>()
 
     fun put(key: String, value: String?) {
@@ -79,21 +79,21 @@ class JsonObjBuilder {
 
 // ── 读侧访问器（类型不符一律返回 null，不做隐式转换） ──────────────────────────
 
-fun JsonValue.asObj(): JsonValue.Obj? = this as? JsonValue.Obj
-fun JsonValue.asArr(): List<JsonValue>? = (this as? JsonValue.Arr)?.items
-fun JsonValue.asStr(): String? = (this as? JsonValue.Str)?.value
+internal fun JsonValue.asObj(): JsonValue.Obj? = this as? JsonValue.Obj
+internal fun JsonValue.asArr(): List<JsonValue>? = (this as? JsonValue.Arr)?.items
+internal fun JsonValue.asStr(): String? = (this as? JsonValue.Str)?.value
 
-fun JsonValue.Obj.objOrNull(key: String): JsonValue.Obj? = fields[key]?.asObj()
-fun JsonValue.Obj.strOrNull(key: String): String? = fields[key]?.asStr()
-fun JsonValue.Obj.longOrNull(key: String): Long? = (fields[key] as? JsonValue.Num)?.raw?.toLongOrNull()
-fun JsonValue.Obj.intOrNull(key: String): Int? = (fields[key] as? JsonValue.Num)?.raw?.toIntOrNull()
-fun JsonValue.Obj.doubleOrNull(key: String): Double? = (fields[key] as? JsonValue.Num)?.raw?.toDoubleOrNull()
-fun JsonValue.Obj.boolOrNull(key: String): Boolean? = (fields[key] as? JsonValue.Bool)?.value
-fun JsonValue.Obj.arrOrNull(key: String): List<JsonValue>? = fields[key]?.asArr()
-fun JsonValue.Obj.stringList(key: String): List<String> =
+internal fun JsonValue.Obj.objOrNull(key: String): JsonValue.Obj? = fields[key]?.asObj()
+internal fun JsonValue.Obj.strOrNull(key: String): String? = fields[key]?.asStr()
+internal fun JsonValue.Obj.longOrNull(key: String): Long? = (fields[key] as? JsonValue.Num)?.raw?.toLongOrNull()
+internal fun JsonValue.Obj.intOrNull(key: String): Int? = (fields[key] as? JsonValue.Num)?.raw?.toIntOrNull()
+internal fun JsonValue.Obj.doubleOrNull(key: String): Double? = (fields[key] as? JsonValue.Num)?.raw?.toDoubleOrNull()
+internal fun JsonValue.Obj.boolOrNull(key: String): Boolean? = (fields[key] as? JsonValue.Bool)?.value
+internal fun JsonValue.Obj.arrOrNull(key: String): List<JsonValue>? = fields[key]?.asArr()
+internal fun JsonValue.Obj.stringList(key: String): List<String> =
     arrOrNull(key)?.mapNotNull { it.asStr() } ?: emptyList()
 
-object Json {
+internal object Json {
 
     /** 解析；失败返回 null。 */
     fun parse(text: String): JsonValue? {

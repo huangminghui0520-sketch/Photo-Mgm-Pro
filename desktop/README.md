@@ -243,8 +243,9 @@ platform/   Pc* 平台实现：目录扫描 / EXIF / 哈希 / 图片编码 / 打
 依赖是**单向**的：`:algorithm` 不知道桌面端存在；`:core` 不依赖任何 UI 框架。
 核心中不出现 `JFrame`、不弹对话框、不读键盘鼠标。
 
-> ⚠️ 分层目前是**约定**，不是编译期强制：`implementation(project(":core"))` 会暴露 core 的全部 public 类型。
-> 真正强制需把 `logic/`、`platform/` 改为 `internal` —— 那属于改 core 可见性，按「api 只增不改」单独立项。
+> ✅ 分层已是**编译期强制**：core 的 `logic/`、`platform/`、`state/`、`infra/`、`export/` 全部标记 `internal`，
+> 对 `:ui`、`:cli` 等外部模块不可见 —— 试图 import `PcPaths` / `PhotoMgmCoreImpl` / `PcFolderExporter` 会直接编译失败。
+> core 自己的测试是 friend module，仍可见 internal 成员，不受影响。
 
 ### UI 接入只需要三步
 

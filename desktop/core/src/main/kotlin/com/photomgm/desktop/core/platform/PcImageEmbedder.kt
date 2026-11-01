@@ -18,7 +18,7 @@ import javax.imageio.IIOImage
 import javax.imageio.ImageIO
 import javax.imageio.ImageWriteParam
 
-class PcImageEmbedder(
+internal class PcImageEmbedder(
     private val targetWidth: Int = DEFAULT_WIDTH,
     private val targetHeight: Int = DEFAULT_HEIGHT,
     private val jpegQuality: Float = DEFAULT_QUALITY,

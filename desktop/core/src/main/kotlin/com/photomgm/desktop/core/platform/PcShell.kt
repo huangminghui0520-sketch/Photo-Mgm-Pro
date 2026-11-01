@@ -11,7 +11,7 @@ import java.awt.Desktop
 import java.nio.file.Files
 import java.nio.file.Path
 
-class PcShell : ShellLauncher {
+internal class PcShell : ShellLauncher {
 
     override fun open(path: Path): Boolean {
         if (!Files.exists(path)) return false

@@ -13,6 +13,22 @@ import java.nio.file.Path
 object UiLog {
     private var writer: PrintWriter? = null
 
+    /**
+     * 是否输出诊断日志。默认 false：正常双击运行（args 为空）时 [line] 是空操作，
+     * 既不刷控制台也不写文件 —— AppShell 的渲染日志每帧都调 [line]，若默认开，
+     * 窗口缩放/悬停切换会高频阻塞 UI 线程（尤其 println 在中文 Windows 控制台是慢的）。
+     *
+     * 只在「诊断/走查模式」打开（--shot / --smoke / --demo / --log-file 任一），
+     * 由 Main 启动时调用 [enable] 一次性决定。
+     */
+    private var enabled = false
+
+    val isEnabled: Boolean get() = enabled
+
+    fun enable(on: Boolean) {
+        enabled = on
+    }
+
     fun attach(file: Path?) {
         if (file == null) return
         runCatching {
@@ -22,6 +38,7 @@ object UiLog {
     }
 
     fun line(message: String) {
+        if (!enabled) return
         println("[UI] $message")
         writer?.println("[UI] $message")
     }

@@ -17,15 +17,28 @@ import java.nio.file.Paths
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 
-class PcPhotoSourceProvider : PhotoSourceProvider {
+internal class PcPhotoSourceProvider : PhotoSourceProvider {
 
-    /** 不可读/被跳过的项（每次 listCandidates 前清空）。 */
-    val warnings = mutableListOf<String>()
+    /**
+     * 上一次扫描的警告快照（不可变）。
+     *
+     * ★ 线程语义：字段用 [Volatile] 引用，每次 [listCandidates] 结束时把「本次」局部收集的
+     *   警告 build 成不可变 List 后一次性赋给这里——所以读者要么读到上一次完整快照，要么读到
+     *   本次完整快照，绝不会读到「正在被追加的半成品」。也正因为每次覆盖而非累积，
+     *   两次扫描之间不会串警告（旧实现用 `mutableListOf` 累积 + 靠调用方自觉清空，是隐患）。
+     */
+    @Volatile
+    var warnings: List<String> = emptyList()
+        private set
 
     override fun listCandidates(sourceDir: String): List<CandidatePhoto> {
+        // 警告在方法内局部收集，方法结束统一发布一次快照 —— 方法体是无状态的，
+        // 因此本类可以安全地被并发调用（每次调用的警告互不污染）。
+        val localWarnings = ArrayList<String>()
         val root = runCatching { Paths.get(sourceDir) }.getOrNull() ?: return emptyList()
         if (!Files.isDirectory(root)) {
-            warnings += "源目录不存在或不是目录：$sourceDir"
+            localWarnings += "源目录不存在或不是目录：$sourceDir"
+            warnings = localWarnings.toList()
             return emptyList()
         }
         val out = ArrayList<CandidatePhoto>(256)
@@ -54,14 +67,15 @@ class PcPhotoSourceProvider : PhotoSourceProvider {
                 }
 
                 override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult {
-                    warnings += "跳过不可读项：${PcPaths.normalize(file.toString())}（${exc.javaClass.simpleName}）"
+                    localWarnings += "跳过不可读项：${PcPaths.normalize(file.toString())}（${exc.javaClass.simpleName}）"
                     return FileVisitResult.CONTINUE
                 }
             })
-        }.onFailure { warnings += "扫描中断：$sourceDir（${it.message ?: it.javaClass.simpleName}）" }
+        }.onFailure { localWarnings += "扫描中断：$sourceDir（${it.message ?: it.javaClass.simpleName}）" }
 
         // 稳定排序：让"同一批照片"在两次扫描中顺序一致（影响列表首现顺序与人工调整的直觉）
         out.sortBy { it.sourceRef }
+        warnings = localWarnings.toList()
         return out
     }
 

@@ -20,7 +20,7 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-class PcExifReader(
+internal class PcExifReader(
     private val zone: ZoneId = AppZone.ID,
 ) : ExifReader {
 

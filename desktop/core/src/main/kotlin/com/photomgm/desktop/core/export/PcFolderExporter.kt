@@ -38,12 +38,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Comparator
 
 /** 导出被前置校验阻断（不是"复制失败"，而是"根本不该开始"）。 */
-class ExportBlockedException(
+internal class ExportBlockedException(
     message: String,
     val offendingPaths: List<String> = emptyList(),
 ) : Exception(message)
 
-class PcFolderExporter(
+internal class PcFolderExporter(
     private val zone: ZoneId = AppZone.ID,
     private val imageEmbedder: (String?) -> ByteArray? = { null },
     private val clock: Clock = Clock.systemUTC(),

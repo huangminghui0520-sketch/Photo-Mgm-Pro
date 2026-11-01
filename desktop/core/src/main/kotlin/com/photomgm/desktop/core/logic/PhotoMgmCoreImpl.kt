@@ -65,7 +65,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
 
-class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
+internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
 
     private val zone = config.zone
     private val clock = config.clock ?: java.time.Clock.systemUTC()
