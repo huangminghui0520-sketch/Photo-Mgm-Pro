@@ -98,6 +98,15 @@ class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
     private var photos: List<Photo> = emptyList()
     private var photosById: Map<Long, Photo> = emptyMap()
     private val overrideMap = HashMap<Long, Int>()
+
+    /**
+     * 复制关系：照片 → 它额外所属的事件集合（"家"仍在 overrideMap / classify 里）。
+     *
+     * ★ 与 overrideMap 分开存，因为两者语义相反：override 是"改归属（唯一）"，
+     *   copy 是"多归属（可有多个）"。合成一层会丢掉"哪一份是家"的区分，
+     *   而台账选照片、三态展开都要用到它。
+     */
+    private val copyMap = HashMap<Long, MutableSet<Int>>()
     private val marked = HashMap<Int, Pair<Long?, Long?>>()
     private var candidateCount = 0
     private var mergedDerivedGroups = 0
@@ -252,6 +261,7 @@ class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
 
         // 清空上一轮的人工调整：重新分析 = 全新分配（与 Android parseLogs 语义一致）
         overrideMap.clear()
+        copyMap.clear()
         marked.clear()
         classifyResult = null
         photos = emptyList()
@@ -350,9 +360,31 @@ class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
             val known = photosById.keys
             photoIds.filter { it in known }.forEach { pid ->
                 overrideMap[pid] = targetEventId ?: -1
+                // 移动即"归属变更"：旧的复制份必须一起清掉，否则移走之后原事件里还留着一份。
+                copyMap.remove(pid)
             }
             // classify 永远保持最初结果，人工移动只是叠加层（与 Android 一致）
             republishViews(CoreStatus.READY, message = "已移动 ${photoIds.size} 张照片")
+        }
+    }
+
+    override fun copyPhotos(photoIds: List<Long>, targetEventId: Int): Int {
+        synchronized(lock) {
+            val c = classifyResult ?: return 0
+            if (_state.value.status == CoreStatus.EXPORTING) return 0
+            if (photoIds.isEmpty()) return 0
+            val current = effectiveMap(c)
+            // 目标事件已经持有这张（家或已有复制份）就跳过：重复点击不能长出第二份。
+            val already = current[targetEventId]?.toSet() ?: emptySet()
+            // 未匹配池里的照片"复制"没有意义（它没有家，复制等于复制一份空气，还会同时出现在两处）。
+            val inSomeEvent = current.values.flatten().toSet()
+            var added = 0
+            for (pid in photoIds.distinct()) {
+                if (pid !in photosById || pid !in inSomeEvent || pid in already) continue
+                if (copyMap.getOrPut(pid) { LinkedHashSet() }.add(targetEventId)) added++
+            }
+            if (added > 0) republishViews(CoreStatus.READY, message = "已复制 $added 张照片到该事件")
+            return added
         }
     }
 
@@ -369,20 +401,26 @@ class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
 
     override fun resetManualAdjustments() {
         synchronized(lock) {
-            val count = overrideMap.size
+            val count = overrideMap.size + copyMap.size
             overrideMap.clear()
+            copyMap.clear()
             marked.clear()
             if (classifyResult == null) return
             republishViews(
                 CoreStatus.READY,
-                message = if (count > 0) "已恢复最初分类（清除 $count 条人工移动）" else "已是最初分类状态",
+                message = if (count > 0) "已恢复最初分类（清除 $count 处人工调整）" else "已是最初分类状态",
             )
         }
     }
 
     // ── 视图重算（三态展开 + 台账 + 事件快照） ─────────────────────────────
 
-    /** 合并人工移动后的事件照片表（target=-1 → 移入未匹配池）。 */
+    /**
+     * 合并人工移动 + 复制后的事件照片表（target=-1 → 移入未匹配池）。
+     *
+     * 顺序是有意义的：先按 overrideMap 把照片从旧事件里摘掉、放进新事件，
+     * 再叠加 copyMap —— 这样"移动"永远优先于"复制"，复制只往表里加、从不摘。
+     */
     private fun effectiveMap(c: ClassifyResult): Map<Int, List<Long>> {
         val map = c.eventPhotoMap.mapValues { it.value.toMutableList() }.toMutableMap()
         val all = (c.eventPhotoMap.values.flatten() + c.unmatched).toSet()
@@ -390,6 +428,16 @@ class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
             if (pid !in all) continue
             map.values.forEach { it.remove(pid) }
             if (target >= 0) map.getOrPut(target) { mutableListOf() }.add(pid)
+        }
+        for ((pid, targets) in copyMap) {
+            if (pid !in all) continue
+            // 被移进未匹配池的照片不再保留复制份（否则"移出"后它还挂在别的事件里）。
+            if ((overrideMap[pid] ?: 0) < 0) continue
+            for (target in targets) {
+                if (target < 0) continue
+                val list = map.getOrPut(target) { mutableListOf() }
+                if (pid !in list) list.add(pid)
+            }
         }
         return map
     }

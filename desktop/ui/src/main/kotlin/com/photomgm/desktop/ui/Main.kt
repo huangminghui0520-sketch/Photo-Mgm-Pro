@@ -41,6 +41,7 @@ import com.photomgm.desktop.ui.app.AppShell
 import com.photomgm.desktop.ui.app.UiLog
 import com.photomgm.desktop.ui.app.WindowGeometry
 import com.photomgm.desktop.ui.dev.DemoFixture
+import com.photomgm.desktop.ui.model.AssignMode
 import com.photomgm.desktop.ui.model.Busy
 import com.photomgm.desktop.ui.model.Selection
 import com.photomgm.desktop.ui.model.Sheet
@@ -119,10 +120,18 @@ fun main(args: Array<String>) {
                     if (target == Selection.None) null else Sheet.Photos(target)
                 }
 
-                // 移动层：拿第一个有照片事件的前两张演示（截图走查用）
-                "move" -> {
+                // 分配层：拿第一个有照片事件的前两张演示（截图走查用）；"copy" 看复制模式的文案
+                "move", "copy" -> {
                     val src = snapshot.events.firstOrNull { it.photoIds.isNotEmpty() }
-                    if (src == null) null else Sheet.Move(src.photoIds.take(2), Selection.Event(src.id))
+                    if (src == null) {
+                        null
+                    } else {
+                        Sheet.Assign(
+                            photoIds = src.photoIds.take(2),
+                            from = Selection.Event(src.id),
+                            mode = if (opts.sheet.equals("copy", ignoreCase = true)) AssignMode.COPY else AssignMode.MOVE,
+                        )
+                    }
                 }
 
                 else -> null
@@ -239,6 +248,7 @@ private fun rememberActions(
         },
         cancelExport = { handle()?.cancel() },
         movePhotosTo = { ids, eventId -> core.movePhotos(ids, eventId) },
+        copyPhotosTo = { ids, eventId -> core.copyPhotos(ids, eventId) },
         markLedgerPhoto = { eventId, slot, photoId -> core.markLedgerPhoto(eventId, slot, photoId) },
         resetAdjustments = { core.resetManualAdjustments() },
         setDedupMode = { mode: DedupKeepMode -> core.setDedupMode(mode) },

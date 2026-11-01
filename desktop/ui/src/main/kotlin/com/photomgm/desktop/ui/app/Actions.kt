@@ -30,6 +30,7 @@ class Actions(
     val cancelExport: () -> Unit = {},
     // ── 照片操作 ──────────────────────────────────────────────────────────
     val movePhotosTo: (photoIds: List<Long>, eventId: Int?) -> Unit = { _, _ -> },
+    val copyPhotosTo: (photoIds: List<Long>, eventId: Int) -> Unit = { _, _ -> },
     val markLedgerPhoto: (eventId: Int, slot: Int, photoId: Long?) -> Unit = { _, _, _ -> },
     val resetAdjustments: () -> Unit = {},
     val setDedupMode: (DedupKeepMode) -> Unit = {},

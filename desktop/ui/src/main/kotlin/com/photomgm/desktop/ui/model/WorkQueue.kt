@@ -43,6 +43,12 @@ object WorkQueue {
         val matched: Int,
     )
 
+    /**
+     * 顶部/状态栏用的总览统计。
+     *
+     * ★ `matched` 是**照片张数**（去重），不是"事件里照片格的总和"：
+     *   一旦有照片被复制到第二个事件，两者就不相等，而状态栏写"已归属 13 / 共 12 张"是自相矛盾的。
+     */
     fun stats(state: AppState): Stats = Stats(
         events = state.events.size,
         photos = state.photos.size,
@@ -51,7 +57,7 @@ object WorkQueue {
         noPhoto = state.events.count { it.photoIds.isEmpty() },
         pending = state.events.count { it.isPending },
         withHints = state.events.count { it.hints.isNotEmpty() },
-        matched = state.events.sumOf { it.photoIds.size },
+        matched = photoEventCount(state).size,
     )
 
     /** 筛选 + 搜索。搜索覆盖地点、描述、事件类型（这三个是用户记得住的信息）。 */
@@ -111,6 +117,29 @@ object WorkQueue {
         state.events.indexOfFirst { it.id == eventId }.let { if (it < 0) 0 else it + 1 }
 
     fun byId(state: AppState): Map<Long, PhotoInfo> = state.photos.associateBy { it.id }
+
+    /**
+     * 每个事件持有几张照片（`eventPhotoIds` 的直接投影，用于"张数"与"多归属"判断）。
+     *
+     * ★ 不用 `events.sumOf { photoIds.size }` 的地方必须用这张表 ——
+     *   复制到另一个事件后，同一张照片会出现在两个事件里，"总数"与"已归属"就不再相等。
+     */
+    fun photoEventCount(state: AppState): Map<Long, Int> {
+        val out = HashMap<Long, Int>()
+        for (ids in state.eventPhotoIds.values) {
+            for (id in ids.toSet()) out[id] = (out[id] ?: 0) + 1
+        }
+        return out
+    }
+
+    /**
+     * 某张照片同时属于哪些事件（按列表顺序；用于侧栏的"本次归属"）。
+     *
+     * ★ 查 `eventPhotoIds` 而不是各事件的 `photoIds`：前者是核心发布的权威映射，
+     *   后者只是它在事件视图里的投影。两个都读会让"复制"这类改动隔一拍才生效。
+     */
+    fun eventsOfPhoto(state: AppState, photoId: Long): List<Int> =
+        state.events.map { it.id }.filter { id -> state.eventPhotoIds[id]?.contains(photoId) == true }
 
     /** 导出前的阻断项（顺序即修复顺序）。空列表 = 可以导出。 */
     fun exportBlockers(state: AppState): List<String> = buildList {

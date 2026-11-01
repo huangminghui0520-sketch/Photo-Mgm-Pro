@@ -138,8 +138,25 @@ interface PhotoMgmCore : AutoCloseable {
     /** 读日志文件内容（UTF-8 / GBK 自动识别）。UI 拖入 .txt 时用；不触发解析。 */
     fun readLogFile(file: Path): String
 
-    /** 批量移动照片到目标事件；[targetEventId] 为 null 表示移入"未匹配照片池"。 */
+    /**
+     * 批量移动照片到目标事件；[targetEventId] 为 null 表示移入"未匹配照片池"。
+     *
+     * ★ 移动会**清掉这几张照片的复制关系**（见 [copyPhotos]）：移动表达的是"它归那边"，
+     *   如果同时保留旧的复制份，用户会看到"明明移走了却还在原来那条里"。
+     */
     fun movePhotos(photoIds: List<Long>, targetEventId: Int?)
+
+    /**
+     * 把照片**复制**到另一个事件：目标事件多一份，原事件保持不变。
+     *
+     * ★ 为什么需要"复制"而不只是"移动"：一张照片经常同时是两个事件的证据
+     *   （例如同一张图里既有护栏损坏又有路面积水）。移动会毁掉其中一条记录的证据链，
+     *   而导出要求每条事件都有照片 —— 所以复制才是对的语义。导出时两个文件夹各有一份。
+     * ★ 复制不改变"这张照片归谁"：原事件仍是它的家，台账两格仍优先从家里取。
+     *
+     * 返回实际新增的份数（已属于该事件、或照片 id 不存在的都会被忽略）。
+     */
+    fun copyPhotos(photoIds: List<Long>, targetEventId: Int): Int
 
     /** 设置台账照片槽位（slot=1 或 2）；[photoId] 为 null 表示恢复该侧默认（最早/最晚）。 */
     fun markLedgerPhoto(eventId: Int, slot: Int, photoId: Long?)

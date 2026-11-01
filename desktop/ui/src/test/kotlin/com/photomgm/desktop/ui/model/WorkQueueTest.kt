@@ -91,4 +91,23 @@ class WorkQueueTest {
     fun `问题标签优先级`() {
         assertEquals(listOf("无时间", "1 条提示"), WorkQueue.issueLabels(event(9, pending = true, photoIds = listOf(1), hints = listOf("x"))))
     }
+
+    @Test
+    fun `复制后同一张照片被算作两处，但总数不重复`() {
+        // 照片 10 被复制到事件 3：事件里"张数"的合计变 4，而"已归属"仍是 3 张不同的照片
+        val copied = appState(
+            events = listOf(e1, e2, e3, e4),
+            photos = photos,
+            eventPhotoIds = mapOf(1 to listOf(10), 3 to listOf(11, 10), 4 to listOf(12)),
+            unmatched = listOf(13),
+        )
+        val count = WorkQueue.photoEventCount(copied)
+        assertEquals(2, count[10L], "照片 10 出现在两个事件里")
+        assertEquals(1, count[11L])
+
+        val s = WorkQueue.stats(copied)
+        assertEquals(3, s.matched, "已归属是去重后的照片张数，不能是事件照片格之和")
+        assertEquals(listOf(1, 3), WorkQueue.eventsOfPhoto(copied, 10L))
+        assertEquals(emptyList(), WorkQueue.eventsOfPhoto(copied, 13L), "未匹配照片不属于任何事件")
+    }
 }

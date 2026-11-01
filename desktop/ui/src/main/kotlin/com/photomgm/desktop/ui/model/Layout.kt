@@ -92,13 +92,29 @@ data class PhotosSheetLayout(
     val stripTile: Int,
 )
 
+/**
+ * 照片弹窗三条固定高的里两条（第三条是会随窗口变的缩略条）。
+ *
+ * ★ 抽成常量而不是散在 Composable 的 padding 里：大图能有多大，是
+ *   `height - 头部 - 缩略条 - 操作条 - 3 条分隔线`，这个减法必须能被单测核对，
+ *   否则"给照片留更大空间"只能靠眼睛量。
+ */
+const val PHOTOS_HEADER_H = 38
+const val PHOTOS_ACTION_H = 42
+
+/** 大图区可用高度（扣掉头部、缩略条、操作条与三条 1 dp 分隔线）。 */
+fun previewHeight(sheet: PhotosSheetLayout): Int =
+    sheet.height - PHOTOS_HEADER_H - sheet.stripH - PHOTOS_ACTION_H - 3
+
 fun photosSheetLayout(windowWidth: Int, windowHeight: Int): PhotosSheetLayout {
     val w = dialogWidth(windowWidth)
     val h = dialogHeight(windowHeight)
-    val side = if (w >= 760) 280 else 0
+    // 侧栏只放"台账两格 + 类型 + 提示"，240 就够；原来 280 是给四行重复事实留的位置，
+    // 那些事实头部已经有了（时间段、桩号、张数），省下的 40 全部给大图。
+    val side = if (w >= 720) 240 else 0
     // 弹窗矮的时候缩略条要压：它只是"切换照片"的入口，大图才是主体。
-    val stripH = if (h >= 560) 108 else 84
-    val stripTile = if (h >= 560) 76 else 60
+    val stripH = if (h >= 560) 92 else 72
+    val stripTile = if (h >= 560) 64 else 52
     return PhotosSheetLayout(w, h, side, stripH, stripTile)
 }
 

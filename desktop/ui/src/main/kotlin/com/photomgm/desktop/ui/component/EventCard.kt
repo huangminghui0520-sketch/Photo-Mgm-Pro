@@ -20,6 +20,15 @@
 // ★ 卡片里的照片格**不显示文件名**，显示拍摄时刻（08:14）。
 //   复核时真正要判断的是"这个事件的时间窗里，照片对不对、有没有漏"，
 //   文件名（IMG_20261101_081432.jpg）在那个判断里没有信息量，时刻有。
+//
+// ★ 描边语义（三条边各有各的意思，不许混用）：
+//     红色边   —— 这张卡片**已经挂了照片**（has photos）。扫一列卡片时，"有没有图上"是最先要
+//                 判断的事，用色相而不是再加一个标签去表达；红是项目里唯一的"实心信号色"。
+//     强调边   —— 需要人处理（待确认：有 hint / 无照片 / 待定时间）。没有照片的卡片才用它，
+//                 因为"无照片"本身也是待确认的一种，两者不会同屏争夺同一条边。
+//     暖色底+边 —— 未匹配池（它不是事件，是整个列表的"第 N+1 个待处理单元"）。
+//   优先级：未匹配 > 有照片 > 待确认 > 悬停 > 静止。有照片的卡片即使待确认也走红边，
+//   但它的序号仍用强调色、问题标签仍在 —— 待确认的信息没有丢，只是不再抢描边。
 package com.photomgm.desktop.ui.component
 
 import androidx.compose.foundation.background
@@ -67,9 +76,11 @@ import com.photomgm.desktop.ui.model.CARD_HEADER_H
 import com.photomgm.desktop.ui.model.CARD_INDEX_W
 import com.photomgm.desktop.ui.model.CARD_PAD
 import com.photomgm.desktop.ui.model.CARD_TIME_W
+import com.photomgm.desktop.ui.model.CardEdge
 import com.photomgm.desktop.ui.model.EMPTY_STRIP_H
 import com.photomgm.desktop.ui.model.TILE_GAP
 import com.photomgm.desktop.ui.model.WorkQueue
+import com.photomgm.desktop.ui.model.cardEdge
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius
 import com.photomgm.desktop.ui.theme.PmSpace
@@ -92,6 +103,7 @@ fun EventCard(
         modifier = modifier,
         // 待确认的卡片换强调色描边：不新增色块、不改栅格，但在一列白卡片里能一眼挑出来。
         accent = needReview,
+        hasPhotos = photos.isNotEmpty(),
     ) {
         CardHeader(
             index = index,
@@ -101,7 +113,9 @@ fun EventCard(
             detail = event.description,
             indexAccent = needReview,
             tags = { WorkQueue.issueLabels(event).forEach { label ->
-                Tag(label, if (label == "无照片") Tone.DANGER else Tone.WARN)
+                // 红边现在表示"有照片"，所以"无照片"不再用红色：同一张卡片里红框配红字，
+                // 两种红互相抵消，反而谁也读不出来。无照片是"缺口"，用中性标签 + 占位行说。
+                Tag(label, Tone.NEUTRAL)
                 Spacer(Modifier.width(PmSpace.xs))
             } },
             photoCount = photos.size,
@@ -141,8 +155,9 @@ fun UnmatchedCard(
 /**
  * 卡片外壳：白底 + 1 dp 描边 + 统一内边距。
  *
- * `accent` = 需要人处理（待确认 / 未匹配），把描边换成强调色的一层淡色；
- * `warm` = 未匹配池专用的暖底（它不是一个"事件"，用底色区分，而不是加一个标题前缀）。
+ * `hasPhotos` = 这个单元已经挂了照片 → 红边（见文件头"描边语义"）；
+ * `accent`    = 需要人处理（待确认），在无照片时用强调色描边；
+ * `warm`      = 未匹配池专用的暖底（它不是一个"事件"，用底色区分，而不是加一个标题前缀）。
  */
 @Composable
 private fun CardFrame(
@@ -150,18 +165,20 @@ private fun CardFrame(
     modifier: Modifier = Modifier,
     accent: Boolean = false,
     warm: Boolean = false,
+    hasPhotos: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val shape = RoundedCornerShape(PmRadius.panel)
-    val borderTone = when {
-        warm && hovered -> PmColor.warn
-        warm -> PmColor.warn.copy(alpha = 0.35f)
-        accent && hovered -> PmColor.accent.copy(alpha = 0.75f)
-        accent -> PmColor.accent.copy(alpha = 0.28f)
-        hovered -> PmColor.lineStrong
-        else -> PmColor.line
+    // 谁抢到这条边由 model.cardEdge 决定（纯函数、有单测）；这里只负责上色。
+    // 悬停不改变"这条边说什么"，只把它加实一档 —— 否则鼠标一过，红边变强调边，
+    // 用户会以为卡片的状态变了。
+    val borderTone = when (cardEdge(hasPhotos = hasPhotos, review = accent, unmatched = warm)) {
+        CardEdge.UNMATCHED -> if (hovered) PmColor.warn else PmColor.warn.copy(alpha = 0.35f)
+        CardEdge.PHOTOS -> if (hovered) PmColor.danger else PmColor.danger.copy(alpha = 0.72f)
+        CardEdge.REVIEW -> if (hovered) PmColor.accent.copy(alpha = 0.75f) else PmColor.accent.copy(alpha = 0.28f)
+        CardEdge.REST -> if (hovered) PmColor.lineStrong else PmColor.line
     }
 
     Column(
@@ -233,7 +250,7 @@ private fun CardHeader(
         Text(
             if (photoCount > 0) "$photoCount 张" else "",
             style = PmType.numeric,
-            color = if (photoCount == 0) PmColor.danger else PmColor.ink2,
+            color = if (photoCount == 0) PmColor.ink4 else PmColor.ink2,
             textAlign = TextAlign.End,
             maxLines = 1,
             modifier = Modifier.width(CARD_COUNT_W.dp),
@@ -313,7 +330,9 @@ private fun PhotoThumb(photo: PhotoInfo, slot: Int?, tile: Int) {
         if (slot != null) {
             Box(
                 Modifier
-                    .align(Alignment.TopStart)
+                    // 角标放左下：右上角留给"派生文件"点、中间留给拍摄时刻。
+                    // 放左上会把时刻顶到偏下，一眼看去"这张图的时间对不齐"。
+                    .align(Alignment.BottomStart)
                     .padding(3.dp)
                     .clip(RoundedCornerShape(PmRadius.control))
                     .background(PmColor.accent)

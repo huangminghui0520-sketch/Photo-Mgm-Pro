@@ -30,16 +30,29 @@ sealed interface Selection {
     data object Unmatched : Selection
 }
 
+/** 把选中的照片交给另一个事件时，是"搬过去"还是"那边也多一份"。 */
+enum class AssignMode(val verb: String) {
+    /** 移动：原事件不再有它（"它属于那边"）。 */
+    MOVE("移动"),
+
+    /** 复制：原事件保留，目标事件多一份（"两个事件都要用它"）。 */
+    COPY("复制"),
+}
+
 /** 页面上唯一的"覆盖层"通道。同一时刻最多一个。 */
 sealed interface Sheet {
-    /** 设置：日期 / 源目录 / 导出目录 / 保留策略 / 校验方式。 */
+    /** 设置：源目录 / 导出目录 / 导出内容 / 校验方式（**不含巡查日期**，它在主页输入带上）。 */
     data object Settings : Sheet
 
     /** 某事件（或未匹配池）的全部照片 —— 点卡片打开，在这里操作照片。 */
     data class Photos(val target: Selection) : Sheet
 
-    /** 把选中照片移到另一个事件（或移入未匹配池）。 */
-    data class Move(val photoIds: List<Long>, val from: Selection) : Sheet
+    /** 把选中照片移动/复制到另一个事件（移动模式下还可以移入未匹配池）。 */
+    data class Assign(
+        val photoIds: List<Long>,
+        val from: Selection,
+        val mode: AssignMode = AssignMode.MOVE,
+    ) : Sheet
 
     /** 重新分析会丢弃人工调整，需要确认。 */
     data object ConfirmReanalyze : Sheet
@@ -78,9 +91,20 @@ data class UiState(
 
     /** 照片弹窗里正在预览的那张（左大图）。 */
     val activePhotoId: Long? = null,
+
+    /**
+     * 照片弹窗里勾选的照片（要移动/复制/移出的那几张）。
+     *
+     * ★ 与 [activePhotoId] 是两件事：active 是"我在看哪张"，selected 是"我要对哪几张动手"。
+     *   两者分开才可能"看着 A、对 B 动手"（比如挑出三张一起复制走）。
+     *   抽屉式规则见 [operationTargets]：没勾选时，操作对象就是当前这张。
+     */
     val selectedPhotoIds: Set<Long> = emptySet(),
 
-    /** 移动弹窗里的搜索词。 */
+    /** 照片弹窗里的搜索词（按文件名 / 拍摄时刻过滤缩略条）。 */
+    val photoQuery: String = "",
+
+    /** 分配弹窗（移动 / 复制）里的搜索词。 */
     val moveQuery: String = "",
 
     /** 日志文本的"外部修订号"：每次导入文件 +1，用来让文本框重新同步。 */
@@ -148,6 +172,15 @@ fun reduce(ui: UiState, state: AppState): UiState {
         activePhotoId = next.activePhotoId?.takeIf { id -> state.photos.any { it.id == id } },
     )
 
+    // ⑥ 弹窗关掉后清掉它的搜索词：否则下次打开会看到一个"少了几张"的照片条，
+    //    而搜索框已经不在视野里 —— 那会像照片丢了。
+    if (next.sheet !is Sheet.Photos && next.photoQuery.isNotEmpty()) {
+        next = next.copy(photoQuery = "")
+    }
+    if (next.sheet !is Sheet.Assign && next.moveQuery.isNotEmpty()) {
+        next = next.copy(moveQuery = "")
+    }
+
     return next
 }
 
@@ -179,14 +212,24 @@ fun resultToShow(ui: UiState, state: AppState): com.photomgm.desktop.core.api.Ex
 /** 当前 sheet 指向的照片集合（未打开照片弹窗时为空）。 */
 fun sheetSelection(ui: UiState): Selection = when (val s = ui.sheet) {
     is Sheet.Photos -> s.target
-    is Sheet.Move -> s.from
+    is Sheet.Assign -> s.from
     else -> Selection.None
 }
+
+/**
+ * "这次动作作用在哪几张照片"的唯一判定。
+ *
+ * ★ 规则：勾了就用勾的，没勾就用当前大图。
+ *   这是移除键盘多选（Ctrl+点击）之后补上的默认值 —— 绝大多数时候用户只想动正在看的那张，
+ *   硬要求"先勾选再操作"等于把主路径变成两步。多选才需要去点勾选框。
+ */
+fun operationTargets(selected: Set<Long>, active: Long?): List<Long> =
+    if (selected.isNotEmpty()) selected.toList() else listOfNotNull(active)
 
 private fun validSheet(sheet: Sheet?, state: AppState): Sheet? = when (sheet) {
     null, Sheet.Settings, Sheet.ConfirmReanalyze -> sheet
     is Sheet.Photos -> if (validTarget(sheet.target, state)) sheet else null
-    is Sheet.Move -> {
+    is Sheet.Assign -> {
         val ids = sheet.photoIds.filter { id -> state.photos.any { it.id == id } }
         if (ids.isEmpty()) null else sheet.copy(photoIds = ids)
     }

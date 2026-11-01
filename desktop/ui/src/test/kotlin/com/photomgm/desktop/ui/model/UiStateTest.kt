@@ -132,10 +132,31 @@ class UiStateTest {
     }
 
     @Test
-    fun `移动弹窗里失效的照片被剔除，全失效则关闭`() {
-        val partially = reduce(UiState(sheet = Sheet.Move(listOf(1, 404), Selection.Event(1))), stateWithEvents())
-        assertEquals(Sheet.Move(listOf(1), Selection.Event(1)), partially.sheet)
-        assertNull(reduce(UiState(sheet = Sheet.Move(listOf(404), Selection.Event(1))), stateWithEvents()).sheet)
+    fun `分配弹窗里失效的照片被剔除，全失效则关闭`() {
+        val partially = reduce(UiState(sheet = Sheet.Assign(listOf(1, 404), Selection.Event(1))), stateWithEvents())
+        assertEquals(Sheet.Assign(listOf(1), Selection.Event(1)), partially.sheet)
+        assertNull(reduce(UiState(sheet = Sheet.Assign(listOf(404), Selection.Event(1))), stateWithEvents()).sheet)
+        // 模式必须跟着走：复制弹窗里照片都失效后关掉，不该"降级"成移动
+        val copy = Sheet.Assign(listOf(1, 404), Selection.Event(1), AssignMode.COPY)
+        assertEquals(copy.copy(photoIds = listOf(1)), reduce(UiState(sheet = copy), stateWithEvents()).sheet)
+    }
+
+    @Test
+    fun `弹窗关掉后它的搜索词被清空`() {
+        // 否则下次打开照片弹窗会看到一个"少了几张"的列表，而搜索框已经不在视野里
+        val stillOpen = reduce(UiState(sheet = Sheet.Photos(Selection.Event(1)), photoQuery = "08:3"), stateWithEvents())
+        assertEquals("08:3", stillOpen.photoQuery)
+
+        val closed = reduce(UiState(photoQuery = "08:3", moveQuery = "K138"), stateWithEvents())
+        assertEquals("", closed.photoQuery)
+        assertEquals("", closed.moveQuery)
+    }
+
+    @Test
+    fun `操作对象没勾选时就是当前那张`() {
+        assertEquals(listOf(7L), operationTargets(emptySet(), 7L))
+        assertEquals(listOf(1L, 2L), operationTargets(linkedSetOf(1L, 2L), 99L))
+        assertEquals(emptyList(), operationTargets(emptySet(), null))
     }
 
     @Test

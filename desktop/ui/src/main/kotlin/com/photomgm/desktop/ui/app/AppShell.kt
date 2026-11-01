@@ -1,19 +1,23 @@
 // ui/app/AppShell.kt —— 窗口壳：顶栏 / 消息 / 页面 / 状态栏 / 弹窗
 //
 // ★ 全窗口只有四层，每层回答一个固定问题：
-//     顶栏   —— 我在处理哪一天？现在能不能导出？（日期 + 状态 + 设置 + 导出）
+//     顶栏   —— 这是什么工具、现在能不能导出？（品牌 + 状态 + 导出 + 设置）
 //     消息   —— 出什么事了？（错误必须由人确认才消失，不自动隐藏）
-//     页面   —— 唯一的页面：日志条 + 事件卡片列表（见 ui/page/WorkspacePage）
-//     状态栏 —— 数据是什么口径？有哪些快捷键？（永不遮挡内容）
+//     页面   —— 唯一的页面：巡查日期 + 日志条 + 事件卡片列表（见 ui/page/WorkspacePage）
+//     状态栏 —— 数据是什么口径？（永不遮挡内容）
+//
+// ★ 这一版把**全部键盘操作**删掉了（用户明确要求）：没有 F5 / Ctrl+O / Ctrl+E / Ctrl+, / Esc，
+//   也没有任何 Modifier.focusable / onPreviewKeyEvent。所有动作都有点得到的入口：
+//   分析在日志条旁、导入 .txt 在输入框右上、导出/设置在顶栏、关闭在弹窗右上角。
+//   代价是屏幕上必须写明入口（状态栏右下就是"点哪里"，不是"按哪个键"），
+//   收益是没有"按键被输入框吞掉"这类排查不完的问题 —— 内业机多数时候没人碰键盘。
 //
 // ★ 上一版有"步骤栏 + 四个互斥页面"，这一版把步骤栏整个删掉：
 //   单页结构里没有"第几步"，只有"在不在看某个事件"——那件事由弹窗表达。
-//   少一条 64 dp 的竖栏，照片卡片就多 64 dp 的宽度。
 package com.photomgm.desktop.ui.app
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -32,18 +36,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,11 +52,10 @@ import com.photomgm.desktop.ui.component.PmButton
 import com.photomgm.desktop.ui.component.Tone
 import com.photomgm.desktop.ui.component.bg
 import com.photomgm.desktop.ui.component.fg
+import com.photomgm.desktop.ui.dialog.AssignSheet
 import com.photomgm.desktop.ui.dialog.ConfirmReanalyzeSheet
-import com.photomgm.desktop.ui.dialog.MoveSheet
 import com.photomgm.desktop.ui.dialog.PhotosSheet
 import com.photomgm.desktop.ui.dialog.SettingsSheet
-import com.photomgm.desktop.ui.format.dateText
 import com.photomgm.desktop.ui.model.Busy
 import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
@@ -81,45 +75,10 @@ fun AppShell(
     onUi: (UiState) -> Unit,
     actions: Actions,
 ) {
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(PmColor.canvas)
-            .focusRequester(focus)
-            .focusable()
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when {
-                    event.key == Key.F5 -> {
-                        if (state.events.isNotEmpty()) onUi(ui.copy(sheet = Sheet.ConfirmReanalyze)) else actions.analyze()
-                        true
-                    }
-
-                    event.isCtrlPressed && event.key == Key.O -> {
-                        actions.importLogFile(); true
-                    }
-
-                    event.isCtrlPressed && event.key == Key.E -> {
-                        if (state.canExport) actions.export(); true
-                    }
-
-                    event.isCtrlPressed && event.key == Key.Comma -> {
-                        onUi(ui.copy(sheet = Sheet.Settings)); true
-                    }
-
-                    event.key == Key.Escape -> {
-                        // Esc 只做一件事：关掉当前覆盖层/选择。不退出、不改数据。
-                        if (ui.sheet != null) onUi(ui.copy(sheet = null))
-                        else onUi(ui.copy(selectedPhotoIds = emptySet()))
-                        true
-                    }
-
-                    else -> false
-                }
-            },
+            .background(PmColor.canvas),
     ) {
         val width = maxWidth.value.toInt()
         val height = maxHeight.value.toInt()
@@ -130,7 +89,7 @@ fun AppShell(
                 null -> if (ui.logEntryVisible) "none+logentry" else "none"
                 Sheet.Settings -> "settings"
                 is Sheet.Photos -> "photos:${s.target}"
-                is Sheet.Move -> "move:${s.photoIds.size}"
+                is Sheet.Assign -> "assign:${s.mode}:${s.photoIds.size}"
                 Sheet.ConfirmReanalyze -> "confirm"
             }
             UiLog.line(
@@ -169,7 +128,7 @@ fun AppShell(
             Sheet.Settings -> SettingsSheet(state, ui, onUi, actions, width, height)
             Sheet.ConfirmReanalyze -> ConfirmReanalyzeSheet(state, ui, onUi, actions)
             is Sheet.Photos -> PhotosSheet(state, ui, onUi, actions, width, height)
-            is Sheet.Move -> MoveSheet(state, ui, onUi, actions, width, height)
+            is Sheet.Assign -> AssignSheet(state, ui, onUi, actions, width, height)
         }
     }
 }
@@ -199,19 +158,6 @@ private fun TopBar(state: AppState, ui: UiState, onUi: (UiState) -> Unit, action
         Spacer(Modifier.width(PmSpace.l))
         Box(Modifier.width(1.dp).height(18.dp).background(PmColor.line))
         Spacer(Modifier.width(PmSpace.l))
-
-        // 日期是项目主键，点击直接进设置改它（而不是再找一次入口）。
-        Row(
-            Modifier
-                .clip(RoundedCornerShape(PmRadius.control))
-                .clickable(indication = null, interactionSource = null) { onUi(ui.copy(sheet = Sheet.Settings)) }
-                .padding(horizontal = PmSpace.s, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("巡查日期", style = PmType.caption, color = PmColor.ink3)
-            Spacer(Modifier.width(PmSpace.xs))
-            Text(dateText(state.settings.patrolDate), style = PmType.numeric, color = PmColor.ink)
-        }
 
         Spacer(Modifier.width(PmSpace.m))
         StatusPill(state.status, ui.busy)
@@ -339,7 +285,8 @@ private fun StatusBar(state: AppState, ui: UiState, onUi: (UiState) -> Unit) {
             )
         }
         Text(
-            "F5 分析 · Ctrl+O 导入日志 · Ctrl+E 导出 · Ctrl+, 设置 · Esc 关闭",
+            // 没有快捷键可提示了，所以这里写"点哪里"：新加的搜索/复制如果没人知道，就等于没做。
+            "点事件卡片看照片 · 弹窗里可搜索 / 复制到其他事件",
             style = PmType.caption,
             color = PmColor.ink3,
             maxLines = 1,

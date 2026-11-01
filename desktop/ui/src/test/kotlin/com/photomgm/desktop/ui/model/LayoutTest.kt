@@ -104,6 +104,41 @@ class LayoutTest {
     }
 
     @Test
+    fun `照片弹窗的信息区被压到最薄`() {
+        // 侧栏 240（原 280）、缩略条 92/72（原 108/84）：这三条是"给照片让出空间"的口径。
+        val small = photosSheetLayout(886, 503)
+        assertEquals(240, small.sideW)
+        assertEquals(72, small.stripH)
+        assertEquals(52, small.stripTile)
+        assertEquals(38, PHOTOS_HEADER_H)
+        assertEquals(42, PHOTOS_ACTION_H)
+        // 455 - 38 - 72 - 42 - 3 = 300：最小窗下大图区仍拿到 300（原来 ~229 可用）
+        assertEquals(300, previewHeight(small))
+
+        val large = photosSheetLayout(1366, 740)
+        assertEquals(240, large.sideW)
+        assertEquals(92, large.stripH)
+        assertEquals(64, large.stripTile)
+        // 692 - 38 - 92 - 42 - 3 = 517
+        assertEquals(517, previewHeight(large))
+        assertTrue(previewHeight(large) > previewHeight(small))
+    }
+
+    @Test
+    fun `大图区永远不低于 240，且随窗口变高而变大`() {
+        // 窗口每高 10，大图就高 10；唯一会"回落"的地方是缩略条换档（72 → 92），
+        // 换档时大图让出 20 给缩略条、同时窗口给了 10，于是净回落 10。
+        // 允许 20 的容差，超出就说明有人往这条链里加了固定的高度开销。
+        var last = 0
+        for (h in 540..1200 step 10) {
+            val p = previewHeight(photosSheetLayout(886, h))
+            assertTrue(p >= 240, "h=$h 大图区只有 $p")
+            assertTrue(p >= last - 20, "h=$h 大图高 $p 比上一档 $last 回落超过 20（缩略条换档的回落在内）")
+            last = p
+        }
+    }
+
+    @Test
     fun `照片弹窗宽度增加时侧栏不侵占大图到不可用`() {
         for (w in listOf(900, 1200, 1440, 1920)) {
             val l = photosSheetLayout(w, 900)

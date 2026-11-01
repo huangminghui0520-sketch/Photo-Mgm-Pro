@@ -163,6 +163,37 @@ class CorePipelineTest {
     }
 
     @Test
+    fun `复制照片到另一个事件`() {
+        readyCore().use { core ->
+            val photoId = core.state.value.events.first { it.id == 2 }.photoIds.first()
+
+            // 复制：原事件不动，目标事件多一份
+            assertEquals(1, core.copyPhotos(listOf(photoId), 1))
+            val after = core.state.value
+            assertTrue(after.events.first { it.id == 2 }.photoIds.contains(photoId), "原事件必须保留")
+            assertTrue(after.events.first { it.id == 1 }.photoIds.contains(photoId), "目标事件必须多一份")
+            assertEquals(0, after.unmatchedPhotoIds.count { it == photoId }, "复制不能让照片变成未匹配")
+
+            // 幂等：同一目标再点一次、或目标本来就是它的家，都不应长出第二份
+            assertEquals(0, core.copyPhotos(listOf(photoId), 1), "重复复制不再新增")
+            assertEquals(0, core.copyPhotos(listOf(photoId), 2), "已经是它自己的事件")
+
+            // 移动会清掉复制关系：移走之后旧的事件里不能还留着一份
+            core.movePhotos(listOf(photoId), 3)
+            val moved = core.state.value
+            assertTrue(moved.events.first { it.id == 1 }.photoIds.none { it == photoId }, "移走后旧复制份必须消失")
+            assertTrue(moved.events.first { it.id == 3 }.photoIds.contains(photoId))
+
+            // 未匹配池里的照片不参与复制（它没有家，复制会同时出现在两处）
+            core.movePhotos(listOf(photoId), null)
+            assertEquals(0, core.copyPhotos(listOf(photoId), 1), "未匹配照片不能复制")
+
+            core.resetManualAdjustments()
+            assertEquals(1, core.state.value.events.first { it.id == 2 }.photoIds.size)
+        }
+    }
+
+    @Test
     fun `未设置输出目录时不可导出`() {
         newCore().use { core ->
             core.setLogText(logText)

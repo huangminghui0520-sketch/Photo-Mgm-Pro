@@ -1,11 +1,18 @@
-// ui/page/LogBar.kt —— 页面顶部的日志条
+// ui/page/LogBar.kt —— 页面顶部的输入条：巡查日期 + 巡查日志
 //
 // ★ 交互依据（用户明确要求）：日志框只承担"把文本送进来"，不承担"阅读和编辑"。
 //   所以它只有两种形态，且默认短：
-//     ① 展开 —— 一块 88 dp 高的粘贴区 + 一个主按钮「开始分析」；
-//     ② 收起 —— 一行摘要（解析出几个事件、几张照片），右侧一个「重新输入」。
+//     ① 展开 —— 一块 72 dp 高的粘贴区 + 一个主按钮「开始分析」；
+//     ② 收起 —— 一行摘要（解析出几个事件、几张照片），右侧「重新分析」「重新输入」。
 //   解析成功后自动切到 ②（见 model/UiState.reduce ①），把纵向空间让给事件卡片。
 //   要看/改日志原文时点「重新输入」，原文还在（core.logText 持久化，不会丢）。
+//
+// ★ 巡查日期为什么在这里、且**两种形态下都在**：
+//   日期和日志是 analyze() 的两个输入（日期决定扫哪些文件名、也决定"只有月日"的日志补哪一年），
+//   所以它跟日志同处一条输入带，而不是进设置弹窗 —— 改日期 → 重新分析，是一条不断开的动作链，
+//   中间隔一次"打开弹窗 / 翻到某一节 / 关弹窗"就断了。
+//   日志可以收，日期不能收：日期是项目主键，它必须随时看得见、随时改得到。
+//   代价是一条日期列常驻 ~70 dp，换来"我在处理哪一天"永远不用猜。
 //
 // ★ 主按钮为什么只有一个：core 的 analyze() 是一条原子流水线
 //   （解析日志 → 扫目录 → 粗筛 → 派生死重 → 读 EXIF → GPS 分组 → 分类），
@@ -44,14 +51,24 @@ import com.photomgm.desktop.core.api.CoreStatus
 import com.photomgm.desktop.ui.app.Actions
 import com.photomgm.desktop.ui.component.ButtonKind
 import com.photomgm.desktop.ui.component.PmButton
+import com.photomgm.desktop.ui.component.PmDateField
 import com.photomgm.desktop.ui.component.PmTextArea
 import com.photomgm.desktop.ui.component.Tag
 import com.photomgm.desktop.ui.component.Tone
+import com.photomgm.desktop.ui.format.dateText
 import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmSpace
 import com.photomgm.desktop.ui.theme.PmType
+
+/**
+ * 日期列的固定宽：日期字段 196 + 前后一天 28×2 + 今天 48 + 三个 4 dp 间隙。
+ *
+ * ★ 写死而不是自适应：这一列的宽度决定了右侧日志框的左边缘，宽度一变，输入的起点就跳；
+ *   而且两种形态（输入态 / 摘要态）必须同宽，否则切换时整条带会重新排版一次。
+ */
+private val DATE_COL_W = 312.dp
 
 @Composable
 fun LogBar(
@@ -60,10 +77,59 @@ fun LogBar(
     onUi: (UiState) -> Unit,
     actions: Actions,
 ) {
-    if (ui.logEntryVisible) {
-        LogEntry(state, ui, onUi, actions)
-    } else {
-        LogSummary(state, ui, onUi)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(PmColor.surface)
+            .padding(horizontal = PmSpace.xl, vertical = PmSpace.l),
+        verticalAlignment = Alignment.Top,
+    ) {
+        DateSection(state, ui, onUi, actions)
+        Spacer(Modifier.width(PmSpace.xl))
+        if (ui.logEntryVisible) {
+            LogEntry(state, ui, onUi, actions, Modifier.weight(1f))
+        } else {
+            LogSummary(state, ui, onUi, Modifier.weight(1f))
+        }
+    }
+}
+
+/**
+ * 巡查日期（日期字段 + 前后一天 + 今天）。
+ *
+ * 日历面板就地展开在这一列下方（不是浮层）：输入带本身就是页面第一段，
+ * 展开时把下面的日志/列表往下推，行为可预测，也不需要在页面里做第二套覆盖层。
+ */
+@Composable
+private fun DateSection(
+    state: AppState,
+    ui: UiState,
+    onUi: (UiState) -> Unit,
+    actions: Actions,
+) {
+    Column(Modifier.width(DATE_COL_W)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("巡查日期", style = PmType.label, color = PmColor.ink2)
+            Spacer(Modifier.weight(1f))
+            Text("只处理这天的照片", style = PmType.caption, color = PmColor.ink3)
+        }
+        Spacer(Modifier.height(PmSpace.xs))
+        PmDateField(
+            date = state.settings.patrolDate,
+            onChange = { picked ->
+                actions.setPatrolDate(picked)
+                // 日期改了但结果还是旧的：用一条可关闭的提示说清楚"下一步点哪儿"，
+                // 而不是把联系人拦在确认弹窗前面（改日期只是输入，不销毁任何东西）。
+                if (state.events.isNotEmpty()) {
+                    onUi(
+                        ui.copy(
+                            localMessage = "巡查日期已改为 ${dateText(picked)}：" +
+                                "点「重新分析」按新日期重扫照片，已有的事件与人工调整会重算。",
+                        ),
+                    )
+                }
+            },
+        )
     }
 }
 
@@ -73,6 +139,7 @@ private fun LogEntry(
     ui: UiState,
     onUi: (UiState) -> Unit,
     actions: Actions,
+    modifier: Modifier = Modifier,
 ) {
     // 打字时不回写 draft（否则光标会跳）；只有"外部导入"才通过 logRevision 强制同步。
     var draft by remember { mutableStateOf(state.logText) }
@@ -81,13 +148,7 @@ private fun LogEntry(
     val lines = remember(draft) { if (draft.isBlank()) 0 else draft.count { it == '\n' } + 1 }
     val canAnalyze = draft.isNotBlank() || state.settings.sourceDirs.isNotEmpty()
 
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(PmColor.surface)
-            .padding(horizontal = PmSpace.xl, vertical = PmSpace.l),
-        verticalAlignment = Alignment.Bottom,
-    ) {
+    Row(modifier, verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("巡查日志", style = PmType.label, color = PmColor.ink2)
@@ -126,7 +187,9 @@ private fun LogEntry(
 
         Spacer(Modifier.width(PmSpace.l))
 
-        Column(horizontalAlignment = Alignment.End) {
+        // 按钮与日志框**底边**对齐：日期列比日志列矮，若整行按顶部对齐，
+        // 「开始分析」会浮到标题行的高度上，看起来像在给"巡查日志"这四个字做按钮。
+        Column(Modifier.align(Alignment.Bottom), horizontalAlignment = Alignment.End) {
             PmButton(
                 text = if (state.events.isEmpty()) "开始分析" else "重新分析",
                 onClick = {
@@ -139,11 +202,7 @@ private fun LogEntry(
                 icon = Icons.Filled.PlayArrow,
             )
             Spacer(Modifier.height(PmSpace.xs))
-            Text(
-                "解析日志 + 匹配照片",
-                style = PmType.caption,
-                color = PmColor.ink3,
-            )
+            Text("解析日志 + 匹配照片", style = PmType.caption, color = PmColor.ink3)
             if (!canAnalyze) {
                 Spacer(Modifier.height(2.dp))
                 Text("先粘贴日志或选择源目录", style = PmType.caption, color = PmColor.warn)
@@ -153,16 +212,10 @@ private fun LogEntry(
 }
 
 @Composable
-private fun LogSummary(state: AppState, ui: UiState, onUi: (UiState) -> Unit) {
+private fun LogSummary(state: AppState, ui: UiState, onUi: (UiState) -> Unit, modifier: Modifier = Modifier) {
     val parsed = state.parsed
     val events = state.events.size
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(PmColor.surface)
-            .padding(horizontal = PmSpace.xl, vertical = PmSpace.m),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = PmColor.ok, modifier = Modifier.size(15.dp))
         Spacer(Modifier.width(PmSpace.s))
         Text("日志已解析", style = PmType.label, color = PmColor.ink)

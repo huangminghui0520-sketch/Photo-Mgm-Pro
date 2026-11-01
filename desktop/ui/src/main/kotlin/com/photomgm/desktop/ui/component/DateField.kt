@@ -7,9 +7,10 @@
 //     ③ 输入框里没有"这个月哪几天在干活"的信息，改日期前无从判断。
 //   日历把这三件事一次解决：点格子 = 选定，淡色补位日让月份边界可见，面板里直接显示已选日期。
 //
-// ★ 面板是**就地展开**（不是浮层）：设置弹窗本身已经是一个覆盖层，再叠一层浮层就要处理
-//   z 序、点外部关闭、越界翻转；就地展开在 455 dp 高的设置面板里只是把下面的内容往下推，
-//   行为可预测，也不需要额外状态（open 是组件本地状态，不污染 UiState）。
+// ★ 面板是**就地展开**（不是浮层）：它长在主页输入带的日期列里（见 ui/page/LogBar 的 DateSection），
+//   展开时把下面的日志/列表往下推。做成浮层就要处理 z 序、点外部关闭、贴着窗口下沿时的翻转，
+//   而"往下推"在桌面端本来就是可预测的行为，也不需要额外状态
+//   （open 是组件本地状态，不污染 UiState —— 它是一次瞬时展开，不是业务状态）。
 package com.photomgm.desktop.ui.component
 
 import androidx.compose.foundation.background
@@ -59,8 +60,8 @@ import java.time.YearMonth
 import java.time.format.TextStyle as JTextStyle
 import java.util.Locale
 
-/** 日历格：34×26。7 列 = 238，加面板内边距后 254 —— 设置面板内容宽 528，放得下。
- *  高度按"展开后整个面板仍能塞进 455 dp 的设置面板可视区"倒推：6 行 × 26 是上限。 */
+/** 日历格：34×26。7 列 = 238，加面板内边距后 254 —— 主页日期列 312，放得下且不压到日志框。
+ *  高度按"展开后整个面板 + 日志框仍能塞进 540 dp 高的窗口"倒推：6 行 × 26 是上限。 */
 private val CELL_W = 34.dp
 private val CELL_H = 26.dp
 
@@ -108,6 +109,7 @@ private fun DateButton(date: LocalDate, open: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val shape = RoundedCornerShape(PmRadius.control)
+    // ★ SHORT 格式在中文里已经是「周日」，前面不能再拼一个「周」（会变成"周周日"）。
     val weekday = date.dayOfWeek.getDisplayName(JTextStyle.SHORT, Locale.CHINA)
 
     Row(
@@ -131,7 +133,7 @@ private fun DateButton(date: LocalDate, open: Boolean, onClick: () -> Unit) {
         Spacer(Modifier.width(PmSpace.m))
         Text(dateText(date), style = PmType.numeric, color = PmColor.ink)
         Spacer(Modifier.width(PmSpace.s))
-        Text("周$weekday", style = PmType.caption, color = PmColor.ink3)
+        Text(weekday, style = PmType.caption, color = PmColor.ink3)
         Spacer(Modifier.weight(1f))
         Icon(
             Icons.Filled.ChevronRight,

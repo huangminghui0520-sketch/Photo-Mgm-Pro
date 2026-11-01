@@ -1,11 +1,14 @@
 // ui/dialog/SettingsSheet.kt —— 设置弹窗（页面上唯一会弹窗的"非照片"操作）
 //
 // ★ 里面只放三类东西：
-//     ① 分析输入：巡查日期、源目录 —— 改了就要求重新分析；
+//     ① 分析输入：源目录 —— 改了才需要重新分析，所以和"当前的日期/日志"分开；
 //     ② 导出输出：导出目录、是否生成台账、续传校验强度 —— 只在导出时用到；
 //     ③ 一个明确的回退动作：恢复最初分类（core 的 resetManualAdjustments）。
 //   去重口径**不在这里**：它是视图参数（core 同步重算、不重新扫描），放在列表上方工具条上
 //   才符合"边看边切"的用法；放进设置会让人以为改完要重新分析。
+//   巡查日期**也不在这里**：它和日志同为 analyze 的输入、又是项目主键，必须常驻主页
+//   （ui/page/LogBar 的 DateSection）。设置里再放一份，就会出现"两个地方都能改日期、
+//   但只有一个界面能看到当前日期"的分裂；而且从主页点进设置改日期，等于让一次输入动作跨两层。
 package com.photomgm.desktop.ui.dialog
 
 import androidx.compose.foundation.background
@@ -42,7 +45,6 @@ import com.photomgm.desktop.ui.component.Field
 import com.photomgm.desktop.ui.component.Hairline
 import com.photomgm.desktop.ui.component.PmButton
 import com.photomgm.desktop.ui.component.PmCheckbox
-import com.photomgm.desktop.ui.component.PmDateField
 import com.photomgm.desktop.ui.component.PmIconButton
 import com.photomgm.desktop.ui.component.PmScrollArea
 import com.photomgm.desktop.ui.component.Segmented
@@ -88,22 +90,6 @@ fun SettingsSheet(
                 Modifier.weight(1f, fill = false),
                 contentPadding = PaddingValues(start = PmSpace.xl, end = PmSpace.xl, top = PmSpace.l, bottom = PmSpace.m),
             ) {
-                Field(
-                    label = "巡查日期",
-                    hint = "点日期展开日历；只扫文件名包含这天的照片，日志里只有月日时按这天的年份补全。",
-                    trailing = {
-                        Text(
-                            "改完需要重新分析",
-                            style = PmType.caption,
-                            color = PmColor.ink3,
-                        )
-                    },
-                ) {
-                    PmDateField(state.settings.patrolDate, actions.setPatrolDate)
-                }
-
-                Spacer(Modifier.height(PmSpace.m))
-
                 Field(
                     label = "照片源目录（${state.settings.sourceDirs.size}）",
                     hint = if (state.settings.sourceDirs.isEmpty()) "至少选一个装着当天照片的文件夹，否则分析只能解析日志。" else null,
