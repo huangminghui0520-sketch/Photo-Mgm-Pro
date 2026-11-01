@@ -32,11 +32,32 @@ dependencies {
     implementation(compose.materialIconsExtended)
 
     testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "failed", "skipped")
+        showStandardStreams = false
+    }
+    // 尺寸/布局用例全是纯函数，不碰 AWT 窗口，可在无头环境跑
+    systemProperty("java.awt.headless", "true")
 }
 
 compose.desktop {
     application {
         mainClass = "com.photomgm.desktop.ui.MainKt"
+
+        // 中文日志/诊断输出必须是 UTF-8：JDK 17 在中文 Windows 上把 System.out 绑到
+        // 控制台代码页（GBK），一旦输出被重定向到文件或管道，中文全部变乱码，
+        // "grep 日志做验收"就失效了。三个属性缺一不可（CLI 那边踩过同一个坑）。
+        jvmArgs += listOf(
+            "-Dfile.encoding=UTF-8",
+            "-Dsun.stdout.encoding=UTF-8",
+            "-Dsun.stderr.encoding=UTF-8",
+        )
 
         nativeDistributions {
             // 目标格式：MSI 需 WiX 3.x；app-image 无需任何外部工具（M7-tech 用它验证）
