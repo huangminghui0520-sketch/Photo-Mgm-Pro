@@ -114,14 +114,27 @@ private class Options(
                 return args[i + 1]
             }
 
+            // ★ 安全路径解析：JDK 17 在 Windows 下对超过 260 字符的路径，
+            //   Paths.get 会抛 InvalidPathException("Illegal character [?]...")（WindowsPathParser
+            //   加 \\?\ 长路径前缀后又把 ? 判非法）。这里捕获并转成人类可读的明确提示，
+            //   避免用户看到"参数错误：Illegal character [?]"这种天书（C3 长路径边界实测）。
+            fun path(i: Int, name: String): Path = try {
+                Paths.get(value(i, name))
+            } catch (e: Exception) {
+                val v = value(i, name)
+                val reason = if (v.length > 260) "路径过长（超过 Windows 260 字符上限，请缩短目录层级）"
+                else "含非法字符"
+                throw IllegalArgumentException("$name 路径无效（$reason）：$v")
+            }
+
             var i = 0
             while (i < args.size) {
                 when (val a = args[i]) {
                     "--source", "-s" -> { sources += value(i, a); i += 2 }
                     "--date", "-d" -> { date = LocalDate.parse(value(i, a)); i += 2 }
-                    "--log", "-l" -> { logFile = Paths.get(value(i, a)); i += 2 }
+                    "--log", "-l" -> { logFile = path(i, a); i += 2 }
                     "--log-text" -> { logText = value(i, a); i += 2 }
-                    "--out", "-o" -> { out = Paths.get(value(i, a)); i += 2 }
+                    "--out", "-o" -> { out = path(i, a); i += 2 }
                     "--template", "-t" -> { template = value(i, a).toInt(); i += 2 }
                     "--dedup" -> {
                         dedup = when (value(i, a).lowercase()) {
@@ -133,7 +146,7 @@ private class Options(
                         i += 2
                     }
                     "--no-ledger" -> { includeLedger = false; i++ }
-                    "--data-dir" -> { dataDir = Paths.get(value(i, a)); i += 2 }
+                    "--data-dir" -> { dataDir = path(i, a); i += 2 }
                     "--dry-run" -> { dryRun = true; i++ }
                     "--help", "-h" -> { help = true; i++ }
                     else -> throw IllegalArgumentException("未知参数 $a")
@@ -159,7 +172,7 @@ private fun printUsage() {
           --date, -d       巡查日期 yyyy-MM-dd（默认今天，按北京时间）
           --log, -l        巡查日志文本文件（UTF-8 / GBK 自动识别）
           --log-text       直接传日志文本（与 --log 二选一）
-          --out, -o        导出父目录（导出根建在其下）
+          --out, -o        导出父目录（导出根建在其下；--dry-run 时可省略）
           --template, -t   命名模板 0=事件类型 / 1=序号+巡查日志内容（默认 1）
           --dedup          三态去重 keep-watermarked（默认）/ keep-plain / keep-both
           --no-ledger      不生成台账 xlsx（仅复制照片）
@@ -203,15 +216,23 @@ private class Runner(private val opts: Options) {
             // ── 设置 ──────────────────────────────────────────────────────
             val normalizedSources = opts.sources.map { it.replace('\\', '/').trimEnd('/') }
             normalizedSources.forEach {
-                if (!Files.isDirectory(Paths.get(it))) return usageError("照片源目录不存在：$it")
+                // ★ C3 长路径边界：超长路径下 Paths.get 抛 InvalidPathException，这里捕获转成明确提示，
+                //   而非让用户看到 "Illegal character [?]" 天书。源目录不存在/无效都走统一 usageError。
+                val isDir = runCatching { Files.isDirectory(Paths.get(it)) }.getOrElse { false }
+                if (!isDir) return usageError("照片源目录不存在或路径无效（过长）：$it")
             }
-            val outDir = opts.outputDir ?: return usageError("必须提供 --out")
-            Files.createDirectories(outDir)
+            // ★ --dry-run 只分析不导出：--out 可选（不校验、不创建输出目录）。
+            val outDir = if (opts.dryRun) {
+                null
+            } else {
+                opts.outputDir ?: return usageError("必须提供 --out")
+            }
+            outDir?.let { Files.createDirectories(it) }
 
             core.updateSettings {
                 it.copy(
                     sourceDirs = normalizedSources,
-                    outputDir = outDir.toAbsolutePath().toString().replace('\\', '/'),
+                    outputDir = outDir?.toAbsolutePath()?.toString()?.replace('\\', '/'),
                     patrolDate = opts.patrolDate,
                     namingTemplate = opts.template,
                     dedupMode = opts.dedup,
