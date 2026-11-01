@@ -1,4 +1,4 @@
-// ui/stage/BusyOverlay.kt —— 分析/导出进行中
+// ui/component/BusyOverlay.kt —— 分析/导出进行中
 //
 // ★ 为什么不是"进度条挂在状态栏"：分析和导出期间**核心会拒绝写操作**
 //   （analyze 在 EXPORTING 时直接返回、movePhotos 同理），如果界面还留着可点的按钮，
@@ -7,7 +7,7 @@
 //   分析取消 = 丢弃这一轮（重新分析从零开始）；
 //   导出取消 = **保留已复制的文件**，下次导出自动续传（manifest 在导出根里）。
 //   这两句不一样，不能合并成"取消"两个字。
-package com.photomgm.desktop.ui.stage
+package com.photomgm.desktop.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -30,8 +30,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.ui.component.ButtonKind
-import com.photomgm.desktop.ui.component.PmButton
 import com.photomgm.desktop.ui.model.Busy
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius

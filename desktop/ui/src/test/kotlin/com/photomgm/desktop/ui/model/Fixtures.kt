@@ -67,9 +67,11 @@ fun appState(
     status: CoreStatus = CoreStatus.READY,
     lastExport: ExportResult? = null,
     outputDir: String? = "/out",
+    logText: String = "",
 ): AppState = AppState(
     settings = Settings(outputDir = outputDir),
     status = status,
+    logText = logText,
     events = events,
     photos = photos,
     eventPhotoIds = eventPhotoIds,

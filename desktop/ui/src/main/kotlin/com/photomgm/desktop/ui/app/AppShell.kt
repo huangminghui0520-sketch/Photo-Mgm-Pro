@@ -1,20 +1,19 @@
-// ui/app/AppShell.kt —— 窗口骨架：步骤栏 / 顶栏 / 内容区 / 状态栏
+// ui/app/AppShell.kt —— 窗口壳：顶栏 / 消息 / 页面 / 状态栏 / 弹窗
 //
-// ★ 全窗口只有四个固定区域，且每个区域回答一个固定问题：
-//     顶栏  —— 我在处理哪一天？（作业身份）
-//     步骤栏 —— 我在整条流程的哪一步？（可跳回，但不可跳到"还没结果"的步骤）
-//     内容区 —— 当前步骤的全部工作（由 CoreStatus 投影，见 model/Stage.kt）
-//     状态栏 —— 现在能不能操作、数据是什么口径？（永不遮挡内容）
+// ★ 全窗口只有四层，每层回答一个固定问题：
+//     顶栏   —— 我在处理哪一天？现在能不能导出？（日期 + 状态 + 设置 + 导出）
+//     消息   —— 出什么事了？（错误必须由人确认才消失，不自动隐藏）
+//     页面   —— 唯一的页面：日志条 + 事件卡片列表（见 ui/page/WorkspacePage）
+//     状态栏 —— 数据是什么口径？有哪些快捷键？（永不遮挡内容）
 //
-// ★ 为什么步骤栏是"固定 64 dp 图标条"而不是"可折叠的 300 dp 左栏"：
-//   上一版把源目录/日志/设置放进 300 dp 左栏常驻，可这三样只在第一步用得上；
-//   到了复核阶段它占着 1/3 的宽度不干活，逼得照片区只剩 2 列。
-//   把"导航"压缩到 64 dp，把宽度还给照片——这是 984 dp 工作区下的必然选择。
+// ★ 上一版有"步骤栏 + 四个互斥页面"，这一版把步骤栏整个删掉：
+//   单页结构里没有"第几步"，只有"在不在看某个事件"——那件事由弹窗表达。
+//   少一条 64 dp 的竖栏，照片卡片就多 64 dp 的宽度。
 package com.photomgm.desktop.ui.app
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -28,10 +27,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -53,27 +49,25 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.photomgm.desktop.core.api.AppState
 import com.photomgm.desktop.core.api.CoreStatus
+import com.photomgm.desktop.ui.component.BusyOverlay
+import com.photomgm.desktop.ui.component.ButtonKind
 import com.photomgm.desktop.ui.component.Hairline
 import com.photomgm.desktop.ui.component.InlineNotice
+import com.photomgm.desktop.ui.component.PmButton
 import com.photomgm.desktop.ui.component.Tone
 import com.photomgm.desktop.ui.component.bg
 import com.photomgm.desktop.ui.component.fg
+import com.photomgm.desktop.ui.dialog.ConfirmReanalyzeSheet
+import com.photomgm.desktop.ui.dialog.MoveSheet
+import com.photomgm.desktop.ui.dialog.PhotosSheet
+import com.photomgm.desktop.ui.dialog.SettingsSheet
 import com.photomgm.desktop.ui.format.dateText
 import com.photomgm.desktop.ui.model.Busy
-import com.photomgm.desktop.ui.model.Stage
-import com.photomgm.desktop.ui.model.Step
+import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.model.WorkQueue
-import com.photomgm.desktop.ui.model.exportLayout
-import com.photomgm.desktop.ui.model.inputLayout
-import com.photomgm.desktop.ui.model.railWidth
-import com.photomgm.desktop.ui.model.reviewLayout
-import com.photomgm.desktop.ui.model.step
-import com.photomgm.desktop.ui.stage.BusyOverlay
-import com.photomgm.desktop.ui.stage.ExportStage
-import com.photomgm.desktop.ui.stage.InputStage
-import com.photomgm.desktop.ui.stage.ResultStage
-import com.photomgm.desktop.ui.stage.ReviewStage
+import com.photomgm.desktop.ui.model.exportKey
+import com.photomgm.desktop.ui.page.WorkspacePage
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius
 import com.photomgm.desktop.ui.theme.PmSize
@@ -100,7 +94,8 @@ fun AppShell(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when {
                     event.key == Key.F5 -> {
-                        actions.analyze(); true
+                        if (state.events.isNotEmpty()) onUi(ui.copy(sheet = Sheet.ConfirmReanalyze)) else actions.analyze()
+                        true
                     }
 
                     event.isCtrlPressed && event.key == Key.O -> {
@@ -108,11 +103,18 @@ fun AppShell(
                     }
 
                     event.isCtrlPressed && event.key == Key.E -> {
-                        if (state.events.isNotEmpty()) actions.goStage(Stage.EXPORT); true
+                        if (state.canExport) actions.export(); true
+                    }
+
+                    event.isCtrlPressed && event.key == Key.Comma -> {
+                        onUi(ui.copy(sheet = Sheet.Settings)); true
                     }
 
                     event.key == Key.Escape -> {
-                        onUi(ui.copy(selectedPhotoIds = emptySet(), inspectorOpen = false, confirmReset = false)); true
+                        // Esc 只做一件事：关掉当前覆盖层/选择。不退出、不改数据。
+                        if (ui.sheet != null) onUi(ui.copy(sheet = null))
+                        else onUi(ui.copy(selectedPhotoIds = emptySet()))
+                        true
                     }
 
                     else -> false
@@ -120,72 +122,66 @@ fun AppShell(
             },
     ) {
         val width = maxWidth.value.toInt()
+        val height = maxHeight.value.toInt()
 
-        // 渲染日志：把"这个宽度下排成了什么样"写成可 diff 的一行。
-        // DPI 三档走查（M6b）与回归对比都靠它，不靠人肉截图对眼。
-        LaunchedEffect(width, ui.stage, ui.busy) {
-            val extra = when {
-                ui.busy != null -> " stage=busy:${ui.busy!!.name}"
-                ui.stage == Stage.REVIEW -> reviewLayout(width).let {
-                    " stage=REVIEW rail=${it.railW} list=${it.listW} grid=${it.gridW} cols=${it.gridCols} " +
-                        "inspector=${if (it.inspectorAsDrawer) "drawer" else it.inspectorW.toString()}"
-                }
-
-                ui.stage == Stage.INPUT -> inputLayout(width).let { " stage=INPUT rail=${it.railW} twoPane=${it.twoPane}" }
-                ui.stage == Stage.EXPORT -> exportLayout(width).let { " stage=EXPORT rail=${it.railW} side=${it.sideW} table=${it.tableW}" }
-                else -> " stage=RESULT"
+        // 渲染日志：把"这个宽度下排成了什么样"写成可 diff 的一行（DPI 走查与回归对比用）。
+        LaunchedEffect(width, height, ui.sheet, ui.busy, ui.logEntryVisible, state.events.size) {
+            val sheet = when (val s = ui.sheet) {
+                null -> if (ui.logEntryVisible) "none+logentry" else "none"
+                Sheet.Settings -> "settings"
+                is Sheet.Photos -> "photos:${s.target}"
+                is Sheet.Move -> "move:${s.photoIds.size}"
+                Sheet.ConfirmReanalyze -> "confirm"
             }
-            UiLog.line("render w=$width$extra")
-            val s = state
             UiLog.line(
-                "state status=${s.status} events=${s.events.size} photos=${s.photos.size} " +
-                    "unmatched=${s.unmatchedPhotoIds.size} ledger=${s.ledger.size} " +
-                    "parsed=${s.parsed?.eventCount ?: 0} selected=${ui.selection}",
+                "render w=$width h=$height tile=${com.photomgm.desktop.ui.model.tileSize(width)} " +
+                    "maxTiles=${com.photomgm.desktop.ui.model.maxTiles(width)} sheet=$sheet busy=${ui.busy?.name ?: "-"}",
+            )
+            UiLog.line(
+                "state status=${state.status} events=${state.events.size} photos=${state.photos.size} " +
+                    "unmatched=${state.unmatchedPhotoIds.size} ledger=${state.ledger.size} " +
+                    "parsed=${state.parsed?.eventCount ?: 0} filter=${ui.filter} q='${ui.query}'",
             )
         }
 
         Column(Modifier.fillMaxSize()) {
-            TopBar(state, ui, actions)
+            TopBar(state, ui, onUi, actions)
             Hairline()
             MessageArea(state, ui, onUi, actions)
 
-            Row(Modifier.fillMaxWidth().weight(1f)) {
-                StepRail(state, ui, actions, width)
-                Hairline(vertical = true)
-
-                Box(Modifier.weight(1f).fillMaxSize()) {
-                    val busy = ui.busy
-                    if (busy != null) {
-                        BusyOverlay(
-                            busy = busy,
-                            state = state,
-                            onCancel = if (busy == Busy.ANALYZE) actions.cancelAnalyze else actions.cancelExport,
-                        )
-                    } else {
-                        when (ui.stage) {
-                            Stage.INPUT -> InputStage(state, ui, width, actions)
-                            Stage.REVIEW -> ReviewStage(state, ui, width, actions, onUi)
-                            Stage.EXPORT -> ExportStage(state, ui, width, actions, onUi)
-                            Stage.RESULT -> ResultStage(state, width, actions)
-                        }
-                    }
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                WorkspacePage(state, ui, onUi, actions, width)
+                if (ui.busy != null) {
+                    BusyOverlay(
+                        busy = ui.busy,
+                        state = state,
+                        onCancel = if (ui.busy == Busy.ANALYZE) actions.cancelAnalyze else actions.cancelExport,
+                    )
                 }
             }
 
             Hairline()
-            StatusBar(state, ui)
+            StatusBar(state, ui, onUi)
+        }
+
+        when (ui.sheet) {
+            null -> Unit
+            Sheet.Settings -> SettingsSheet(state, ui, onUi, actions, width, height)
+            Sheet.ConfirmReanalyze -> ConfirmReanalyzeSheet(state, ui, onUi, actions)
+            is Sheet.Photos -> PhotosSheet(state, ui, onUi, actions, width, height)
+            is Sheet.Move -> MoveSheet(state, ui, onUi, actions, width, height)
         }
     }
 }
 
 @Composable
-private fun TopBar(state: AppState, ui: UiState, actions: Actions) {
+private fun TopBar(state: AppState, ui: UiState, onUi: (UiState) -> Unit, actions: Actions) {
     Row(
         Modifier
             .fillMaxWidth()
             .height(PmSize.topBar)
             .background(PmColor.surface)
-            .padding(horizontal = PmSpace.l),
+            .padding(horizontal = PmSpace.xl),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -198,15 +194,17 @@ private fun TopBar(state: AppState, ui: UiState, actions: Actions) {
             Text("巡", style = PmType.label, color = PmColor.surface)
         }
         Spacer(Modifier.width(PmSpace.m))
-        Text("巡查照片分类", style = PmType.subtitle, color = PmColor.ink)
-        Spacer(Modifier.width(PmSpace.l))
-        Box(Modifier.width(1.dp).height(18.dp).background(PmColor.line))
+        Text("巡查照片归档", style = PmType.subtitle, color = PmColor.ink)
 
         Spacer(Modifier.width(PmSpace.l))
+        Box(Modifier.width(1.dp).height(18.dp).background(PmColor.line))
+        Spacer(Modifier.width(PmSpace.l))
+
+        // 日期是项目主键，点击直接进设置改它（而不是再找一次入口）。
         Row(
             Modifier
                 .clip(RoundedCornerShape(PmRadius.control))
-                .clickable(indication = null, interactionSource = null) { actions.goStage(Stage.INPUT) }
+                .clickable(indication = null, interactionSource = null) { onUi(ui.copy(sheet = Sheet.Settings)) }
                 .padding(horizontal = PmSpace.s, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -219,13 +217,30 @@ private fun TopBar(state: AppState, ui: UiState, actions: Actions) {
         StatusPill(state.status, ui.busy)
 
         Text(
-            "全部数据只在本机处理 · ${algorithm.AppZone.ID}",
+            "本机处理 · ${algorithm.AppZone.ID}",
             style = PmType.caption,
             color = PmColor.ink3,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
             modifier = Modifier.weight(1f),
+        )
+
+        // 顶栏只留"导出 / 设置"两个全局动作：分析动作紧贴在日志输入框旁边，
+        // 两处都放会让人以为要做两件事，且禁用态在白色顶栏上看起来只是一行灰字。
+        PmButton(
+            "导出",
+            actions.export,
+            kind = ButtonKind.PRIMARY,
+            icon = Icons.Filled.FileDownload,
+            enabled = state.canExport,
+        )
+        Spacer(Modifier.width(PmSpace.s))
+        PmButton(
+            "设置",
+            { onUi(ui.copy(sheet = Sheet.Settings)) },
+            kind = ButtonKind.SECONDARY,
+            icon = Icons.Filled.Settings,
         )
     }
 }
@@ -262,14 +277,6 @@ private fun MessageArea(state: AppState, ui: UiState, onUi: (UiState) -> Unit, a
             tone = Tone.DANGER,
             text = error,
             onDismiss = { onUi(ui.copy(dismissedError = error)) },
-            action = {
-                Text(
-                    "可复制给工程师排障",
-                    style = PmType.caption,
-                    color = PmColor.ink3,
-                    modifier = Modifier.padding(horizontal = PmSpace.m),
-                )
-            },
         )
     }
     val message = state.message
@@ -280,101 +287,26 @@ private fun MessageArea(state: AppState, ui: UiState, onUi: (UiState) -> Unit, a
             onDismiss = actions.clearMessage,
         )
     }
+    val local = ui.localMessage
+    if (local != null) {
+        InlineNotice(
+            tone = Tone.WARN,
+            text = local,
+            onDismiss = { onUi(ui.copy(localMessage = null)) },
+        )
+    }
 }
 
 @Composable
-private fun StepRail(state: AppState, ui: UiState, actions: Actions, windowWidth: Int) {
-    val railW = railWidth(windowWidth)
+private fun StatusBar(state: AppState, ui: UiState, onUi: (UiState) -> Unit) {
     val stats = WorkQueue.stats(state)
-    val current = ui.busy?.step ?: ui.stage.step
-
-    Column(
-        Modifier
-            .width(railW.dp)
-            .fillMaxSize()
-            .background(PmColor.surface)
-            .padding(vertical = PmSpace.m),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Step.values().forEach { step ->
-            val enabled = step == Step.INPUT || state.events.isNotEmpty()
-            RailItem(
-                step = step,
-                selected = step == current,
-                enabled = enabled,
-                badge = when (step) {
-                    Step.REVIEW -> stats.needReview.takeIf { it > 0 }
-                    Step.EXPORT -> state.unmatchedPhotoIds.size.takeIf { it > 0 }
-                    else -> null
-                },
-                onClick = { if (enabled) actions.goStage(stageOf(step)) },
-            )
-            Spacer(Modifier.height(PmSpace.m))
-        }
-    }
-}
-
-private fun stageOf(step: Step): Stage = when (step) {
-    Step.INPUT -> Stage.INPUT
-    Step.REVIEW -> Stage.REVIEW
-    Step.EXPORT -> Stage.EXPORT
-}
-
-@Composable
-private fun RailItem(
-    step: Step,
-    selected: Boolean,
-    enabled: Boolean,
-    badge: Int?,
-    onClick: () -> Unit,
-) {
-    val icon: ImageVector = when (step) {
-        Step.INPUT -> Icons.Filled.Edit
-        Step.REVIEW -> Icons.Filled.FactCheck
-        Step.EXPORT -> Icons.Filled.FileDownload
-    }
-    val fg = when {
-        !enabled -> PmColor.ink4
-        selected -> PmColor.accent
-        else -> PmColor.ink2
-    }
-
-    Column(
-        Modifier
-            .width(54.dp)
-            .clip(RoundedCornerShape(PmRadius.card))
-            .background(if (selected) PmColor.accentSoft else PmColor.surface)
-            .clickable(enabled = enabled, indication = null, interactionSource = null, onClick = onClick)
-            .padding(vertical = PmSpace.s),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(contentAlignment = Alignment.TopEnd) {
-            Icon(icon, contentDescription = step.label, tint = fg, modifier = Modifier.size(18.dp))
-            if (badge != null && enabled) {
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(PmRadius.pill))
-                        .background(PmColor.warn)
-                        .padding(horizontal = 3.dp),
-                ) {
-                    Text("$badge", style = PmType.micro, color = PmColor.surface)
-                }
-            }
-        }
-        Spacer(Modifier.height(2.dp))
-        Text(step.label, style = PmType.caption, color = fg, maxLines = 1)
-    }
-}
-
-@Composable
-private fun StatusBar(state: AppState, ui: UiState) {
-    val stats = WorkQueue.stats(state)
+    val result = state.lastExport
     Row(
         Modifier
             .fillMaxWidth()
             .height(PmSize.statusBar)
             .background(PmColor.surface)
-            .padding(horizontal = PmSpace.l),
+            .padding(horizontal = PmSpace.xl),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -394,8 +326,20 @@ private fun StatusBar(state: AppState, ui: UiState) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (result != null) {
+            Spacer(Modifier.width(PmSpace.m))
+            Text(
+                "上次导出 ${result.copied}/${result.totalTargets}",
+                style = PmType.caption,
+                color = PmColor.ink3,
+                modifier = Modifier.clickable(indication = null, interactionSource = null) {
+                    // 重看结果条：把"收起过"的记录清掉即可，不重新导出。
+                    onUi(ui.copy(dismissedResultKey = null, seenExportKey = state.exportKey))
+                },
+            )
+        }
         Text(
-            "F5 分析 · Ctrl+O 导入日志 · Ctrl+E 导出 · Esc 取消选择",
+            "F5 分析 · Ctrl+O 导入日志 · Ctrl+E 导出 · Ctrl+, 设置 · Esc 关闭",
             style = PmType.caption,
             color = PmColor.ink3,
             maxLines = 1,

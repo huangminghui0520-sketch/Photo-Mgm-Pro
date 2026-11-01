@@ -42,7 +42,8 @@ import com.photomgm.desktop.ui.app.UiLog
 import com.photomgm.desktop.ui.app.WindowGeometry
 import com.photomgm.desktop.ui.dev.DemoFixture
 import com.photomgm.desktop.ui.model.Busy
-import com.photomgm.desktop.ui.model.Stage
+import com.photomgm.desktop.ui.model.Selection
+import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.model.initialUi
 import com.photomgm.desktop.ui.model.reduce
@@ -61,8 +62,8 @@ private data class Options(
     val shot: String? = null,
     val logFile: String? = null,
     val dataDir: Path? = null,
-    /** 直接落到某个阶段（只用于截图走查，不改变业务逻辑）。 */
-    val stage: String? = null,
+    /** 直接打开某个弹窗（只用于截图走查，不改变业务逻辑）。 */
+    val sheet: String? = null,
 )
 
 fun main(args: Array<String>) {
@@ -99,15 +100,39 @@ fun main(args: Array<String>) {
         )
 
         var ui by remember {
-            val base = initialUi(core.state.value)
-            val forced = when (opts.stage?.lowercase()) {
-                "input" -> Stage.INPUT
-                "review" -> Stage.REVIEW
-                "export" -> Stage.EXPORT
-                "result" -> Stage.RESULT
+            val snapshot = core.state.value
+            val base = initialUi(snapshot)
+            // --sheet 只用于截图走查：把某个覆盖层直接打开，业务逻辑一律不动。
+            val forced: Sheet? = when (opts.sheet?.lowercase()) {
+                "settings" -> Sheet.Settings
+                "photos", "event" -> {
+                    val pending = snapshot.events.firstOrNull { it.photoIds.isNotEmpty() }
+                        ?: snapshot.events.firstOrNull { it.isPending }
+                        ?: snapshot.events.firstOrNull()
+                    val target = if (pending != null) {
+                        Selection.Event(pending.id)
+                    } else if (snapshot.unmatchedPhotoIds.isNotEmpty()) {
+                        Selection.Unmatched
+                    } else {
+                        Selection.None
+                    }
+                    if (target == Selection.None) null else Sheet.Photos(target)
+                }
+
+                // 移动层：拿第一个有照片事件的前两张演示（截图走查用）
+                "move" -> {
+                    val src = snapshot.events.firstOrNull { it.photoIds.isNotEmpty() }
+                    if (src == null) null else Sheet.Move(src.photoIds.take(2), Selection.Event(src.id))
+                }
+
                 else -> null
             }
-            mutableStateOf(if (forced != null) base.copy(stage = forced) else base)
+            val shown = when (opts.sheet?.lowercase()) {
+                "log" -> base.copy(logEntryVisible = true)
+                null -> base
+                else -> base.copy(sheet = forced, logEntryVisible = false)
+            }
+            mutableStateOf(shown)
         }
         var handle by remember { mutableStateOf<OperationHandle?>(null) }
 
@@ -185,7 +210,7 @@ private fun rememberActions(
         },
         setLogText = { core.setLogText(it) },
         analyze = {
-            setUi(ui().copy(busy = Busy.ANALYZE, stage = Stage.INPUT))
+            setUi(ui().copy(busy = Busy.ANALYZE, sheet = null))
             setHandle(core.analyze())
         },
         cancelAnalyze = { handle()?.cancel() },
@@ -199,7 +224,7 @@ private fun rememberActions(
                     includeLedger = ui().exportOptions.includeLedger,
                     verifyMode = ui().exportOptions.verifyMode,
                 )
-                setUi(ui().copy(busy = Busy.EXPORT, stage = Stage.EXPORT))
+                setUi(ui().copy(busy = Busy.EXPORT, sheet = null))
                 setHandle(
                     core.export(
                         request,
@@ -219,7 +244,6 @@ private fun rememberActions(
         setDedupMode = { mode: DedupKeepMode -> core.setDedupMode(mode) },
         openLedger = { core.state.value.lastExport?.let { core.openLedger(it) } },
         revealExportDir = { core.state.value.lastExport?.let { core.revealExportDir(it) } },
-        goStage = { stage -> setUi(ui().copy(stage = stage)) },
         clearMessage = { core.clearMessage() },
     )
 }
@@ -310,7 +334,7 @@ private fun parse(args: Array<String>): Options {
             "--shot" -> opts = opts.copy(shot = args.getOrNull(++i))
             "--log-file" -> opts = opts.copy(logFile = args.getOrNull(++i))
             "--data-dir" -> args.getOrNull(++i)?.let { opts = opts.copy(dataDir = Paths.get(it)) }
-            "--stage" -> opts = opts.copy(stage = args.getOrNull(++i))
+            "--sheet" -> opts = opts.copy(sheet = args.getOrNull(++i))
             else -> UiLog.line("忽略未知参数 ${args[i]}")
         }
         i++

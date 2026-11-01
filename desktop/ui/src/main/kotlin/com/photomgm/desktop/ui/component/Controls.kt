@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -287,18 +289,6 @@ fun FilterChip(
 }
 
 @Composable
-fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
-    Row(
-        modifier = modifier.fillMaxWidth().heightIn(min = 28.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text, style = PmType.title, color = PmColor.ink)
-        Spacer(Modifier.weight(1f))
-        trailing?.invoke()
-    }
-}
-
-@Composable
 fun Hairline(modifier: Modifier = Modifier, vertical: Boolean = false) {
     if (vertical) {
         Box(modifier.width(1.dp).fillMaxHeight().background(PmColor.line))
@@ -331,19 +321,6 @@ fun EmptyBlock(
     }
 }
 
-@Composable
-fun LoadingLine(text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(14.dp),
-            strokeWidth = 2.dp,
-            color = PmColor.accent,
-        )
-        Spacer(Modifier.width(PmSpace.m))
-        Text(text, style = PmType.body, color = PmColor.ink2)
-    }
-}
-
 /** 表单字段：标签在上、控件在下、说明在最后一行（说明用 ink3，不用 ink4——那是对比度不合格的灰）。 */
 @Composable
 fun Field(
@@ -368,30 +345,48 @@ fun Field(
     }
 }
 
-/** 静态信息条（不是输入框，只是长得像）：用于只读路径、只读时间。 */
+/**
+ * 复选框：16 dp 方框 + 右侧标签。
+ *
+ * ★ 整行可点（含标签与说明），不是只有 16 dp 的方框可点。桌面端在一个 16 dp 的目标上
+ *   瞄准，是在用精度换时间；把它扩成整行，点击面积从 256 像素变成几千像素，零成本。
+ */
 @Composable
-fun ReadonlyRow(text: String, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+fun PmCheckbox(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    hint: String? = null,
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(PmRadius.control))
-            .background(PmColor.surface2)
-            .padding(horizontal = PmSpace.m, vertical = PmSpace.s),
-        verticalAlignment = Alignment.CenterVertically,
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = PmSpace.xxs),
+        verticalAlignment = Alignment.Top,
     ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, tint = PmColor.ink3, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(PmSpace.s))
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .clip(RoundedCornerShape(PmRadius.control))
+                .background(if (checked) PmColor.accent else PmColor.surface)
+                .border(1.dp, if (checked) PmColor.accent else PmColor.lineStrong, RoundedCornerShape(PmRadius.control)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) {
+                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+            }
         }
-        Text(text, style = PmType.body, color = PmColor.ink2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/** 统计单元：数字在上、说明在下。数字用等宽，避免 1 和 0 宽度不同导致列不齐。 */
-@Composable
-fun StatCell(value: String, label: String, tone: Tone = Tone.NEUTRAL, modifier: Modifier = Modifier) {
-    Column(modifier.padding(horizontal = PmSpace.l, vertical = PmSpace.s)) {
-        Text(value, style = PmType.numericLarge, color = if (tone == Tone.NEUTRAL) PmColor.ink else tone.fg())
-        Text(label, style = PmType.caption, color = PmColor.ink3)
+        Spacer(Modifier.width(PmSpace.m))
+        Column {
+            Text(label, style = PmType.body, color = PmColor.ink)
+            if (hint != null) {
+                Spacer(Modifier.height(PmSpace.xxs))
+                Text(hint, style = PmType.caption, color = PmColor.ink3)
+            }
+        }
     }
 }

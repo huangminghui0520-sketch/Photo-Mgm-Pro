@@ -75,7 +75,7 @@ object WorkQueue {
             e.description.contains(q, ignoreCase = true) ||
             e.eventType.contains(q, ignoreCase = true)
 
-    /** 当前照片区该显示的照片（按 EventSnapshot.photoIds 的顺序 = 核心给的顺序）。 */
+    /** 当前照片弹窗该显示的照片（按 core 给的 photoIds 顺序，不重排）。 */
     fun photosOf(state: AppState, selection: Selection, byId: Map<Long, PhotoInfo>): List<PhotoInfo> =
         when (selection) {
             is Selection.Event -> {
@@ -86,6 +86,29 @@ object WorkQueue {
             Selection.Unmatched -> state.unmatchedPhotoIds.mapNotNull { byId[it] }
             Selection.None -> emptyList()
         }
+
+    /** 事件卡片里的照片（卡片只用 photoIds，不用 eventPhotoIds —— 二者对事件行是同一个集合）。 */
+    fun photosOfEvent(event: EventSnapshot, byId: Map<Long, PhotoInfo>): List<PhotoInfo> =
+        event.photoIds.mapNotNull { byId[it] }
+
+    /** 弹窗标题：事件用「地点 + 描述」，未匹配池用「未匹配照片」。 */
+    fun titleOf(state: AppState, target: Selection): String = when (target) {
+        is Selection.Event -> {
+            val e = state.events.firstOrNull { it.id == target.id }
+            when {
+                e == null -> "事件"
+                e.description.isBlank() -> e.location
+                else -> "${e.location} · ${e.description}"
+            }
+        }
+
+        Selection.Unmatched -> "未匹配照片"
+        Selection.None -> ""
+    }
+
+    /** 事件在列表里的序号（1 起，按 core 给的日志顺序）。 */
+    fun indexOf(state: AppState, eventId: Int): Int =
+        state.events.indexOfFirst { it.id == eventId }.let { if (it < 0) 0 else it + 1 }
 
     fun byId(state: AppState): Map<Long, PhotoInfo> = state.photos.associateBy { it.id }
 

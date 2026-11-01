@@ -1,9 +1,6 @@
-// ui/test/LayoutTest.kt —— 宽度 → 三栏几何 / 照片列数
+// ui/test/LayoutTest —— 单页布局的纯函数
 //
-// 断言的不是"数字好看"，而是三条**可用性约束**：
-//   ① 照片区永远 ≥240 dp 且列数 ≥1（任何宽度都不塌）；
-//   ② 列宽永远 ≥168 dp（低于它缩略图认不出内容，应减列而不是压窄）；
-//   ③ 各栏宽度之和 + 分隔线 == 内容宽度（不出现"少算一个分隔线导致横向滚动"）。
+// 这些断言值就是设计口径：改布局先改这里，再改实现，不要反过来。
 package com.photomgm.desktop.ui.model
 
 import kotlin.test.Test
@@ -13,90 +10,95 @@ import kotlin.test.assertTrue
 class LayoutTest {
 
     @Test
-    fun `900 dp 外框对应 886 内容：折叠事件列表、检查器抽屉`() {
-        val l = reviewLayout(886)
-        assertEquals(64, l.railW)
-        assertEquals(0, l.listW, "886 放不下 240 列表 + 420 照片，必须折叠")
-        assertTrue(l.inspectorAsDrawer)
-        // 只有"步骤栏 | 内容区"这一条分隔线；列表和检查器都折叠了，不该多算
-        assertEquals(886, l.railW + l.listW + l.inspectorW + 1 + l.gridW)
+    fun `照片格按宽度分四档`() {
+        assertEquals(72, tileSize(700))
+        assertEquals(80, tileSize(886))
+        assertEquals(88, tileSize(1100))
+        assertEquals(96, tileSize(1400))
     }
 
     @Test
-    fun `984 dp（1366 屏 125%）三列可读`() {
-        val l = reviewLayout(984)
-        assertEquals(240, l.listW)
-        assertTrue(l.inspectorAsDrawer, "984 上常驻检查器会把照片压到 2 列")
-        assertEquals(678, l.gridW)
-        assertEquals(3, l.gridCols)
-    }
-
-    @Test
-    fun `1380 dp 起常驻检查器`() {
-        val l = reviewLayout(1380)
-        assertEquals(280, l.listW)
-        assertEquals(320, l.inspectorW)
-        assertTrue(!l.inspectorAsDrawer)
-        assertEquals(1380, l.railW + l.listW + l.inspectorW + 3 + l.gridW)
-    }
-
-    @Test
-    fun `1920 dp 满宽最多 7 列`() {
-        val l = reviewLayout(1920)
-        assertEquals(7, l.gridCols)
-        assertTrue(l.gridW >= 1200)
-    }
-
-    @Test
-    fun `任何宽度都满足可用性约束`() {
+    fun `照片格随宽度单调不减`() {
+        var last = 0
         var w = 640
         while (w <= 3840) {
-            val l = reviewLayout(w)
-            assertTrue(l.gridW >= 240, "w=$w grid=${l.gridW}")
-            assertTrue(l.gridCols >= 1)
-            val dividers = 1 + (if (l.listW > 0) 1 else 0) + (if (l.inspectorW > 0) 1 else 0)
-            assertEquals(w, l.railW + l.listW + l.inspectorW + dividers + l.gridW, "w=$w 宽度不守恒")
-            val tile = tileWidth(l.gridW, l.gridCols)
-            assertTrue(tile >= 150, "w=$w 格宽 $tile 太小，应减列")
+            val t = tileSize(w)
+            assertTrue(t >= last, "w=$w tile=$t 应不小于上一档 $last")
+            last = t
             w += 7
         }
     }
 
     @Test
-    fun `窄窗收窄步骤栏`() {
-        assertEquals(56, railWidth(640))
-        assertEquals(64, railWidth(900))
-    }
-
-    @Test
-    fun `列数随格宽单调不倒退`() {
-        var prev = 0
-        var w = 400
-        while (w <= 2000) {
-            val c = gridColumns(w)
-            assertTrue(c >= prev, "w=$w 列数倒退：$prev → $c")
-            prev = c
-            w += 20
+    fun `卡片内照片条永不超出卡片宽度`() {
+        var w = 640
+        while (w <= 3840) {
+            val tile = tileSize(w)
+            val n = maxTiles(w, tile)
+            assertTrue(n >= 1, "w=$w 至少要放 1 格")
+            assertTrue(n <= 10, "w=$w 最多 10 格")
+            val usable = w - PAGE_PAD * 2 - CARD_PAD * 2
+            assertTrue(stripWidth(tile, n) <= usable, "w=$w 排 $n 格需要 ${stripWidth(tile, n)}，可用只有 $usable")
+            w += 7
         }
     }
 
     @Test
-    fun `输入页在 860 以下才上下堆叠`() {
-        // 内容宽 = 窗宽 - 步骤栏 - 1：970 的窗内容 905，必须并排（否则日志掉到折叠线以下）
-        assertTrue(inputLayout(984).twoPane)
-        assertEquals(340, inputLayout(984).materialsW)
-        assertTrue(inputLayout(700).twoPane.not())
-        assertEquals(392, inputLayout(1400).materialsW)
+    fun `最小窗口 900 宽时一行放得下 9 格`() {
+        // 内容宽 = 900 - 14（窗口边框）= 886 是内业机最窄的真实值
+        val tile = tileSize(886)
+        assertEquals(80, tile)
+        assertEquals(9, maxTiles(886, tile))
     }
 
     @Test
-    fun `导出页窄窗把选项收进抽屉`() {
-        val narrow = exportLayout(984)
-        assertEquals(0, narrow.sideW)
-        assertTrue(narrow.tableW > 600)
+    fun `弹窗永远落在窗口内`() {
+        for (w in listOf(900, 984, 1152, 1229, 1382, 1440, 1920, 2560)) {
+            for (h in listOf(540, 574, 612, 655, 734, 900, 1040)) {
+                val dw = dialogWidth(w)
+                val dh = dialogHeight(h)
+                assertTrue(dw <= w, "w=$w 弹窗 $dw 越界")
+                assertTrue(dw >= 640, "w=$w 弹窗 $dw 过窄")
+                assertTrue(dh <= h, "h=$h 弹窗 $dh 越界")
+                assertTrue(dh >= 420, "h=$h 弹窗 $dh 过矮")
+            }
+        }
+    }
 
-        val wide = exportLayout(1380)
-        assertEquals(320, wide.sideW)
-        assertEquals(1380, wide.railW + 1 + wide.sideW + 1 + wide.tableW)
+    @Test
+    fun `内业机最小窗下弹窗为 830x455`() {
+        // 900×540 窗口，客户区 886×503（DWM 边框各 7）
+        assertEquals(830, dialogWidth(886))
+        assertEquals(455, dialogHeight(503))
+    }
+
+    @Test
+    fun `照片弹窗在最小窗下仍有侧栏与缩略条`() {
+        val l = photosSheetLayout(886, 503)
+        assertTrue(l.sideW > 0, "侧栏必须有，否则台账格设置没有落点")
+        assertTrue(l.width - l.sideW >= 350, "大图区至少留 350")
+        assertTrue(stripColumns(l) >= 3, "缩略条至少要放 3 张")
+    }
+
+    @Test
+    fun `照片弹窗宽度增加时侧栏不侵占大图到不可用`() {
+        for (w in listOf(900, 1200, 1440, 1920)) {
+            val l = photosSheetLayout(w, 900)
+            val preview = l.width - l.sideW
+            assertTrue(preview >= 350, "w=$w 大图区只有 $preview")
+        }
+    }
+
+    @Test
+    fun `移动弹窗至少能显示两行事件`() {
+        assertTrue(moveListRows(503) >= 2)
+        assertTrue(moveListRows(900) > moveListRows(503))
+    }
+
+    @Test
+    fun `页面留白与卡片内边距是常量而不是散落的魔法数字`() {
+        assertEquals(16, PAGE_PAD)
+        assertEquals(14, CARD_PAD)
+        assertEquals(8, TILE_GAP)
     }
 }

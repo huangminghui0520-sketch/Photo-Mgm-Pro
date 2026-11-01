@@ -1,13 +1,15 @@
-// ui/component/Panel.kt —— 面板 / 提示条 / 键值行
+// ui/component/Notice.kt —— 提示条 / 键值行 / 分隔线
 //
-// 三个都是"容器"，不是"控件"。放这里是为了让阶段文件只写结构，不重复写边框和留白。
+// 单页结构下这三样还在用：
+//   · InlineNotice —— 错误与提示（顶栏下，错误必须由人确认才消失）；
+//   · KeyValue     —— 照片层的"事件信息"事实栏；
+//   · Dash         —— 事实栏里的分组线。
+// 原来的 Panel / StatCell / SectionTitle / LoadingLine / ReadonlyRow / FactList / RowGap / HSpacer / BoxGap
+// 随四阶段结构一起删除了：单页里没有"面板"，卡片自己就是容器；统计改成卡片标题行上的一行字；
+// 留着一堆没人用的容器只会让人以为界面还有那些区域。
 package com.photomgm.desktop.ui.component
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -26,46 +27,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.photomgm.desktop.ui.theme.PmColor
-import com.photomgm.desktop.ui.theme.PmRadius
 import com.photomgm.desktop.ui.theme.PmSpace
 import com.photomgm.desktop.ui.theme.PmType
-
-@Composable
-fun Panel(
-    title: String?,
-    modifier: Modifier = Modifier,
-    subtitle: String? = null,
-    trailing: (@Composable () -> Unit)? = null,
-    contentPadding: Int = 14,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(PmRadius.panel))
-            .background(PmColor.surface)
-            .border(1.dp, PmColor.line, RoundedCornerShape(PmRadius.panel))
-            .padding(contentPadding.dp),
-    ) {
-        if (title != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = PmType.title, color = PmColor.ink)
-                    if (subtitle != null) {
-                        Text(subtitle, style = PmType.caption, color = PmColor.ink3)
-                    }
-                }
-                trailing?.invoke()
-            }
-            Spacer(Modifier.height(PmSpace.m))
-        }
-        content()
-    }
-}
 
 /** 提示条：紧贴顶栏之下，不遮内容、不自动消失（错误必须由人确认消除）。 */
 @Composable
@@ -106,7 +73,7 @@ fun InlineNotice(
     }
 }
 
-/** 键值行：标签左、值右（值可选中复制由外层决定）。 */
+/** 键值行：标签左、值右。 */
 @Composable
 fun KeyValue(label: String, value: String, tone: Tone = Tone.NEUTRAL) {
     Row(
@@ -119,14 +86,6 @@ fun KeyValue(label: String, value: String, tone: Tone = Tone.NEUTRAL) {
     }
 }
 
-/** 一列小键值对（用于检查器的事实区）。 */
-@Composable
-fun FactList(facts: List<Pair<String, String>>, modifier: Modifier = Modifier) {
-    Column(modifier) {
-        facts.forEach { (k, v) -> KeyValue(k, v) }
-    }
-}
-
 @Composable
 fun Dash() {
     Spacer(
@@ -136,12 +95,3 @@ fun Dash() {
             .background(PmColor.line),
     )
 }
-
-@Composable
-fun RowGap() = Spacer(Modifier.height(PmSpace.m))
-
-@Composable
-fun HSpacer(w: Int) = Spacer(Modifier.width(w.dp))
-
-@Composable
-fun BoxGap() = Spacer(Modifier.height(PmSpace.xl))

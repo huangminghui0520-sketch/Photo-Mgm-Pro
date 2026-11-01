@@ -42,6 +42,8 @@ fun slotPhotoIds(row: LedgerRowInfo?, photos: List<PhotoInfo>): Map<Long, Int> {
         return photos.firstOrNull { it.displayName == name }?.id
     }
     match(row.photo1Label)?.let { out[it] = 1 }
-    match(row.photo2Label)?.let { out[it] = 2 }
+    // 只有一个照片的事件，台账会把同一张写进两列；这种时候标"照1"而不是"照2"，
+    // 否则界面上会显示一个其实只有一张照片的事件"用了第 2 格"。
+    match(row.photo2Label)?.let { if (!out.containsKey(it)) out[it] = 2 }
     return out
 }

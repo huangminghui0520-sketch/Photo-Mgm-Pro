@@ -1,103 +1,86 @@
-// ui/model/Layout.kt —— 窗口宽度 → 三栏几何（纯函数）
+// ui/model/Layout.kt —— 宽度 → 尺寸（纯函数，无 Compose 依赖）
 //
-// ★ 为什么布局要算而不能写死：目标机型的工作区只有 984×540 dp（1366×768 @125%），
-//   而开发机是 1536×816 dp。写死的三栏在开发机上好看、在内业机上塌。这里把
-//   "多宽 → 几栏 → 每栏多宽 → 照片几列"做成纯函数，界面只读取结果，于是：
-//     · 每个宽度档都能被单测覆盖（不需要真的开 14 种窗口）；
-//     · 折叠规则是**可解释的**（为什么这里折叠、为什么那里抽屉），不是试出来的。
+// ★ 单页结构下要算的东西只有三样：
+//     ① 事件卡片里一个照片格多大、一行放几张（放不下就少放几张，绝不横向滚动）；
+//     ② 弹窗多大（窗口本身可能只有 900×540，弹窗必须按窗口算，不能写死）；
+//     ③ 照片弹窗里"大图 + 侧栏 + 缩略条"怎么分。
+//   全部做成纯函数，于是每个宽度档都能被单测覆盖，不用真的开 14 种窗口去试。
 //
-// 分水岭的取舍说明：
-//   · 900 dp 以下不摆事件列表（折叠），因为 240 的列表 + 420 的照片区已经 660，
-//     再加步骤栏就超了。此时事件切换走照片区顶部的下拉，功能不丢，只是少一次全局浏览。
-//   · 1380 dp 才常驻检查器。跨过这条线时照片列数会从 5 回落到 4——这是有意的：
-//     用一列照片换掉"每次看详情都要点一下"，复核阶段点击次数是真实成本。
+// ★ 为什么不做横向滚动：卡片里的照片条一旦可横滑，用户就看不到"这个事件到底有几张"，
+//   而"有几张"正是复核时要判断的东西。宁可少显示几格 + 用「+N」标出来，也不给横向滚动条。
 package com.photomgm.desktop.ui.model
 
 import kotlin.math.max
 
-/** 步骤栏宽度。窄窗收窄 8 dp 的意义：那不是视觉微调，是照片区多 8 dp 可能多一列。 */
-fun railWidth(contentWidth: Int): Int = if (contentWidth >= 760) 64 else 56
+/** 页面左右留白（卡片与窗口边缘的距离）。 */
+const val PAGE_PAD = 16
 
-data class ReviewLayout(
-    val railW: Int,
-    /** 0 = 折叠（事件切换改走照片区顶部下拉）。 */
-    val listW: Int,
-    val gridW: Int,
-    val gridCols: Int,
-    /** 0 = 抽屉（点开覆盖在照片区上方，不挤占列数）。 */
-    val inspectorW: Int,
-    /** 检查器是否为覆盖式抽屉。 */
-    val inspectorAsDrawer: Boolean,
-)
+/** 卡片内边距。 */
+const val CARD_PAD = 14
 
-fun reviewLayout(contentWidth: Int): ReviewLayout {
-    val rail = railWidth(contentWidth)
-    val list = when {
-        contentWidth >= 1380 -> 280
-        contentWidth >= 1100 -> 260
-        contentWidth >= 900 -> 240
-        else -> 0
-    }
-    val inspector = if (contentWidth >= 1380) 320 else 0
-    val dividers = 1 + (if (list > 0) 1 else 0) + (if (inspector > 0) 1 else 0)
-    val grid = max(240, contentWidth - rail - list - inspector - dividers)
-    return ReviewLayout(
-        railW = rail,
-        listW = list,
-        gridW = grid,
-        gridCols = gridColumns(grid),
-        inspectorW = inspector,
-        inspectorAsDrawer = inspector == 0,
-    )
+/** 卡片内照片格的间距。 */
+const val TILE_GAP = 8
+
+/**
+ * 卡片内照片格边长。
+ *
+ * 四个档位的取法：把"一屏能看到几个事件"作为约束反推。
+ * 540 dp 高的窗口里，卡片高度 = 标题行 40 + 照片行 + 内边距；格太大就只剩两张卡片可看，
+ * 复核时需要频繁滚动，反而更慢。96/80 是实测下"格内时刻读得清 + 一屏 3~4 张卡片"的交点。
+ * 缩略图接入后这个值会被真实图片重新校准（届时格内显示的是图，不是时刻）。
+ */
+fun tileSize(contentWidth: Int): Int = when {
+    contentWidth >= 1300 -> 96
+    contentWidth >= 1080 -> 88
+    contentWidth >= 880 -> 80
+    else -> 72
 }
 
-/** 缩略图列数：格宽不足 168 就减列，绝不出现横向滚动条（横向滚动会切断缩略图的"整行感知"）。 */
-fun gridColumns(gridWidth: Int, minTile: Int = 168, gap: Int = 12): Int {
-    val raw = (gridWidth + gap) / (minTile + gap)
-    return raw.coerceIn(1, 7)
+/** 卡片内一行最多放几个照片格（含「+N」占位也算一格）。 */
+fun maxTiles(contentWidth: Int, tile: Int = tileSize(contentWidth)): Int {
+    val usable = contentWidth - PAGE_PAD * 2 - CARD_PAD * 2
+    val fit = (usable + TILE_GAP) / (tile + TILE_GAP)
+    return fit.coerceIn(1, 10)
 }
 
-data class InputLayout(
-    val railW: Int,
-    val contentW: Int,
-    /** 素材（日期/源目录）与日志是否左右并排。 */
-    val twoPane: Boolean,
-    /** 并排时左栏宽度（宽窗给 392 放得下完整路径，窄窗压到 340 保日志区）。 */
-    val materialsW: Int,
-)
+/** 卡片内照片条实际宽度（供缩略图按需取尺寸；单测里用它验证不越界）。 */
+fun stripWidth(tile: Int, count: Int): Int = tile * count + TILE_GAP * (max(1, count) - 1)
 
-fun inputLayout(contentWidth: Int): InputLayout {
-    val rail = railWidth(contentWidth)
-    val content = contentWidth - rail - 1
-    // ★ 分水岭取 860 而不是 1040：实测 970 dp 的内容宽若上下堆叠，日志区会整个掉到折叠线以下，
-    //   用户要先滚动才能粘贴日志——而粘贴日志是这一步的主动作。
-    //   并排后左栏 340、日志区 470+，两者同时可见，动作顺序才和界面顺序一致。
-    return InputLayout(
-        railW = rail,
-        contentW = content,
-        twoPane = content >= 860,
-        materialsW = if (content >= 1100) 392 else 340,
-    )
-}
+/**
+ * 弹窗尺寸。
+ *
+ * ★ 必须按窗口算：900×540 的内业机上，一个"设计稿里 960×640"的弹窗会超出屏幕下沿，
+ *   用户连底部的操作按钮都点不到。这里上下各留 24~28 dp，保证弹窗永远落在窗口内。
+ */
+fun dialogWidth(windowWidth: Int): Int = (windowWidth - 56).coerceIn(640, 1040)
 
-data class ExportLayout(
-    val railW: Int,
-    val contentW: Int,
-    /** 0 = 选项抽屉。 */
+fun dialogHeight(windowHeight: Int): Int = (windowHeight - 48).coerceIn(420, 720)
+
+data class PhotosSheetLayout(
+    val width: Int,
+    val height: Int,
+    /** 右侧信息栏宽；0 = 窄窗改为上下叠（信息折到缩略条下面）。 */
     val sideW: Int,
-    val tableW: Int,
+    /** 底部缩略条高度。 */
+    val stripH: Int,
+    val stripTile: Int,
 )
 
-fun exportLayout(contentWidth: Int): ExportLayout {
-    val rail = railWidth(contentWidth)
-    val side = if (contentWidth >= 1180) 320 else 0
-    val content = contentWidth - rail - 1
-    val table = max(320, content - side - (if (side > 0) 1 else 0))
-    return ExportLayout(railW = rail, contentW = content, sideW = side, tableW = table)
+fun photosSheetLayout(windowWidth: Int, windowHeight: Int): PhotosSheetLayout {
+    val w = dialogWidth(windowWidth)
+    val h = dialogHeight(windowHeight)
+    val side = if (w >= 760) 280 else 0
+    // 弹窗矮的时候缩略条要压：它只是"切换照片"的入口，大图才是主体。
+    val stripH = if (h >= 560) 108 else 84
+    val stripTile = if (h >= 560) 76 else 60
+    return PhotosSheetLayout(w, h, side, stripH, stripTile)
 }
 
-/** 照片格子在给定列数下的真实宽度（供缩略图请求按需取尺寸）。 */
-fun tileWidth(gridWidth: Int, cols: Int, gap: Int = 12, padding: Int = 12): Int {
-    val usable = gridWidth - padding * 2 - gap * (max(1, cols) - 1)
-    return max(80, usable / max(1, cols))
+/** 照片弹窗底部缩略条能放几个（一行，不滚动）。 */
+fun stripColumns(sheet: PhotosSheetLayout): Int {
+    val usable = sheet.width - (if (sheet.sideW > 0) sheet.sideW else 0) - 24 * 2
+    return ((usable + TILE_GAP) / (sheet.stripTile + TILE_GAP)).coerceIn(1, 12)
 }
+
+/** 移动弹窗里事件列表的可见行数（用于估算高度，不参与布局硬约束）。 */
+fun moveListRows(windowHeight: Int): Int = (dialogHeight(windowHeight) - 200).coerceAtLeast(120) / 44
