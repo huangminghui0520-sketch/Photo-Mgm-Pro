@@ -135,3 +135,43 @@ P-2 的产出是一张差异表，作为 T04/T07/T12 的验收目标——改造
 > ⚠️ **嵌图字节跨端永远不可能相等**。两端常量都是 400×300 / 质量 50，但编码器不同，
 > 同样"质量 50"在两套实现下的量化表与色度下采样不同，实测差约 30%。
 > 跨端比嵌图只比 **尺寸 + 数量**，不比字节——否则会把正常差异当回归来追。
+
+## 8. 真实素材（真机）：`/sdcard/Pictures/pmgolden-real`
+
+合成素材覆盖不到的地方（真实水印相机命名、真实日志写法、真实 GPS），用一批真实数据补。**它只上真机，不入库**（含个人信息，不进 Git）。
+
+| 项 | 内容 |
+| --- | --- |
+| PC 源 | `C:/Users/28988/Desktop/ceshi`（顶层 110 张 jpg + `10月24日巡查日志.txt`） |
+| 设备落点 | `/sdcard/Pictures/pmgolden-real`（**扁平结构，与源一致**；与合成素材 `Pictures/pmgolden` 互不干扰） |
+| 内容 | 55 主图 + 55 张 `_original` 派生 + 1 个日志（4,421 B），合计 115 MB |
+| 完整性 | 逐文件 sha256 **111/111 与 PC 源一致**；MediaStore 已索引 **110** 张（日志非媒体，不入库） |
+| 未拷贝 | 源内 `导出结果/1102_094007/`（18 个事件目录 + 54 张图 + `ledger.xlsx`/`export.log`/`export-manifest.json`）——那是**上次导出的产物**，不是素材；拷进去会让同一张照片在扫描中出现两份、污染去重与计数 |
+
+拷贝与校验（可复现）：
+
+```bash
+export MSYS_NO_PATHCONV=1
+ADB=/d/Android/sdk/platform-tools/adb.exe; S=<serial>; DST=/sdcard/Pictures/pmgolden-real
+$ADB -s $S shell "mkdir -p $DST"
+cd "/c/Users/28988/Desktop/ceshi"
+files=( *.jpg ); i=0
+while [ $i -lt ${#files[@]} ]; do
+  $ADB -s $S push "${files[@]:i:10}" "$DST/"; i=$((i+10))   # 必须每批把目标目录补上，否则末个文件被当成目标
+done
+$ADB -s $S push "10月24日巡查日志.txt" "$DST/10月24日巡查日志.txt"
+
+# 双向比对（设备侧 sha256sum 与本地一致才算成功）
+$ADB -s $S shell "cd $DST && sha256sum *"
+$ADB -s $S shell "content call --uri content://media/external --method scan_volume --arg external_primary"
+$ADB -s $S shell "content query --uri content://media/external/images/media --projection _data \
+  --where \"_data LIKE '%pmgolden-real%'\" | grep -c _data="   # 期望 110
+```
+
+两个坑（都踩过）：
+
+1. **`adb.exe` 不认 MSYS 路径**：`/c/Users/...` 会报 `cannot stat`。必须 `cd` 到目录用相对名，或 `cygpath -m` 转成 `C:/Users/...`。
+2. **`adb push f1 f2 … fN` 没有目标参数**：多源推送时倒数第一个参数被当成目标，于是报 "target 'xxx.jpg' is not a directory"。每批必须显式写出 `"$DST/"`。
+3. **`run-as` 读不到 `/sdcard`**（SELinux 限制，返回 `cat: …: Permission denied` 82 字节）。想验证设备副本字节/EXIF，用 `adb pull`，不要用 `run-as cat`——否则拿到一个 82 字节的"文件"，会误判成 GPS 又被剥离。
+
+> 这批素材**全是 JPG**，没有 HEIC/RAW。厂商 HEIC 分支（`isHeic`、EXIF 读不出时的降级提示）仍**没有真实样本覆盖**，M3 验收时要单独说明。
