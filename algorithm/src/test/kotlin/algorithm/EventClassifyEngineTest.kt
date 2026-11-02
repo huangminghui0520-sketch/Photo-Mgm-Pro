@@ -190,13 +190,61 @@ class EventClassifyEngineTest {
     }
 
     @Test fun `相邻事件间隔过近产生TIME_OVERLAP提示`() {
-        // E2 记录 08:15、E3 记录 08:16（间隔 1min < 2×120s）→ 过近提示
+        // E2 记录 08:15、E3 记录 08:15:30（间隔 30s < 60s）→ 过近提示
+        val e1 = ev(1, at(8, 0), at(8, 0), "交接班")
+        val e2 = ev(2, at(8, 15), at(8, 15), "出车")
+        val e3 = ev(3, at(8, 15) + 30_000, at(8, 15) + 30_000, "事件X")
+        val r = engine.classify(listOf(e1, e2, e3), emptyList(), emptyList(), date)
+        val hit = r.interventions.firstOrNull { it.kind == Kind.TIME_OVERLAP && it.message.contains("过近") }
+            ?: error("相邻事件间隔不足 60 秒需提示人工核对；实际提示=${r.interventions.map { it.message }}")
+        assertTrue(hit.message.contains("60 秒"), "提示文案必须写实际阈值（60 秒），不能留旧口径：${hit.message}")
+    }
+
+    // ---- 2026-11-01：过近阈值 240s → 60s（桥底场景，同一处停留的照片间隔不超过 60 秒） ----
+
+    @Test fun `间隔180秒不再提示过近`() {
+        // 旧口径（2×backfillMs=240s）会提示；新口径（60s）不提示 —— 这正是现场"满屏提示"的来源
+        val e1 = ev(1, at(8, 0), at(8, 0), "交接班")
+        val e2 = ev(2, at(8, 15), at(8, 15), "出车")
+        val e3 = ev(3, at(8, 18), at(8, 18), "事件X")
+        val r = engine.classify(listOf(e1, e2, e3), emptyList(), emptyList(), date)
+        assertTrue(r.interventions.none { it.message.contains("过近") },
+            "相隔 180 秒（>60 秒）不应再报过近：${r.interventions.map { it.message }}")
+    }
+
+    @Test fun `间隔恰好60秒不提示_边界取严`() {
+        // 阈值语义是"间隔 < 60 秒才提示"：正好 60 秒属于"分得开"，不打扰
         val e1 = ev(1, at(8, 0), at(8, 0), "交接班")
         val e2 = ev(2, at(8, 15), at(8, 15), "出车")
         val e3 = ev(3, at(8, 16), at(8, 16), "事件X")
         val r = engine.classify(listOf(e1, e2, e3), emptyList(), emptyList(), date)
-        assertTrue(r.interventions.any { it.kind == Kind.TIME_OVERLAP && it.message.contains("过近") },
-            "相邻事件间隔不足 2×backfillMs 需提示人工核对")
+        assertTrue(r.interventions.none { it.message.contains("过近") }, "间隔正好 60 秒不提示")
+    }
+
+    @Test fun `同一事件内间隔90秒的照片仍归同一事件`() {
+        // 阈值只管"提示"，绝不按照片间隔拆事件：09:00:00 与 09:01:30 都落在 E2 的记录之后
+        val e1 = ev(1, at(8, 0), at(8, 0), "交接班")
+        val e2 = ev(2, at(9, 0), at(9, 0), "桥底取证")
+        val e3 = ev(3, at(9, 30), at(9, 30), "事件X")
+        val c = Cluster(
+            listOf(photo(11, at(9, 0) + 10_000), photo(12, at(9, 0) + 100_000)),
+            at(9, 0) + 10_000, 23.0, 113.0, emptyList())
+        val r = engine.classify(listOf(e1, e2, e3), listOf(c), emptyList(), date)
+        assertTrue(r.eventPhotoMap[2]!!.containsAll(listOf(11L, 12L)),
+            "同一次停留的 90 秒间隔照片必须留在同一事件（阈值只影响提示）")
+        assertTrue(r.eventPhotoMap[3]!!.isEmpty())
+    }
+
+    @Test fun `日志间隔90秒的照片按记录时间拆到各自事件`() {
+        // 桥底 08:00 拍完、08:01:30 在下一点位拍 → 两条日志相隔 90 秒，照片各归各家
+        val e1 = ev(1, at(8, 0), at(8, 0), "桥底取证")
+        val e2 = ev(2, at(8, 1) + 30_000, at(8, 1) + 30_000, "护栏取证")
+        val a = photo(11, at(8, 0) + 5_000)
+        val b = photo(12, at(8, 1) + 35_000)
+        val r = engine.classify(listOf(e1, e2), emptyList(), listOf(a, b), date)
+        assertTrue(r.eventPhotoMap[1]!!.contains(11L), "08:00:05 → 事件1")
+        assertTrue(r.eventPhotoMap[2]!!.contains(12L), "08:01:35 → 事件2（不被 120s 补拍容差拽回事件1）")
+        assertTrue(r.interventions.none { it.message.contains("过近") }, "间隔 90 秒不提示过近")
     }
 
     @Test fun `日志提到拍照但无照片产生NO_PHOTO提示`() {

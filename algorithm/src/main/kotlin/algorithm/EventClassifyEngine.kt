@@ -38,10 +38,23 @@ class EventClassifyEngine(private val maxDistanceM: Double = 50.0) {
     companion object {
         /** 补拍回看容差：记录时刻之后 backfillMs 内拍摄的照片仍归该事件（默认 120 秒，设 0 退化为纯终点归属）。 */
         const val DEFAULT_BACKFILL_MS = 120_000L
+
+        /**
+         * 相邻事件「时间过近」判定阈值（毫秒，默认 60 秒）。
+         *
+         * ★ 2026-11-01 由 240 秒下调（原实现借 `2 × backfillMs` 表达）：
+         *   现场口径变了。桥底这类多点位取证的停留，同一处点位内的照片间隔通常**不超过 60 秒**，
+         *   而两条日志相隔 60 秒以上时，照片按记录时间就能分得开 —— 这时再提示"照片归属易混淆"
+         *   只是噪音：一天 8~20 条事件里有一半都顶着一条提示，真正需要核对的那条就沉下去了。
+         *   60 秒是把"同一处停留"和"下一条日志"分开的经验分界，不是从 backfillMs 推出来的，
+         *   所以这里**独立成常量**，不再跟着补拍容差联动（改补拍容差不应顺带改提示口径）。
+         */
+        const val NEAR_GAP_MS = 60_000L
     }
 
     /**
      * @param backfillMs 补拍回看容差（毫秒）
+     * @param nearGapMs 相邻事件「时间过近」提示阈值（毫秒，默认 [NEAR_GAP_MS]）
      * @param zone 「巡查日零点」与干预提示里时间文本所用时区。
      *             ★ 必须与解析日志用同一个 zone：解析把挂钟换成 epoch，这里把 epoch 换成
      *             "当日零点"边界与提示文本，两侧不一致会让零点错位（issue #2）。
@@ -54,6 +67,7 @@ class EventClassifyEngine(private val maxDistanceM: Double = 50.0) {
         splitCount: Int = 0,                    // GPS 层自动拆簇次数 → CLUSTER_SPLIT 提示
         backfillMs: Long = DEFAULT_BACKFILL_MS, // 补拍回看容差（毫秒）
         zone: ZoneId = AppZone.ID,
+        nearGapMs: Long = NEAR_GAP_MS,          // 相邻事件"过近"提示阈值（毫秒）
     ): ClassifyResult {
         val sorted = events.sortedBy { it.endTimeMs ?: Long.MAX_VALUE }
         val dayStart = patrolDate.atStartOfDay().atZone(zone).toInstant().toEpochMilli()
@@ -103,7 +117,7 @@ class EventClassifyEngine(private val maxDistanceM: Double = 50.0) {
             val target = findWindow(t, timed, dayStart, backfillMs)
             if (target != null) assigned[target.id]!!.add(p.id) else unmatched.add(p.id)
         }
-        // 时间穿插提示（后一条 start < 前一条 endTime）+ 间隔过近提示（间隔 < 2×backfillMs）
+        // 时间穿插提示（后一条 start < 前一条 endTime）+ 间隔过近提示（间隔 < nearGapMs，默认 60s）
         // ★ 增强：消息明确标注穿插的两个事件（编号/类型/时间区间/地点），供预览页人工核对
         for (i in 1 until timed.size) {
             val prev = timed[i - 1]; val cur = timed[i]
@@ -118,11 +132,11 @@ class EventClassifyEngine(private val maxDistanceM: Double = 50.0) {
                         assigned[cur.id]!!,
                         relatedEventIds = listOf(prev.id, cur.id),
                     ))
-            } else if (curEnd - prevEnd < backfillMs * 2) {
+            } else if (curEnd - prevEnd < nearGapMs) {
                 interventions.add(
                     Intervention(
                         Kind.TIME_OVERLAP,
-                        "事件时间过近：${evtInfo(prev, zone)} 与 ${evtInfo(cur, zone)} 间隔不足 ${backfillMs * 2 / 1000} 秒，照片归属易混淆，请核对",
+                        "事件时间过近：${evtInfo(prev, zone)} 与 ${evtInfo(cur, zone)} 间隔不足 ${nearGapMs / 1000} 秒，照片归属易混淆，请核对",
                         emptyList(),
                         relatedEventIds = listOf(prev.id, cur.id),
                     ))
