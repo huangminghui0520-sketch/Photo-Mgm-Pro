@@ -78,9 +78,52 @@ def find(root: ET.Element, needle: str, mode: str) -> tuple[int, int] | None:
     return None
 
 
+# 解析摘要里值得留档的关键片段。用白名单而不是"把整棵树打出来"：
+# 全量 dump 有 200+ 节点、几千字符，写进测试记录没人看；这 6 类能直接当判定依据。
+_DIGEST_PATTERNS = [
+    r"解析出\s*\d+\s*条事件[^，,]*",
+    r"未识别\s*\d+\s*行?",
+    r"台账\s*\d+\s*行[^）)]*",
+    r"日志\s*\d+\s*·\s*照片\s*\d+",
+    r"未匹配\s*\d+",
+    r"全部\s*\d+\s+正常\s*\d+\s+待复查\s*\d+",
+]
+
+
+def digest(path: Path) -> int:
+    """打印 UI 里与"这次跑成了什么"有关的文字，作为测试记录的证据行。"""
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as e:
+        print(f"[FAIL] XML 解析失败：{e}", file=sys.stderr)
+        return 1
+    texts = []
+    for node in root.iter("node"):
+        t = (node.get("text") or "").strip()
+        if t:
+            texts.append(t)
+    seen: set[str] = set()
+    for pat in _DIGEST_PATTERNS:
+        for t in texts:
+            m = re.search(pat, t)
+            if m and m.group(0) not in seen:
+                seen.add(m.group(0))
+                print(m.group(0))
+    if not seen:
+        print("（未匹配到摘要字段：可能不在日志页，或 UI 文案已变）")
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--digest":
+        p = Path(sys.argv[2])
+        if not p.exists():
+            print(f"[FAIL] 找不到 {p}", file=sys.stderr)
+            return 1
+        return digest(p)
     if len(sys.argv) < 3:
-        print("用法: find_node.py <ui.xml> <text> [exact|contains]", file=sys.stderr)
+        print("用法: find_node.py <ui.xml> <text> [exact|contains]\n"
+              "      find_node.py --digest <ui.xml>", file=sys.stderr)
         return 2
     path = Path(sys.argv[1])
     needle = sys.argv[2]
