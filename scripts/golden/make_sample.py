@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""生成黄金样本素材：1 份巡查日志 + 60 张照片（含 EXIF / GPS / 重复 / 派生 / 无 EXIF / 误筛文件）。
+"""生成黄金样本素材：1 份巡查日志 + 69 张照片（含 EXIF / GPS / 重复 / 派生 / 连拍 / 无 EXIF / 误筛文件）。
 
 为什么不用真实素材（P-1 决策）：
   仓库内没有任何真实照片与日志，而回归基线必须能**在任意一次改动后重放**。
@@ -99,6 +99,26 @@ EVENTS: list[EventSpec] = [
 
 # 刻意不落在任何事件窗口内的照片：验证"未匹配"区（timeWindow 5min + backfill 120s 之外）
 UNMATCHED_TIMES = ["07:30:00", "12:20:00", "12:47:00", "17:40:00"]
+
+# ★ 连拍用例（2026-11-02 补：把 P0-2 的盲区变成可自动回归的用例）
+#   真实素材上第一次跑就丢照片：一台水印相机在过车涵洞连拍 4 张，相邻两张只差
+#   **957ms / 2.74m**，双双落在去重阈值（±1s / 10m）内 → 后一张被当成"副本"永久丢弃
+#   （110 张素材只导出 54 张，见 docs/DEDUP-ADJACENT-BURST-FIX.md）。
+#
+#   这里原样复刻那个结构：某事件主图 + 3 张 800ms 间隔的连拍，共 4 张，
+#     · 同地点（每张北移约 2.2m，模拟手持连拍的定位抖动，全部 <10m）；
+#     · EXIF DateTimeOriginal **只能精确到秒** → 4 张在「时间 + GPS」维度上完全互相满足判重；
+#     · 逐像素不同（paint 种子不同）→ 是真的 4 张不同照片，不是同一张的副本。
+#   期望：4 张全部进入导出（旧版两两判重会把它们并成 1 组、丢 3 张）。
+#
+#   ★ 文件名必须带毫秒（IMG_YYYYMMDD_HHMMSSmmm，与真实设备一致）：6 位时分秒在同一秒内会重名。
+#   ★ 单独一趟生成、paint 种子固定（不参与全局 idx 递增）：否则中途插照片会让后面每张的
+#     像素都变，基线 diff 里 40 多张无关照片一起"变化"，就没人能看出真正改了什么。
+BURST_EVENT_HHMM = "11:05"      # 挂到该事件的窗口内（K525+000 桥梁伸缩缝检查）
+BURST_COUNT = 3
+BURST_INTERVAL_MS = 800
+BURST_GPS_STEP = 0.00002        # ≈2.2m/张
+BURST_PAINT_SEED = 1000         # 固定种子：与 idx 无关，挪动生成顺序也不改字节
 
 # 刻意落在巡查日期之外：验证 FileNameDateFilter 当天过滤
 OFF_DATE = [("IMG_20260813_091500.jpg", "2026:08:13 09:15:00"),
@@ -311,10 +331,10 @@ def generate(out: Path) -> dict:
     idx = 0
 
     def emit(name: str, stamp: datetime, kind: str, gps, *, dup_of: str | None = None,
-             note: str = "") -> None:
+             note: str = "", seed: int | None = None) -> None:
         nonlocal idx
         idx += 1
-        img = _paint(idx, f"{stamp:%H:%M:%S}")
+        img = _paint(seed if seed is not None else idx, f"{stamp:%H:%M:%S}")
         exif = _exif_for(kind, stamp, gps)
         path = photos_dir / name
         _save(img, exif, path)
@@ -363,6 +383,17 @@ def generate(out: Path) -> dict:
         else:
             p.write_bytes(b"HEIC placeholder - not a real heic")
 
+    # ★ 连拍用例（说明见文件头 BURST_* 常量）：同事件 + 同地点 + 800ms 间隔，EXIF 秒级"同刻"。
+    #   放在最后、且 paint 种子固定 —— 保证这批照片的加入不会改动任何其他照片的字节。
+    bhh, bmm = (int(x) for x in BURST_EVENT_HHMM.split(":"))
+    bbase = datetime(2026, 8, 14, bhh, bmm, 0)
+    for k in range(BURST_COUNT):
+        delta_ms = k * BURST_INTERVAL_MS
+        stamp = bbase + timedelta(milliseconds=delta_ms)
+        gps = (round(30.2512 + k * BURST_GPS_STEP, 6), 120.1683)
+        emit(f"IMG_20260814_{stamp:%H%M%S}{delta_ms % 1000:03d}.jpg", stamp, "colon", gps,
+             note="burst", seed=BURST_PAINT_SEED + k)
+
     log_path = out / "patrol-log-20260814.txt"
     log_path.write_text(build_log(EVENTS), encoding="utf-8")
 
@@ -373,6 +404,12 @@ def generate(out: Path) -> dict:
         "photoCount": len(manifest),
         "photos": manifest,
         "noise": [n for n, _ in NOISE_FILES],
+        "burst": {
+            "event": BURST_EVENT_HHMM,
+            "count": BURST_COUNT,
+            "intervalMs": BURST_INTERVAL_MS,
+            "expect": "全部保留（锚点之间永不合并）",
+        },
     }
     (out / "sample-manifest.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -414,6 +451,7 @@ def verify(out: Path) -> int:
         "派生副本": sum(1 for i in meta["photos"] if str(i["note"]).startswith("derived:")),
         "未匹配": sum(1 for i in meta["photos"] if i["note"] == "unmatched"),
         "跨日期": sum(1 for i in meta["photos"] if i["note"] == "off-date"),
+        "连拍": sum(1 for i in meta["photos"] if i["note"] == "burst"),
         "无EXIF": sum(1 for i in meta["photos"] if i["exif"] == "none"),
         "短横EXIF": sum(1 for i in meta["photos"] if i["exif"] == "dash"),
         "噪声文件": len(meta["noise"]),
@@ -423,12 +461,21 @@ def verify(out: Path) -> int:
         print(f"  {k}: {v}")
     # 覆盖度下限：样本一旦被削薄，回归就会"测了等于没测"，所以这里硬性卡住。
     minimum = {
-        "总照片": 60, "重复组成员": 8, "派生副本": 6, "未匹配": 4,
-        "跨日期": 2, "无EXIF": 2, "短横EXIF": 4, "噪声文件": 4, "日志行数": 380,
+        "总照片": 69, "重复组成员": 8, "派生副本": 6, "未匹配": 4,
+        "跨日期": 2, "连拍": 3, "无EXIF": 2, "短横EXIF": 4, "噪声文件": 4, "日志行数": 380,
     }
     for key, need in minimum.items():
         if counts[key] < need:
             problems.append(f"{key}={counts[key]} 低于下限 {need}")
+    # ★ 连拍用例的结构性断言：4 张（主图 + 3 连拍）必须同事件同地点、EXIF 落在 1 秒内、
+    #   文件名序号各差 800、且逐像素不同。任何一条不成立，这个用例就测不到 P0-2。
+    burst = [i for i in meta["photos"] if i["note"] == "burst"]
+    if len(burst) != BURST_COUNT:
+        problems.append(f"连拍张数 {len(burst)} != {BURST_COUNT}")
+    elif len({i["sha256"] for i in burst}) != BURST_COUNT:
+        problems.append("连拍里出现完全相同的字节（就不是'不同照片'了，测不出误删）")
+    elif any(i["exif"] == "none" for i in burst):
+        problems.append("连拍照片缺 EXIF 时间（会掉进未分类，测不到去重）")
     if problems:
         print("[FAIL] " + "; ".join(problems))
         return 1

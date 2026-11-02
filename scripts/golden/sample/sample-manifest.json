@@ -2,7 +2,7 @@
   "patrolDate": "2026-08-14",
   "logFile": "patrol-log-20260814.txt",
   "logLines": 416,
-  "photoCount": 66,
+  "photoCount": 69,
   "photos": [
     {
       "name": "IMG_20260814_080000.jpg",
@@ -786,6 +786,42 @@
       "sha256": "a6d59ccfb9f1a29013f949d6c76bc9dabc3eeb7a2abfc79e7653e046944676ad",
       "dup_of": null,
       "note": "off-date"
+    },
+    {
+      "name": "IMG_20260814_110500000.jpg",
+      "time": "2026-08-14 11:05:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "05cce22c7625210499b668dbae5fea89cf86f8022bad2c4f4fab85813ffb1236",
+      "dup_of": null,
+      "note": "burst"
+    },
+    {
+      "name": "IMG_20260814_110500800.jpg",
+      "time": "2026-08-14 11:05:00",
+      "exif": "colon",
+      "gps": [
+        30.25122,
+        120.1683
+      ],
+      "sha256": "44b9871ab49f19d7c8f4826c7a65a2c61e6c8a4c0f28f1dd3d98ffbd5159af41",
+      "dup_of": null,
+      "note": "burst"
+    },
+    {
+      "name": "IMG_20260814_110501600.jpg",
+      "time": "2026-08-14 11:05:01",
+      "exif": "colon",
+      "gps": [
+        30.25124,
+        120.1683
+      ],
+      "sha256": "098a1ae512643076a0c33ee83cbab90c898eeb9a547a201d86ff17bd278edc9e",
+      "dup_of": null,
+      "note": "burst"
     }
   ],
   "noise": [
@@ -793,5 +829,11 @@
     "mmexport1755000000000.jpg",
     "records.txt",
     "IMG_20260814_1030.heic"
-  ]
+  ],
+  "burst": {
+    "event": "11:05",
+    "count": 3,
+    "intervalMs": 800,
+    "expect": "全部保留（锚点之间永不合并）"
+  }
 }
