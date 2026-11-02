@@ -12,7 +12,11 @@
 | `make_sample.py` | 生成/校验样本素材：66 张照片（含重复组、派生命名、3 种 EXIF、无 EXIF、跨日期、误筛文件）+ 416 行巡查日志 |
 | `run_desktop.sh` | 跑一次 PC 端真实导出（`cli` 无头模式），产出快照 `snapshot.json` |
 | `snapshot_xlsx.py` | `ledger.xlsx` → JSON：单元格文本 + 样式号 + 行高 + 列宽 + 嵌入图片字节 + 图片锚点 |
-| `snapshot_zip.py` | Android 导出 ZIP → JSON：条目清单 + 每条 sha256 + 目录结构 |
+| `snapshot_zip.py` | Android 导出 ZIP → JSON：条目清单 + 每条 sha256 + 目录结构；`--normalize` 折叠导出时刻、`--exclude` 剔除跨端不可比条目 |
+| `snapshot_dir.py` | PC 导出目录 → **与 ZIP 同构**的快照，供跨端比对（目录条目也输出，否则两次快照长度永远差 N） |
+| `make_android_prefs.py` | 生成 Android 的两个 SharedPreferences XML（settings / logs），含 XML 转义与回读自校验 |
+| `run_android.sh` | 在模拟器上跑一次 Android 导出并拍快照（环境自检 → 装包 → 灌素材 → 注 prefs → 解析 → 导出 → 拉取） |
+| `find_node.py` | 从 `uiautomator dump` 按文本定位可点坐标（Compose 的「父 clickable + 子 text」两层结构） |
 | `compare.py` | 两份快照逐路径 diff，定位到"哪一行哪一格" |
 | `sample/` | 素材本体（入库，1.2MB）——素材变了等于换了基线 |
 | `../../docs/golden/desktop-baseline.json` | PC 端基线快照（入库） |
@@ -86,8 +90,24 @@ U1.9 修过一次「照片行高在 125% 缩放下被压成 0.8 倍（81pt→64.
 `make_sample.py` 刻意**不删除**目录：重建走同名覆盖，多余文件只在末尾 `[WARN]` 列出，由人决定。
 （第一版用了 `shutil.rmtree`，被执行环境拦下 —— 拦得对，素材是资产，不该被脚本删。）
 
-## 7. Android 侧基线（待补）
+## 7. Android 侧基线（P-2：方案与脚本就绪，首跑待加速修复）
 
-`snapshot_zip.py` 已就绪，但 Android 导出需要真机/模拟器走 SAF，属 **P-2 前提**：
-M3 前补一轮，届时 `docs/golden/android-baseline.json` 与桌面端同构存放。
-在此之前，Android 侧的"没改坏"由 10 个既有 Robolectric 测试兜底。
+工具链已齐（`run_android.sh` + `make_android_prefs.py` + `find_node.py` + `snapshot_zip.py`），
+完整方案见 **`docs/ANDROID-EMULATOR-BASELINE.md`**（环境配置 / 前提条件 / 步骤 / 判定 / 14 条常见问题）。
+
+当前唯一阻塞项：本机 **AEHD 驱动打不开**（`Unable to open AEHD device: ERROR_ACCESS_DENIED`），
+x86_64 模拟器无法启动。修好后一条命令即可出基线：
+
+```bash
+scripts/golden/run_android.sh /tmp/p2-a
+```
+
+Android 基线与桌面端的判定口径不同，这点必须记住：
+
+| 端 | 产物 | 判定 |
+| --- | --- | --- |
+| PC | 导出目录（事件子目录 + `ledger.xlsx`） | 台账逐单元格 + 行高/列宽 + 嵌图字节全等 |
+| Android | ZIP（同样的目录结构 + 台账 xlsx） | 双跑幂等（V2）+ 跨端差异登记（V4） |
+
+**跨端不要求零差异**：两端当前在派生判定（D5）、EXIF 时间格式（D9）上本就有分叉。
+P-2 的产出是一张差异表，作为 T04/T07/T12 的验收目标——改造后差异只能减少，不能新增。

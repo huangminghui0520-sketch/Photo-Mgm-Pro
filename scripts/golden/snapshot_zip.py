@@ -18,18 +18,37 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import zipfile
+from collections import Counter
 from pathlib import Path
 
+# 导出文件名带「导出时刻」：照片分类_20260814_111636.zip、巡查台账_20260814_111636.xlsx。
+# 这个时刻每次导出都不同，但它**不影响产物内容**——不归一化就会把"重新导出了一次"
+# 误报成"行为变了"，基线从此不可用。
+#
+# ★ 必须锚定前缀，不能只写 \d{8}_\d{6}：照片名恰好是 IMG_20260814_080000.jpg，
+#   同一个正则会把几十张照片全折成 IMG_<TS>.jpg —— 同目录内重名、跨端完全无法区分，
+#   基线表面"通过"却什么都没验到（实测踩过）。
+_TS_RE = re.compile(r"(?:照片分类|巡查台账)_\d{8}_\d{6}")
 
-def snapshot(path: Path) -> dict:
+
+def normalize_name(name: str) -> str:
+    """只折叠导出时刻；保留目录部分，避免影响条目路径结构。"""
+    head, sep, base = name.rpartition("/")
+    return f"{head}{sep}{_TS_RE.sub(lambda m: m.group(0).split('_')[0] + '_<TS>', base)}"
+
+
+def snapshot(path: Path, normalize: bool = False, exclude: re.Pattern[str] | None = None) -> dict:
     entries = []
     with zipfile.ZipFile(path) as z:
         for info in z.infolist():
+            if exclude is not None and exclude.search(info.filename):
+                continue
             is_dir = info.filename.endswith("/")
             item = {
-                "name": info.filename,
+                "name": normalize_name(info.filename) if normalize else info.filename,
                 "dir": is_dir,
                 "method": info.compress_type,
             }
@@ -41,12 +60,17 @@ def snapshot(path: Path) -> dict:
     entries.sort(key=lambda e: e["name"])
     dirs = sorted({e["name"].rsplit("/", 1)[0] for e in entries
                    if "/" in e["name"]})
+    names = [e["name"] for e in entries]
+    dups = sorted(n for n, c in Counter(names).items() if c > 1)
     return {
-        "file": path.name,
+        "file": "<ZIP>" if normalize else path.name,
         "entries": entries,
         "entryCount": len(entries),
         "fileCount": sum(1 for e in entries if not e["dir"]),
         "dirs": dirs,
+        # ★ 归一化后若出现重名，说明折叠规则误伤了业务字段（照片名/事件名），
+        #   此时快照"看起来通过"但已失去分辨力。留一个显式字段，比对时一眼能看到。
+        "duplicateNames": dups,
     }
 
 
@@ -55,12 +79,21 @@ def main() -> int:
     ap.add_argument("--in", dest="src", required=True)
     ap.add_argument("--out", dest="dst", required=True)
     ap.add_argument("--meta", action="append", default=[], help="key=value（可重复）")
+    ap.add_argument("--exclude", default=None,
+                    help="正则：按条目名排除（跨端比对时用来剔除 PC 侧独有的 export-manifest.json / "
+                         "export.log，以及两端口径不同的 ledger.xlsx）")
+    ap.add_argument("--normalize", action="store_true",
+                    help="把 8 位日期_6 位时分秒（导出时刻）折叠为 <TS>，用于双跑幂等与跨端比对。"
+                         "跨端比对必须开；单次留证可不开")
     args = ap.parse_args()
     src = Path(args.src)
     if not src.exists():
         print(f"[FAIL] 文件不存在：{src}")
         return 1
-    snap = snapshot(src)
+    snap = snapshot(src, normalize=args.normalize,
+                    exclude=re.compile(args.exclude) if args.exclude else None)
+    if args.normalize:
+        snap["normalized"] = True
     if args.meta:
         meta = dict(kv.split("=", 1) for kv in args.meta if "=" in kv)
         snap = {"meta": meta, **snap}
@@ -68,7 +101,12 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(snap, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
     print(f"[OK] {src.name} → {out}")
-    print(f"     条目 {snap['entryCount']}（文件 {snap['fileCount']} / 目录 {len(snap['dirs'])}）")
+    print(f"     条目 {snap['entryCount']}（文件 {snap['fileCount']} / 目录 {len(snap['dirs'])}）"
+          f"{'  [已归一化导出时刻]' if args.normalize else ''}")
+    if snap["duplicateNames"]:
+        print(f"[WARN] 归一化后有 {len(snap['duplicateNames'])} 组重名条目（折叠规则可能误伤业务字段）：")
+        for n in snap["duplicateNames"][:5]:
+            print("   -", n)
     return 0
 
 
