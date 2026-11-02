@@ -19,7 +19,7 @@
 | 可行性 | **高**。`:algorithm` 经逐文件核实为纯 Kotlin JVM、零 Android 依赖，可整块编译进桌面端 |
 | 新增工作量 | 集中在平台适配层（目录扫描 / EXIF / 缩略图与 JPEG 编码）+ **新建 `PcFolderExporter`** + 桌面 UI 层 |
 | 技术栈 | Kotlin + Compose Multiplatform Desktop + metadata-extractor + ImageIO；测试用 POI 读回 xlsx |
-| 导出产物 | **文件夹**（不是 ZIP）：`PhotoMgm_export_yyyyMMdd_HHmmss/`，根放 `ledger.xlsx` + `export.log` + `export-manifest.json`，事件子文件夹 + `99_未分类/` |
+| 导出产物 | **文件夹**（不是 ZIP）：`月日_时分秒/`（如 `1101_203200/`），根放 `ledger.xlsx` + `export.log` + `export-manifest.json`，事件子文件夹 + `99_未分类/` |
 | 打包 | jlink 裁剪运行时 + jpackage 出 MSI（主产物）；便携 ZIP 为**安装包**形态（非导出产物），WiX 不可用时降级 app-image + Inno Setup |
 | 独立文件夹 | `desktop/`，与现有模块平级 |
 | 最大前置阻塞 | 本机无 JDK（PATH 无 java、无 JAVA_HOME、`~/.gradle/jdks` 为空）；`winget` 可用、`choco` 不可用 |
@@ -171,7 +171,7 @@
 **① 产物结构（导出根 = 用户输出目录下的新建目录）**
 
 ```
-<输出目录>/PhotoMgm_export_yyyyMMdd_HHmmss/     ← 时间取 AppZone.ID；不含冒号
+<输出目录>/MMdd_HHmmss/                        ← 时间取 AppZone.ID；不含冒号，如 1101_203200/
 ├── ledger.xlsx                                 ← 台账（复用 AlgorithmApi.exportLedgerXlsx）
 ├── export.log                                  ← JSON Lines，规格见 ④
 ├── export-manifest.json                        ← 续传判据，见 ②
@@ -419,7 +419,7 @@ jlink → jpackage MSI → `smoke-test.ps1`（安装→开始菜单启动→导�
 | D2 | 算法复用 | `include(":algorithm"){ projectDir = file("../algorithm") }`，不复制不移动 |
 | D3 | UI 框架 | Compose Multiplatform Desktop |
 | D4 | 桌面首发版本 | 2.0.0（与 Android 1.3.2 独立版本线） |
-| D5 | **导出产物** | **不生成 ZIP（指导出产物；安装包便携 ZIP 另议，见 N1）**：输出根 / `PhotoMgm_export_yyyyMMdd_HHmmss`（`AppZone.ID`，不含冒号）/ 事件子文件夹 + `99_未分类`；根放 `ledger.xlsx` + `export.log` + `export-manifest.json`；重名 `_2/_3` 记 `export.log` |
+| D5 | **导出产物** | **不生成 ZIP（指导出产物；安装包便携 ZIP 另议，见 N1）**：输出根 / `MMdd_HHmmss`（`AppZone.ID`，不含冒号，如 `1101_203200`）/ 事件子文件夹 + `99_未分类`；根放 `ledger.xlsx` + `export.log` + `export-manifest.json`；重名 `_2/_3` 记 `export.log` |
 | D6 | 分类维度 | 按事件分文件夹，未匹配入独立目录 |
 | D7 | 代码签名 | v1 不采购 |
 | D8 | 命令行批量 | v1 不做 |

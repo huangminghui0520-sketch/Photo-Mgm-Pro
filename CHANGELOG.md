@@ -5,6 +5,34 @@
 
 ## [Unreleased]
 
+## [desktop-v2.0.0] - 2026-11-02
+
+Windows 桌面版（Compose Multiplatform）首发。与 Android 1.3.2 为**独立版本线**，共用 `algorithm` 台账/分类逻辑。
+
+### 新增
+- 缩略图真实加载：`ui/image/Thumbnails.kt` 按目标边长 2 的幂做 `ImageIO` 降采样 + 字节预算 LRU（96MB）+ 3 路并发，1000 张网格不 OOM；缓存命中同步返回，不闪白块
+- 事件弹窗可拖动：`SheetHost` 交付 `dragHandle`，`awaitEachGesture` 在 Initial pass 超过 touchSlop 才消费，位移夹在窗口内（原实现只能固定在居中位置）
+- 巡查日期改用浮层选择：新增 `dialog/DatePickerLayer.kt`，按 `boundsInWindow` 定位、下方空间不足自动上翻；不再就地展开把整页推挤 240dp。Esc 分层：日历 → 弹窗 → 勾选
+- 照片多选：单选 / Shift+点连选（从锚点连续区间）/ 右上角红勾切换三套行为并存；事件内照片按拍摄时间升序（无时间排最后，同刻按 id）
+- 事件弹窗右侧新增「巡查日志内容」区，显示该事件原始日志（含续行合并），侧栏 240 → 300
+- 顶栏导出按钮始终可点（仅忙时禁用），条件不足弹提示文案而非灰掉；`Ctrl+E` 走同一判定
+
+### 变更
+- 导出目录名由 `PhotoMgm_export_20261101_203200` 改为 `1101_203200`（`MMdd_HHmmss`，冲突续号 `_2/_3` 保留）；续传识别改正则 `\d{4}_\d{6}(_\d+)?`
+- 台账排版：数据行行高恒等于照片高（81pt），照片下方不再写文字，B 列只显示 `hh:mm`（值仍是完整日期序列号，跨零点排序正确，表头「日期」→「时间」），全表水平+垂直居中并自动换行
+- 事件内照片间隔判定阈值 240s → **60s**（`NEAR_GAP_MS` 独立常量，提示文案写实际秒数）；`backfillMs` 仍 120s
+
+### 修复
+- 缩略图格只画 id 取色占位块、从未加载图片
+- `pointerInput(Unit)` 闭包捕获初始 state，导致 Ctrl 多选最多只到两张：改为 `rememberUpdatedState` 转发 + 纯函数化 `clickPhotoSelection`
+- 点击判定错乱（两层根因）：①`pmPress` 靠 `isConsumed` 猜区域，而 `clickable` 按下阶段不消费，点红勾同时触发切换与重置；②`Ctrl` 分支与单选挂在同一次 press 上。改为几何判定 `inTopEndZone`（与格子严格互补）+ 红勾 `awaitEachGesture`（down 即 consume、抬起须仍在区内）+ 删除 `Ctrl` 分支，「切换这一张、保留其它」收归红勾唯一入口
+- 台账照片格尺寸与照片不符：F/G 列宽由手写 22 字符（≈4.21cm）改为由照片宽度折算的 20 字符（Excel 读回 108 磅 = 3.81cm，与照片同宽，两张照片左右严丝合缝）
+- 台账行高在非 100% 缩放的 Excel 里被缩成 0.8 倍（81pt → 64.8pt），照片比行高出一截、上下压行：worksheet 补 `<sheetViews>`（Excel 对缺视图声明的第三方文件会把 `ht` 当 96 DPI 像素重新解释）；实测补后行距 = 81pt = 照片高 2.86cm
+- 照片尺寸/行高/列宽统一由同一组 EMU 常量换算（`XlsxWriter.PIC_CX_EMU / PIC_CY_EMU`），不再三处各写魔数；A~E 列宽与其余格式未动
+
+### 已知限制
+- 台账行高固定后，日志超约 150 汉字在 E 列会被裁切；完整原文见 `export.log` 与事件文件夹（换取"行行等高、照片与行对齐"便于打印装订）
+
 ## [1.3.2] - 2026-10-24
 
 ### 修复
