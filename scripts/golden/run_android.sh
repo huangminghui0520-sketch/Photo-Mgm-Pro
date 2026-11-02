@@ -40,7 +40,13 @@ ACTIVITY="$PKG/.MainActivity"
 AVD="${AVD:-pmgolden_api34}"
 SERIAL="${SERIAL:-emulator-5554}"
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/d/Android/sdk}}"
-export JAVA_HOME="${JAVA_HOME:-/d/Android/jdk-17.0.2}"
+# ★ JAVA_HOME 若是 /d/... 形式，cmd 执行的 gradlew.bat 会判无效目录（MSYS_NO_PATHCONV=1
+#   会让 Git Bash 不再转换环境变量）→ 显式转成 D:/... 混合形式。
+JAVA_HOME="${JAVA_HOME:-/d/Android/jdk-17.0.2}"
+case "$JAVA_HOME" in /*) JAVA_HOME="$(cygpath -m "$JAVA_HOME")" ;; esac
+export JAVA_HOME
+# ★ SDK 路径同理：Gradle（cmd 进程）不认 /d/Android/sdk，会报 "SDK location not found"。
+case "$SDK" in /*) SDK="$(cygpath -m "$SDK")" ;; esac
 export ANDROID_SDK_ROOT="$SDK"
 export ANDROID_HOME="$SDK"
 export PATH="$JAVA_HOME/bin:$PATH"
@@ -146,6 +152,8 @@ adb_ install -r -t "$APK" >/dev/null || die "安装失败"
 adb_ shell pm clear "$PKG" >/dev/null 2>&1 || true   # ★ 必须：清四类缓存与人工移动表
 adb_ shell pm grant "$PKG" android.permission.READ_MEDIA_IMAGES >/dev/null 2>&1 \
   || adb_ shell pm grant "$PKG" android.permission.READ_EXTERNAL_STORAGE >/dev/null 2>&1 || true
+# ★ P0（2026-11-02）：缺 ACCESS_MEDIA_LOCATION 时系统读取媒体会剥离 EXIF GPS，基线就测不到定位。
+adb_ shell pm grant "$PKG" android.permission.ACCESS_MEDIA_LOCATION >/dev/null 2>&1 || true
 
 # run-as 是 debug 包专有能力；release 包会在这一步失败，提前给出可读的原因
 if ! adb_ shell "run-as $PKG id" >/dev/null 2>&1; then

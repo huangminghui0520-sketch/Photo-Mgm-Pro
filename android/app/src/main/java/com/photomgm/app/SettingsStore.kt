@@ -110,7 +110,7 @@ class SettingsStore(context: Context) {
 
     /** 事件列表缓存（ParsedLog JSON）。 */
     var parsedCache: ParsedLog?
-        get() = if (!cacheZoneMatches()) null else prefs.getString(KEY_PARSED_CACHE, null)?.let { raw ->
+        get() = if (!cacheUsable()) null else prefs.getString(KEY_PARSED_CACHE, null)?.let { raw ->
             runCatching { parseParsed(raw) }.getOrNull()
         }
         set(v) = prefs.edit()
@@ -118,7 +118,7 @@ class SettingsStore(context: Context) {
 
     /** 分类结果缓存（ClassifyResult JSON）。 */
     var classifyCache: ClassifyResult?
-        get() = if (!cacheZoneMatches()) null else prefs.getString(KEY_CLASSIFY_CACHE, null)?.let { raw ->
+        get() = if (!cacheUsable()) null else prefs.getString(KEY_CLASSIFY_CACHE, null)?.let { raw ->
             runCatching { parseClassify(raw) }.getOrNull()
         }
         set(v) = prefs.edit()
@@ -126,7 +126,7 @@ class SettingsStore(context: Context) {
 
     /** 照片元数据缓存（Photo[] JSON；分类的 photoId 需映射回 Photo 供导出/查看器使用）。 */
     var photosCache: List<Photo>
-        get() = if (!cacheZoneMatches()) emptyList() else prefs.getString(KEY_PHOTOS_CACHE, null)?.let { raw ->
+        get() = if (!cacheUsable()) emptyList() else prefs.getString(KEY_PHOTOS_CACHE, null)?.let { raw ->
             runCatching { parsePhotos(raw) }.getOrNull()
         } ?: emptyList()
         set(v) = prefs.edit().putString(KEY_PHOTOS_CACHE, serializePhotos(v)).apply()
@@ -134,7 +134,7 @@ class SettingsStore(context: Context) {
     /** 粗筛数量缓存（恢复后 ensurePipeline 视为已粗筛，跳过重扫）。 */
     var coarseCountCache: Int?
         get() {
-            if (!cacheZoneMatches()) return null
+            if (!cacheUsable()) return null
             return if (prefs.contains(KEY_COARSE_CACHE)) prefs.getInt(KEY_COARSE_CACHE, 0) else null
         }
         set(v) {
@@ -143,7 +143,7 @@ class SettingsStore(context: Context) {
         }
 
     /**
-     * 记录"当前派生缓存是按哪个业务时区算出来的"。
+     * 记录"这批派生缓存是在什么语义假设下算出来的"（时区 + GPS 读取能力两个版本位）。
      *
      * ★ issue #2 一次性迁移的版本位：上面的四个派生缓存里存的是 **epoch 毫秒**，历史上是用
      *   「当时设备的默认时区」把日志/EXIF 里的本地挂钟时间解释出来的。若当时设备不在 +08:00，
@@ -151,6 +151,15 @@ class SettingsStore(context: Context) {
      *   处置不是"换算"，而是**丢弃 + 用日志原文在 [AppZone.ID] 下重算**：
      *   读侧发现版本位与当前业务时区不一致 → 当作没有缓存（返回 null / 空列表），
      *   流水线随即重跑并调用本方法把版本位刷新成新值。
+     *
+     * ★ P0（2026-11-02）追加第二个版本位 [KEY_CACHE_GEO]：
+     *   旧版本 APK 缺 `ACCESS_MEDIA_LOCATION`，读到的 `latitude/longitude` 恒为 null——那是
+     *   **系统剥离的结果**，不是照片本来没有定位。修好权限后这些 null 仍躺在 cache_photos 里，
+     *   而"打开 App 从缓存恢复"不会重读 EXIF，于是修复对老用户完全无效。
+     *   故用 [GEO_CACHE_VERSION] 一次性作废旧缓存：旧包没写过这个位 → 读不到 → 全量重算。
+     *   注意这里**故意不用运行时权限状态**做版本位，而是用静态常量：权限状态在 init 时未必已定
+     *   （对话框还没回来），拿它当判据会让"刚授予"的用户反复丢缓存。补授权限后的口径由
+     *   [AppViewModel.onMediaPermissionsResult] 提示用户重新解析，语义更清楚。
      *
      * 受影响数据（PR 里逐项列出）：
      *   - cache_parsed / cache_classify / cache_photos / cache_coarse_count：全部丢弃重算；
@@ -162,12 +171,21 @@ class SettingsStore(context: Context) {
      * 回滚方案：revert 引入本方法的提交即可。版本位不匹配只影响"要不要用缓存"，
      *   不会删除任何用户数据；回滚后缓存会按旧时区重新生成，App 仍可用。
      */
-    fun markCacheZone() {
-        prefs.edit().putString(KEY_CACHE_ZONE, AppZone.ID.id).apply()
+    fun markCacheVersion() {
+        prefs.edit()
+            .putString(KEY_CACHE_ZONE, AppZone.ID.id)
+            .putString(KEY_CACHE_GEO, GEO_CACHE_VERSION)
+            .apply()
     }
 
     /** 派生缓存是否按当前业务时区算出（版本位缺失 = 旧版本数据 → 不可信）。 */
     private fun cacheZoneMatches(): Boolean = prefs.getString(KEY_CACHE_ZONE, null) == AppZone.ID.id
+
+    /** 派生缓存是否由"能读到 GPS"的那版读取逻辑算出（★ P0：旧包没写过 → 不可信）。 */
+    private fun cacheGeoMatches(): Boolean = prefs.getString(KEY_CACHE_GEO, null) == GEO_CACHE_VERSION
+
+    /** 四份派生缓存是否可用：时区与 GPS 语义两个版本位**都**要对上（全有或全无）。 */
+    private fun cacheUsable(): Boolean = cacheZoneMatches() && cacheGeoMatches()
 
     /** 解析时刻的日志文本快照：用于判断"日志是否被修改"——未修改时点解析只清人工移动。 */
     var parsedLogsText: String
@@ -182,7 +200,7 @@ class SettingsStore(context: Context) {
         coarseCountCache = null
         parsedLogsText = ""
         // 清空后版本位与新写入保持一致，避免"刚清完又被判为旧版本"的反复失效
-        markCacheZone()
+        markCacheVersion()
     }
 
     // ── JSON 序列化（Android 内置 org.json，零新依赖） ──
@@ -347,7 +365,15 @@ class SettingsStore(context: Context) {
         const val KEY_PHOTOS_CACHE = "cache_photos"
         const val KEY_COARSE_CACHE = "cache_coarse_count"
         const val KEY_PARSED_LOGS_TEXT = "cache_parsed_logs_text"
-        /** 派生缓存所用的业务时区版本位（issue #2 迁移用，见 [markCacheZone]）。 */
+        /** 派生缓存所用的业务时区版本位（issue #2 迁移用，见 [markCacheVersion]）。 */
         const val KEY_CACHE_ZONE = "cache_zone"
+        /** 派生缓存所用的「GPS 语义版本」位（★ P0 修复用，见 [markCacheVersion]）。 */
+        const val KEY_CACHE_GEO = "cache_geo_version"
+        /**
+         * GPS 语义版本：`media-location-v1` = 已声明并申请 `ACCESS_MEDIA_LOCATION` 之后读出的结果。
+         * 旧版本 APK 没写这个位（读不到 GPS，却把 `latitude=null` 当真值缓存了下来）→ 一律作废重算。
+         * 将来若再改 GPS 读取方式（如改用 `MediaStore.setRequireOriginal`），改这里的值即可让旧缓存失效。
+         */
+        const val GEO_CACHE_VERSION = "media-location-v1"
     }
 }

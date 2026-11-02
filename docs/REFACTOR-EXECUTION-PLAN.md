@@ -125,7 +125,7 @@
 | --- | --- |
 | 目标 | 消灭 D9（EXIF 时间两版）、D10（SHA-256 两份）、扩展名集合两处 |
 | 依赖 | T02 |
-| 改动 | 新增 `shared/domain/exif/ExifTime.kt`（**取并集**：`yyyy:MM:dd` 与 `yyyy-MM-dd` 都认）、`hash/Sha256.kt`、`spec/ImageExtensions.kt`；PC 侧 `PcExifReader`/`PcFileHasher`/`PcPhotoSourceProvider` 改为委派；Android 侧删 `ExifTimeParser.kt`/`FileHasher.kt`，`ExifPhotoReader` 改为委派；补 3 组纯 JVM 单测（含"冒号/短横混合""带时区偏移""无 EXIF 返回 null"） |
+| 改动 | 新增 `shared/domain/exif/ExifTime.kt`（**取并集**：`yyyy:MM:dd` 与 `yyyy-MM-dd` 都认）、`hash/Sha256.kt`、`spec/ImageExtensions.kt`；PC 侧 `PcExifReader`/`PcFileHasher`/`PcPhotoSourceProvider` 改为委派；Android 侧删 `ExifTimeParser.kt`/`FileHasher.kt`，`ExifPhotoReader` 改为委派；补 3 组纯 JVM 单测（含"冒号/短横混合""带时区偏移""无 EXIF 返回 null"）。**★ 只搬"字符串 → epoch"的纯函数，不得把 `ExifPhotoReader.readAll` 拆成两次 `ExifInterface` 构造**（P0 修复后时间与 GPS 仍靠一次构造同时读出，拆开会退回 203ms 并放大 GPS 读取失败面） |
 | 产出 | 3 个共享文件 + 3 个测试；删除 2 个安卓文件；PC 3 个文件减重 |
 | 验证 | L2（新增测试 + 两端全量）；黄金样本 **必须全等**（D9 是"多认一种格式"，正常素材上不应产生差异；若产生差异 → 说明素材里有 `-` 分隔 EXIF，属预期变更，记入 CHANGELOG 并保留） |
 | 回滚 | 单提交；删除的两个安卓文件在回滚时恢复 |
@@ -221,7 +221,7 @@
 | --- | --- |
 | 目标 | 1165 行降到 ~250 行：留 `UiState` 投影 + SAF + 缩略图，其余委派给共享用例 |
 | 依赖 | T08、T09 |
-| 改动 | `AppViewModel` 内部方法体改为委派 `AnalysisPipeline`/`AdjustUseCase`/`SettingsUseCase`（**公开方法签名全部保留**：`parseLogs`/`buildLedger`/`movePhotos`/`exportZip`/`markLedgerPhoto`/…）；删除 `PhotoRepository.kt`；`LogsTextStore`/`Cancellable` 改调共享实现；**逐段搬运 4 个踩坑修复**：导出重入 `exportBusy.compareAndSet`、`runCatchingCancellable`（取消不被吞）、`dupGroups` 原子引用一次性发布、缓存时区版本位 |
+| 改动 | `AppViewModel` 内部方法体改为委派 `AnalysisPipeline`/`AdjustUseCase`/`SettingsUseCase`（**公开方法签名全部保留**：`parseLogs`/`buildLedger`/`movePhotos`/`exportZip`/`markLedgerPhoto`/…）；删除 `PhotoRepository.kt`；`LogsTextStore`/`Cancellable` 改调共享实现；**逐段搬运 5 个踩坑修复**：导出重入 `exportBusy.compareAndSet`、`runCatchingCancellable`（取消不被吞）、`dupGroups` 原子引用一次性发布、缓存时区版本位、**GPS 语义版本位 + `geoAvailable` 降级口径（P0 新增，见 `docs/P0-GPS-MEDIA-LOCATION-FIX.md` §8.2）** |
 | 产出 | 1 个主文件 1165 → ~250；删 1 文件、薄化 3 文件 |
 | 验证 | ① 10 个既有测试全绿（**这条是硬门槛**：`ExportGateTest` 验证重入、`SetLogsTextWiringTest` 验证接线、`ThumbnailCacheWiringTest` 验证缓存）；② 黄金样本全等（安卓侧 ZIP 条目清单 + 每条目哈希）；③ 12 项手工清单；④ `AppViewModel` 行数断言进 CI（可选） |
 | 回滚 | **分两个提交**（① 委派分析/调整；② 委派导出/设置），便于定位 |
@@ -399,7 +399,7 @@ cd "$REPO/desktop" && ./gradlew :ui:createDistributable   # 出 app-image（MSI 
 | --- | --- | --- | --- | --- |
 | **P-1** | **回归素材** | ✅ 已落地（合成 66 张 + 416 行日志，见 `scripts/golden/`） | 已完成：素材入库、可 `--verify` 自校验、`make_sample.py` 记录了三处踩坑 | 原"唯一阻塞项"已解除；**真实素材仍需在 M3 前补一轮**（合成覆盖不到厂商 HEIC/RAW 与真实微信日志边角） |
 | **P-2** | Android 侧基线 | ✅ **已解决**：改走**真机**（vivo V2232A / Android 16 / API 36），绕过 AEHD 限制。`scripts/golden/run_android_real.sh` 一条命令出基线，V1/V2/V3 全通过 | 已完成，无需再修 AEHD；模拟器路线保留但非必需 | 真机测出 P0 缺陷（GPS 被系统剥离），见 P-2b |
-| **P-2b** | **P0：`ACCESS_MEDIA_LOCATION` 缺失** | manifest 只声明 `READ_MEDIA_IMAGES`；Android 10+ 无该权限时系统剥离位置 → `Photo.latitude/longitude` 恒 null、导出照片 GPS 清零、去重退化为仅按时间 1s | **T11 之前**单独提交修复：manifest 加权限 + 运行时一并申请 + 未授权时明确提示降级口径 | 不修则去重会在「GPS 恒 null」的错误假设上被重构 |
+| **P-2b** | **P0：`ACCESS_MEDIA_LOCATION` 缺失** | ✅ **已修复（2026-11-02）**：manifest 声明 + 运行时一并申请 + 降级提示 + 缓存 GPS 版本位；真机实测 `cache_photos` 有 GPS 0/65 → **59/65**、导出照片 **56/56 与素材逐字节相同**。详见 `docs/P0-GPS-MEDIA-LOCATION-FIX.md` | 已完成，T03 无阻塞；**遗留两件**：① 安卓黄金基线须按新产物重建（52 条 sha 已变）② 负向验证出现"部分剥离"，登记 P1 待复现 | 若跳过基线重建，T11 的"黄金样本全等"会与错误基线对比 |
 | **P-3** | D2 的 Android UI 入口 | `copyPhotos` 同步后安卓无入口，能力不可达 | **先只上移能力（T12），UI 入口不在本计划内**；若要现在加，需破 §2.2（改 UI 交互），我会单独立项并给交互稿 | 影响 T12 验收口径（"不可达 = 黄金样本无差异"） |
 | **P-4** | 是否允许 2 处行为变更 | D5（角标判定变严格）、D9（多认 `-` 分隔时间） | **允许**，写入 CHANGELOG「已知行为变更」 | 若要求零变更 → D5 改判 B（保留两份口径），R1 降级但技术债留存 |
 | **P-5** | 推送与 CI | 本机 `~/.gitconfig` 代理 `127.0.0.1:7890` 未启动，`git push` 仍不通（`desktop-v2.0.0` 标签也尚未推送） | **每任务本地提交，M2/M4 各推一次**；若需中途靠 CI 验证，请先恢复网络 | 影响 R4/R7 的"自动探测"能否生效 |
@@ -435,7 +435,9 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | --- | --- |
 | **T01 黄金样本基线** | ✅ **已完成**（PC 侧；Android 侧推迟到 M3，见 T01 遗留） |
 | **T02 shared 骨架 + 迁移** | ✅ **已完成 → 抵达 M1**（42 文件纯 rename，两端编译/测试/门禁/黄金样本全绿） |
-| T03~T14 | 待开工 |
+| **P-2b P0 修复（GPS 被系统剥离）** | ✅ **已完成**（真机正向实测通过；文档 `docs/P0-GPS-MEDIA-LOCATION-FIX.md`）。**遗留**：安卓黄金基线重建、负向"部分剥离"待复现 |
+| **T03 纯函数上移 A** | 🔜 **下一步开工**（前置已解除：GPS 语义已确认，不再基于"恒 null"的假设） |
+| T04~T14 | 待开工 |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
 CI 结构断言扩到"三模块两端都必须挂 + 禁 `android/shared`/`desktop/shared`"；`REPO-LAYOUT.md` 升 v2。

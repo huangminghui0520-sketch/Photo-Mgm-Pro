@@ -2,7 +2,6 @@
 // ★ 2026-10-07 UI 重建：结构与原实现等价，重新书写。
 package com.photomgm.app
 
-import android.Manifest
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,14 +27,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             PhotoMgmTheme {
                 val vm: AppViewModel = viewModel()
-                // 媒体读取权限：API33+ 用 READ_MEDIA_IMAGES，旧版用 READ_EXTERNAL_STORAGE
-                val mediaPerm = if (Build.VERSION.SDK_INT >= 33)
-                    Manifest.permission.READ_MEDIA_IMAGES
-                else Manifest.permission.READ_EXTERNAL_STORAGE
+                // ★ P0（2026-11-02）：媒体权限必须**连位置权限一起**申请。
+                //   只申请 READ_MEDIA_IMAGES 时，Android 10+ 读取媒体会剥离 EXIF GPS（值区清零），
+                //   表现为「照片本来就没有定位」——真机上 Photo.latitude 恒 null。
+                //   清单随 SDK 版本变化（33/29 两个分水岭），交给纯函数 MediaPermissions 决定。
+                val plan = remember { MediaPermissions.plan(Build.VERSION.SDK_INT) }
                 val launcher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.RequestPermission()
-                ) { }
-                LaunchedEffect(Unit) { launcher.launch(mediaPerm) }
+                    ActivityResultContracts.RequestMultiplePermissions()
+                ) { granted -> vm.onMediaPermissionsResult(granted, Build.VERSION.SDK_INT) }
+                LaunchedEffect(Unit) { launcher.launch(plan.all.toTypedArray()) }
 
                 val snackbarHostState = remember { SnackbarHostState() }
                 val state by vm.state.collectAsState()

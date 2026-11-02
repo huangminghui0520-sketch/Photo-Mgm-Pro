@@ -49,6 +49,9 @@ class SettingsStoreZoneMigrationTest {
                 "captureTimeMs":1788393600000,"latitude":null,"longitude":null}]""".trimIndent())
             putInt("cache_coarse_count", 7)
             if (zoneVersion != null) putString("cache_zone", zoneVersion) else remove("cache_zone")
+            // ★ P0（2026-11-02）：派生缓存现在有两道版本位（时区 + GPS 语义）。本测试只考察时区那一道，
+            //   所以 GPS 位固定写成"当前版本"，把变量隔离出来（GPS 迁移另有 SettingsStoreGeoCacheTest）。
+            putString("cache_geo_version", "media-location-v1")
             // 用户数据：迁移必须原样保留
             putString("date", LocalDate.of(2026, 9, 3).toString())
             putString("logs_text", "08时00分 出发巡查")

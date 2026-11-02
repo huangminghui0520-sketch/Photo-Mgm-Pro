@@ -258,6 +258,24 @@ internal fun SettingsDialog(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            // ★ P0（2026-11-02）：没有「照片位置信息」权限时，系统会剥离 EXIF GPS，
+                            //   去重自动降级为「时间 + 文件名序号」。必须让用户知道口径变了，
+                            //   否则会把去重结果当准的用（真实连拍同秒不同地点可能被并组）。
+                            if (state.geoAvailable == false) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.errorContainer,
+                                    shape = RoundedCornerShape(8.dp),
+                                ) {
+                                    Text(
+                                        "⚠ 未授予「照片位置信息」权限：系统会清除照片定位，"
+                                                + "重复判定已降级为按拍摄时间 + 文件名序号。"
+                                                + "如需按 GPS 距离判定，请在系统设置中允许后重新解析。",
+                                        Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                }
+                            }
                         }
                     }
 

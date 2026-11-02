@@ -23,6 +23,12 @@
 #    由外层 shell 在 `/` 下展开，必然 No such file。必须逐个列文件名。
 # 6) **pm clear 会重置运行时权限**：清数据后 READ_MEDIA_IMAGES 变回未授予，
 #    必须重新 pm grant，否则 MediaStore 查询返回空、"照片 0 张"。
+# 7) **GPS 被系统剥离**（★ P0，2026-11-02）：Android 10+ 的 App 若没有
+#    ACCESS_MEDIA_LOCATION，系统在**读取媒体那一刻**就把 EXIF 里的 GPS 值区清零
+#    （标签还在、值变成 (nan,nan,nan)，文件长度不变）——看起来像"照片本来没有定位"。
+#    脚本默认 pm grant 该权限；GEO_PERM=0 则故意不授权，用于负向验证。
+# 8) **MSYS_NO_PATHCONV 连环境变量一起关**：JAVA_HOME 若写成 /d/... 形式，cmd 执行的
+#    gradlew.bat 会判为无效目录 → 构建步骤直接失败。脚本内统一转成 D:/... 形式。
 #
 # 用法：
 #   scripts/golden/run_android_real.sh                     # 出到 .p2work/run
@@ -30,6 +36,8 @@
 #   SKIP_INSTALL=1  ...   不重装 APK（默认每次都装，保证测的是当前 HEAD）
 #   KEEP_PHOTOS=1   ...   不重新 push 素材（设备上已有且未变动时省时间）
 #   MANUAL=1        ...   不自动点按钮，人工操作后回车
+#   GEO_PERM=0      ...   不授予位置权限（负向验证：GPS 应全为 null / NaN）
+#   EXPECT_GPS=none ...   覆盖 9.5 步的 GPS 期望值（默认随 GEO_PERM 推导）
 set -euo pipefail
 
 export MSYS_NO_PATHCONV=1          # 坑 1
@@ -37,7 +45,16 @@ export MSYS_NO_PATHCONV=1          # 坑 1
 PKG="com.photomgm.app"
 ACTIVITY="$PKG/.MainActivity"
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/d/Android/sdk}}"
-export JAVA_HOME="${JAVA_HOME:-/d/Android/jdk-17.0.2}"
+# ★ 坑 8：`MSYS_NO_PATHCONV=1` 关掉的不只是命令行参数改写，环境变量也不再被 Git Bash 转换。
+#   gradlew.bat 由 cmd 执行，看到 JAVA_HOME=/d/Android/jdk-17.0.2 会直接判无效目录
+#   （"JAVA_HOME is set to an invalid directory"），构建步骤第一步就失败。
+#   故显式转成 Windows 混合形式 D:/...（cmd 与 bash 都认）。
+JAVA_HOME="${JAVA_HOME:-/d/Android/jdk-17.0.2}"
+case "$JAVA_HOME" in /*) JAVA_HOME="$(cygpath -m "$JAVA_HOME")" ;; esac
+export JAVA_HOME
+# 同理 ANDROID_HOME / ANDROID_SDK_ROOT：Gradle（cmd 进程）不认 /d/Android/sdk，
+# 会报 "SDK location not found"。两种形式都转（bash 侧用 D:/... 也照常可执行）。
+case "$SDK" in /*) SDK="$(cygpath -m "$SDK")" ;; esac
 export ANDROID_SDK_ROOT="$SDK"
 export ANDROID_HOME="$SDK"
 export PATH="$JAVA_HOME/bin:$PATH"
@@ -101,6 +118,31 @@ for k in window_animation_scale transition_animation_scale animator_duration_sca
   adb_ shell settings put global "$k" 0 >/dev/null 2>&1 || true
 done
 
+# ── 2.5 预检：两个"一卡就是十分钟"的前置条件 ───────────────────────────────
+# 这两项都是**静默失败**型：不预检的话，后面的自动化会一路空转到超时才报错，
+# 看起来像"设备很慢"，实际是第一步就没法点（本次实测踩过，见 docs/P0-GPS-MEDIA-LOCATION-FIX.md §6）。
+say "2.5/9 预检：屏幕解锁 + UI 自动化可用"
+# (a) 存储未解锁：重启后手机停在锁屏，/sdcard 是空挂载点，素材、App 数据、dump 文件全读不到
+#     （`uiautomator dump /sdcard/x.xml` 还会谎报 "dumped to"，因为写失败没人检查）。
+n_sd="$(adb_ shell "ls /sdcard/ 2>/dev/null" | tr -d '\r' | grep -c . || true)"
+if [ "${n_sd:-0}" -lt 3 ]; then
+  die "手机处于锁定状态（/sdcard 仅 ${n_sd:-0} 项，用户 RUNNING_LOCKED）。请先在手机上解锁屏幕，再重跑本脚本"
+fi
+info "/sdcard 可读（${n_sd} 项）"
+
+# (b) UI 自动化不可用：上一次 uiautomator 被强杀会留下 UiAutomation 注册残留，
+#     此后每次 dump 都抛 IllegalStateException: already registered（进程被 SIGKILL，rc=137）。
+#     ★ 处置只有两条：先 pkill -f uiautomator；仍不行必须 adb reboot（pkill/force-stop 都清不掉）。
+UI_TMP=/data/local/tmp/_p2_ui.xml
+probe="$(adb_ shell "uiautomator dump $UI_TMP 2>&1" | tr -d '\r')"
+case "$probe" in
+  *"dumped to"*) info "uiautomator 可用" ;;
+  *) die "UI 自动化不可用：${probe:-无输出}
+     常见原因：① 上一次 uiautomator 被强杀 → UiAutomation 注册残留（already registered）
+               ② Appium / UiAutomatorViewer / IDE 调试等占用了 UiAutomation
+     处置：adb shell 'pkill -f uiautomator'；仍失败则 adb reboot（实测只有重启能清掉）" ;;
+esac
+
 # ── 3. 安装 ─────────────────────────────────────────────────────────────────
 APK="$REPO/android/app/build/outputs/apk/debug/app-debug.apk"
 if [ "$SKIP_INSTALL" = 1 ]; then
@@ -121,11 +163,38 @@ adb_ shell "pm grant $PKG android.permission.READ_MEDIA_IMAGES" >/dev/null 2>&1 
   || adb_ shell "pm grant $PKG android.permission.READ_EXTERNAL_STORAGE" >/dev/null 2>&1 || true
 adb_ shell "pm grant $PKG android.permission.READ_MEDIA_VISUAL_USER_SELECTED" >/dev/null 2>&1 || true
 
+# ★ P0（2026-11-02）：位置元数据权限。缺它时系统读取媒体会剥离 EXIF GPS（值区清零成 nan），
+#   表现为「照片本来没有定位」——必须有，否则本轮基线测的就不是 App 而是系统的脱敏行为。
+#   GEO_PERM=0 → 故意不授权，用于负向验证「没权限就该读不到」。
+GEO_PERM="${GEO_PERM:-1}"
+if [ "$GEO_PERM" = 1 ]; then
+  if [ "$API" -ge 29 ]; then
+    adb_ shell "pm grant $PKG android.permission.ACCESS_MEDIA_LOCATION" >/dev/null 2>&1 || true
+  fi
+else
+  adb_ shell "pm revoke $PKG android.permission.ACCESS_MEDIA_LOCATION" >/dev/null 2>&1 || true
+  printf '\033[33m    [WARN] GEO_PERM=0：未授予位置权限，本轮仅用于负向验证（GPS 应全为 null）\033[0m\n'
+fi
+
 # run-as 是 debug 包专有能力
 adb_ shell "run-as $PKG id" >/dev/null 2>&1 || die "run-as 不可用（需 debuggable APK）"
 
 perm="$(adb_ shell "dumpsys package $PKG | grep 'READ_MEDIA_IMAGES: granted'" | tr -d '\r')"
 case "$perm" in *granted=true*) info "READ_MEDIA_IMAGES granted=true";; *) die "照片权限未授予：$perm";; esac
+
+# ★ P0 验收点 1/2：权限真的进了 App 的 uid（声明没写或没申请时这里会没有这一行）
+geo_perm="$(adb_ shell "dumpsys package $PKG | grep 'ACCESS_MEDIA_LOCATION'" | tr -d '\r')"
+case "$geo_perm" in
+  *"granted=true"*) info "ACCESS_MEDIA_LOCATION granted=true";;
+  *"ACCESS_MEDIA_LOCATION"*) info "ACCESS_MEDIA_LOCATION 已声明但未授予（GEO_PERM=$GEO_PERM）";;
+  *) die "ACCESS_MEDIA_LOCATION 未声明（manifest 漏了？）：$geo_perm";;
+esac
+if [ "$GEO_PERM" = 1 ]; then
+  case "$geo_perm" in
+    *"granted=true"*) ;;
+    *) die "位置权限未授予，无法验收 GPS：$geo_perm" ;;
+  esac
+fi
 
 # ── 4. 素材进 MediaStore ────────────────────────────────────────────────────
 say "4/9 推送照片到 $DEV_PHOTOS"
@@ -191,18 +260,28 @@ say "6/9 启动 App"
 adb_ shell "am start -n $ACTIVITY" >/dev/null
 sleep 8
 
+# ★ 落盘到 /data/local/tmp 而不是 /sdcard：device-encrypted 存储先于用户解锁可用，
+#   锁屏状态下 /sdcard 写不进去（dump 还会谎报成功），而 /data/local/tmp 一直可写。
+#   顺带省掉一次 adb pull：直接 cat 回来比 push/pull 少一个进程往返。
 dump_ui() {
-  adb_ shell uiautomator dump /sdcard/_p2_ui.xml >/dev/null 2>&1 || return 1
-  adb_ pull /sdcard/_p2_ui.xml "$WORK/ui.xml" >/dev/null 2>&1 || return 1
-  [ -s "$WORK/ui.xml" ]
+  adb_ shell "uiautomator dump $UI_TMP" >/dev/null 2>&1 || return 1
+  adb_ shell "cat $UI_TMP" 2>/dev/null > "$WORK/ui.xml" || return 1
+  [ -s "$WORK/ui.xml" ] && grep -q "<hierarchy" "$WORK/ui.xml" 2>/dev/null
 }
 tap_text() {
-  dump_ui || return 1
-  local xy
-  xy="$(python "$REPO/scripts/golden/find_node.py" "$WORK/ui.xml" "$1" 2>/dev/null || true)"
-  [ -n "$xy" ] || return 1
-  info "点「$1」→ ($xy)"
-  adb_ shell "input tap $xy"
+  local xy try=0
+  while [ $try -lt 2 ]; do
+    try=$((try + 1))
+    if dump_ui; then
+      xy="$(python "$REPO/scripts/golden/find_node.py" "$WORK/ui.xml" "$1" 2>/dev/null || true)"
+      [ -n "$xy" ] || return 1
+      info "点「$1」→ ($xy)"
+      adb_ shell "input tap $xy"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
 }
 manual_step() { printf '\n    ── 需要人工操作：%s\n       完成后按回车继续\n' "$1"; read -r _ || true; }
 
@@ -221,11 +300,20 @@ else
   tap_text "解析日志" || manual_step "点「解析日志」"
 fi
 
+# 解析完成的两条判据（任一成立即可，避免 UI 树抖动误判）：
+#   ① 底栏出现「导出」；② prefs 里落下了 cache_parsed（解析结束必写，与 UI 无关）。
+parsed_ready() {
+  adb_ exec-out run-as "$PKG" cat shared_prefs/photo_mgm_settings.xml 2>/dev/null \
+    | grep -q "cache_parsed"
+}
 info "等待解析完成（最多 ${WAIT_PARSE}s）…"
 ready=0
 for i in $(seq 1 $((WAIT_PARSE / 5))); do
   if dump_ui && python "$REPO/scripts/golden/find_node.py" "$WORK/ui.xml" "导出" >/dev/null 2>&1; then
     ready=1; info "第 $((i * 5))s：底栏出现「导出」，解析完成"; break
+  fi
+  if parsed_ready; then
+    ready=1; info "第 $((i * 5))s：cache_parsed 已写入，解析完成"; break
   fi
   [ $((i % 6)) -eq 0 ] && info "第 $((i * 5))s：仍在解析…"
   sleep 5
@@ -297,4 +385,29 @@ PY
 
 printf '\n产物：\n  ZIP        %s\n  快照       %s\n  照片指纹   %s\n  截图       %s/shot-*.png\n' \
   "$ZIP" "$OUT/snapshot.json" "$OUT/photo-fingerprints.json" "$OUT"
+
+# ── 9.5 P0 验收：GPS 到底读到了没有 ─────────────────────────────────────────
+# 两个观测点分别对应缺陷链的两端：
+#   · cache_photos（App 内存里的 Photo）→ 说明 EXIF 读取环节有没有拿到定位；
+#   · ZIP 内照片字节 → 说明导出产物有没有丢位置（剥离发生在读取那一刻，导出的就是被读出的字节）。
+# 期望值随 GEO_PERM 走：授权跑要"读得到"，未授权跑要"读不到"（负向验证）。
+say "9.5/9 P0 验收：GPS 读取"
+EXPECT_GPS="${EXPECT_GPS:-}"
+if [ -z "$EXPECT_GPS" ]; then
+  if [ "$GEO_PERM" = 1 ]; then EXPECT_GPS=any; else EXPECT_GPS=none; fi
+fi
+info "期望：--expect $EXPECT_GPS（GEO_PERM=$GEO_PERM）"
+
+PREFS_OUT="$OUT/photo_mgm_settings.xml"
+if adb_ exec-out run-as "$PKG" cat shared_prefs/photo_mgm_settings.xml > "$PREFS_OUT" 2>/dev/null \
+   && [ -s "$PREFS_OUT" ]; then
+  python "$REPO/scripts/golden/check_gps.py" --prefs "$PREFS_OUT" --expect "$EXPECT_GPS" | sed 's/^/    /' \
+    || die "cache_photos 的 GPS 不符合预期（${EXPECT_GPS}）——见上方统计"
+else
+  info "[WARN] 拉取 cache_photos 失败，跳过 App 侧观测点"
+fi
+
+python "$REPO/scripts/golden/check_gps.py" --photos "$ZIP" --expect "$EXPECT_GPS" | sed 's/^/    /' \
+  || die "导出 ZIP 内照片的 GPS 不符合预期（${EXPECT_GPS}）——见上方统计"
+
 printf '\n双跑幂等验证（V2）：\n  scripts/golden/run_android_real.sh .p2work/run-b\n  python scripts/golden/compare.py --base %s --after .p2work/run-b/snapshot.json --max 10\n' "$OUT/snapshot.json"

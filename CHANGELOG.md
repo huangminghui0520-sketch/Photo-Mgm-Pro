@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### 修复（Android）
+- **照片定位信息全部丢失**：`AndroidManifest.xml` 从未声明 `ACCESS_MEDIA_LOCATION`，Android 10+ 的 MediaProvider/FUSE 在 App 读取媒体时把 EXIF GPS 值区清零（标签保留、长度不变、值变 `nan`），表现为"照片本来没有定位"——`Photo.latitude/longitude` 恒 `null`、导出照片无位置、去重从"时间 + GPS 距离"退化为"时间 + 派生后缀 + 文件名序号"
+  - 修复：声明权限 + 运行时与照片权限**一并申请**（`MediaPermissions.kt` 新增，纯函数按 29/33 两个分水岭裁剪清单）
+  - 未授权时明确提示降级口径（Snackbar + 设置页「重复照片」区红条），不再静默降级
+  - 新增缓存 GPS 语义版本位 `cache_geo_version`：旧版本写下的 `latitude=null` 缓存一次性作废，否则老用户升级后"从缓存恢复"不会重读 EXIF，修复形同无效
+  - 真机实测（vivo V2232A / Android 16）：`cache_photos` 有 GPS **0/65 → 59/65**；导出 ZIP 照片 **56/56 与素材逐字节相同**（修复前 52 张各差 14 字节，正是被清零的 GPS 值区）
+  - ★ **已知遗留**：安卓黄金基线需按新产物重建（52 条照片 sha256 已变）；未授权时的剥离呈"部分生效"（实测仅前 9 张丢 GPS），已登记待复现——去重判据不能假设 GPS "全有或全无"
+
 ### 工程
 - 仓库布局重组：Android 端收进 `android/`（独立 Gradle 工程，`:app` + `:data`），Windows 端保持 `desktop/` 不变，共用核心 `algorithm/` 留在根目录供两端以 `../algorithm` 挂载 —— 一份源码、无副本（详见 `docs/REPO-LAYOUT.md`）
 - 仓库根不再有 `settings.gradle.kts`：Android 构建须 `cd android`（或 CI 用 `gradle -p android`）；桌面端构建方式不变，**PC 侧代码零改动**

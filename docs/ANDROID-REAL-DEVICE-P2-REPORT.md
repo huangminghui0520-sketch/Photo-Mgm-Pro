@@ -249,7 +249,7 @@ sampleManifest: 3a7c15b3b97165cc                    timezone: Asia/Shanghai
 
 ## 8. 发现的问题
 
-### P0-1 · 缺 `ACCESS_MEDIA_LOCATION`，所有照片 GPS 被系统剥离
+### P0-1 · 缺 `ACCESS_MEDIA_LOCATION`，所有照片 GPS 被系统剥离　**（已修复，见 §8.1）**
 
 **现象**：导出的 ZIP 里，有 GPS 的照片位置信息全部变成 0。
 
@@ -272,25 +272,26 @@ sampleManifest: 3a7c15b3b97165cc                    timezone: Asia/Shanghai
 | 受影响 | 具体后果 |
 | --- | --- |
 | `Photo.latitude/longitude` | 恒为 `null` |
-| 去重判定 | 从「时间 1s + GPS 距离 10m」退化为**仅按时间 1s**。真实场景中"同一秒拍摄、不同地点"的两张照片会被误判为重复而丢一张 |
-| 交付物 | 导出的照片丢失地理位置元数据 |
+| 去重判定 | 从「时间 1s + GPS 距离 10m」退化为**降级路径**：时间 1s + 派生后缀 + 文件名末位数字块差 ≤1000 |
+| 交付物 | 导出的照片丢失地理位置元数据（EXIF 标签仍在、值被清零成 `nan`） |
 
-**本轮为何没导致可见错误**：合成素材里每个事件内照片间隔 30s，不满足"同秒"条件，所以没有误判。**这属于素材设计恰好避开了，不能当作没问题**——真实巡检照片连拍间隔常小于 1 秒。
+> **口径更正（2026-11-02 修复时复核代码）**：本节初稿把去重退化写成"仅按时间 1s、同秒不同地点会被误删"，
+> 这是**过度概括**。`Dedup.kt` 里 GPS 双无效时走的是 `ExifContentDedupStrategy` 的降级分支：
+> **必须至少一方带派生后缀**（`_original` 等）且**文件名末位数字块差 ≤1000** 才成组，
+> 根本不存在"仅按时间就合并"的路径，所以"同秒不同地点被误删"不会发生。
+> 真实的退化是两件更隐蔽的事：
+> ① **漏并**——文件名不含毫秒序号、或序号差 >1000 的双份不再合并，用户以为已去重、实际导出两份；
+> ② **误并的残余窗口**——两张都带派生后缀、同秒、序号差 ≤1000 的不同场景照片会被合并丢一张。
+> 结论不变（必须在 T11 之前修），但理由要说准：**GPS 缺失让"内容判重"退化成"文件名猜谜"**。
 
-**修复方向**：
+**本轮为何没导致可见错误**：合成素材里每个事件内照片间隔 30s，且重复组按"同时间 + 同 GPS + 逐像素相同"设计，
+降级分支恰好也能并上，所以去重结果看起来是对的。**这属于素材设计恰好避开了，不能当作没问题**。
 
-```xml
-<!-- AndroidManifest.xml -->
-<uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
-```
+**修复方向**：见 **§8.1（已实施）**——manifest 声明 + 运行时一并申请 + 未授权时的降级提示 + 缓存版本位。
 
-```kotlin
-// MainActivity 运行时申请，与 READ_MEDIA_IMAGES 一并请求
-Manifest.permission.READ_MEDIA_IMAGES,
-Manifest.permission.ACCESS_MEDIA_LOCATION,
-```
-
-并补降级策略：未授权时在界面明确提示"照片位置信息不可用，重复判定仅按时间"，避免用户以为去重结果是准的。
+**修复后必须重跑本报告 §6 的 V1/V2/V3**：GPS 一旦真的读到，`Photo.latitude` 从恒 null 变非 null，
+去重会从降级分支切回「时间 + GPS 距离」分支，照片分组可能变化——`docs/golden/android-baseline.json`
+需要用修复后的产物**重新建立基线**（旧基线是在"GPS 被剥离"的前提下拍的）。
 
 **为什么之前测不出**：
 - Robolectric 单测不走真实 MediaProvider/FUSE，`ExifInterface` 读到的是测试桩数据
@@ -298,6 +299,28 @@ Manifest.permission.ACCESS_MEDIA_LOCATION,
 - 模拟器理论上同样可复现，但一直卡在 AEHD 启动失败
 
 **建议**：作为独立提交修复（改 manifest + 权限申请 UI + 一条"无权限时 GPS 应为 null 而非崩溃"的单测），**赶在 T11 改 ViewModel 之前**——否则去重口径会在错误的 GPS 假设上被重构。
+
+### 8.1 P0-1 修复记录（2026-11-02，已实施并验证）
+
+完整说明见 **`docs/P0-GPS-MEDIA-LOCATION-FIX.md`**。要点：
+
+| 项 | 内容 |
+| --- | --- |
+| 改动 | ① `AndroidManifest.xml` 声明 `ACCESS_MEDIA_LOCATION`；② 新增 `MediaPermissions.kt`（按 SDK 版本裁剪清单的纯函数）+ `MainActivity` 改 `RequestMultiplePermissions`；③ `UiState.geoAvailable` + 未授权时的 Snackbar / 设置页红条；④ `SettingsStore` 增加 GPS 语义版本位（作废旧缓存，否则老用户升级后仍吃 null GPS 缓存） |
+| 单测 | 新增 `MediaPermissionsTest`（15 条）+ `SettingsStoreGeoCacheTest`（7 条）；安卓三模块 debug/release 单测全绿 |
+| 正向实测 | `cache_photos`：**59/65 有 GPS**（修复前 0/65）；导出 ZIP：**52/56 有 GPS**（修复前 0/56） |
+| 字节级确认 | 导出 ZIP 内 **56 张照片与素材逐字节相同**（修复前 52 张各差 14 字节，正是被清零的 GPS 值区） |
+| 负向实测 | 未授权时仅**前 9 张（按拍摄时间序）**丢 GPS、其余仍可读 → 与"全量剥离"的初版结论不符，见下 |
+
+**两个必须记住的结论**：
+
+1. **旧安卓黄金基线已失效**：`docs/golden/android-baseline.json` 里 52 条照片 sha256 是在"GPS 被清零"的字节上算的。
+   GPS 恢复后这些条目全部变化（本轮实测 52/57 条 sha 不同），**T11 之前必须重建**，否则"黄金样本全等"是在和错误基线对比。
+2. **负向验证出现部分生效**：`pm clear` 后不授予位置权限再解析，只有按拍摄时间最早的 9 张丢了 GPS，其余 50 张仍读到。
+   说明平台的剥离不是"一刀切"（疑似 MediaProvider/FUSE 侧对权限判定有缓存或时序窗口），
+   已登记为 **P1-2（待复现）**；不影响本次修复的有效性，但意味着"未授权 = 所有照片无定位"这句要改成
+   "可能只有部分照片有定位"——**部分可用比全部不可用更危险**：`ExifContentDedupStrategy` 在
+   "一方有 GPS、另一方无"时直接判为不重复，会让本该合并的双份漏并。
 
 ### P1-1 · 快照归一化正则跨字段截断（已修）
 

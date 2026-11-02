@@ -18,9 +18,12 @@ import algorithm.model.LogEvent
 import android.app.Application
 import android.content.ContentUris
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -78,6 +81,14 @@ data class UiState(
     val exportOk: Boolean? = null,
     /** 最近一次导出文件（用户可见位置：content:// 或本地路径），供「打开」入口 */
     val lastExport: String? = null,
+    /**
+     * ★ P0（2026-11-02）：本次会话**能否读到照片的真实位置信息**。
+     *   null = 尚未判定（权限对话框还没回来）；
+     *   false = 系统会剥离 EXIF GPS → 去重降级为「时间 + 文件名序号」、导出照片无定位。
+     *   仅用于「说清降级口径」（设置页提示 / 权限回调提示），不参与算法分支：
+     *   算法侧看的是 [Photo.latitude] 本身是否为 null，这条只是让用户知道**为什么**。
+     */
+    val geoAvailable: Boolean? = null,
 )
 
 /**
@@ -222,6 +233,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 classify = store.classifyCache,
                 photos = store.photosCache,
                 coarseCount = store.coarseCountCache,
+                // ★ P0：权限落盘是持久的，init 即可同步判定（不必等权限对话框回调），
+                //   让设置页在首帧就显示正确的降级口径。
+                geoAvailable = currentGeoAvailable(),
             )
         }
         // ★ 2026-10-07 防线一：恢复的照片**异步强制校验**——进程重启期间照片可能被删除/新增
@@ -776,6 +790,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** ★ UI 轻提示（Snackbar）：供界面层校验类提示（如禁止跨事件移动）使用。 */
     fun notify(msg: String) { _state.update { it.copy(message = msg) } }
 
+    // ---------- 权限（★ P0，2026-11-02） ----------
+
+    /** 当前是否持有「照片位置信息」权限（API < 29 无此概念，视为可用）。 */
+    private fun currentGeoAvailable(): Boolean {
+        val geo = MediaPermissions.plan(Build.VERSION.SDK_INT).geo ?: return true
+        return ContextCompat.checkSelfPermission(getApp(), geo) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * 媒体权限申请结果回调（MainActivity 的 RequestMultiplePermissions 转交）。
+     *
+     * 职责有两个，缺一不可：
+     *  1. 记录 [UiState.geoAvailable]，供设置页说明"为什么重复判定降级了"；
+     *  2. 未授予位置权限时**主动提示降级口径**——静默降级会让用户把"去重结果"当准的用。
+     *
+     * ★ 刻意不在"新获得权限"时自动重扫：本轮照片已按旧口径解析完毕，静默重扫会打断用户
+     *   （还可能要重新下载缩略图）。改成提示用户重新解析一次，见 [HINT_GEO_UNAVAILABLE] 的通知路径。
+     */
+    fun onMediaPermissionsResult(granted: Map<String, Boolean>, sdkInt: Int) {
+        val available = MediaPermissions.geoAvailable(sdkInt, granted)
+        val wasAvailable = state.value.geoAvailable
+        _state.update { it.copy(geoAvailable = available) }
+        if (!available) {
+            notify(MediaPermissions.HINT_GEO_UNAVAILABLE)
+        } else if (wasAvailable == false) {
+            // 用户刚在系统设置里补授了权限 → 上一轮照片是按"无 GPS"解析的，提示重解析
+            notify("已获得照片位置信息权限，请重新解析一次以更新定位与去重判定")
+        }
+    }
+
     // ---------- 状态缓存（§8.4.2：打开 App 恢复事件列表 + 分类） ----------
 
     /** ★ 写入状态缓存（事件列表 + 分类 + 照片 + 粗筛数）。JSON 序列化由 SettingsStore 完成。 */
@@ -791,8 +835,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             store.photosCache = photos
             store.coarseCountCache = coarseCount
             // ★ issue #2：这四份缓存里的 epoch 都是按业务时区算出来的，写缓存时打上版本位；
-            //   读侧发现版本位与当前业务时区不一致 → 视为无缓存，重算（见 SettingsStore.markCacheZone）。
-            store.markCacheZone()
+            //   读侧发现版本位与当前业务时区不一致 → 视为无缓存，重算。
+            // ★ P0（2026-11-02）：同一处再打 GPS 语义版本位——旧包读不到定位却把 null 当真值缓存在案，
+            //   不打这个位的话，老用户升级后打开 App 直接吃旧缓存，权限修了也白修。
+            store.markCacheVersion()
         }
     }
 

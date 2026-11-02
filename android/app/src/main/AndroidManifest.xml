@@ -7,6 +7,16 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!--
+      媒体位置权限（API 29+ 运行时权限）。
+      ★ P0：缺此权限时，Android 10+ 的 MediaProvider/FUSE 在 App 读取媒体字节时**主动剥离**
+        EXIF 中的 GPS（值区清零、文件长度不变，看起来像"照片本来没有定位"）。
+        后果：Photo.latitude/longitude 恒 null、导出照片丢位置、去重退化为「时间+文件名序号」降级路径。
+      低于 29 的系统不存在该权限与剥离机制，声明会被忽略（不影响 minSdk 26 安装）。
+      运行时申请同见 app/MediaPermissions.kt + MainActivity（必须运行时授予，manifest 声明不够）。
+    -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
+
     <application
         android:name=".PhotoMgmApp"
         android:label="Photo-Mgm"
