@@ -40,7 +40,14 @@ def _center(node: ET.Element) -> tuple[int, int] | None:
     return (x1 + x2) // 2, (y1 + y2) // 2
 
 
-def find(root: ET.Element, needle: str, mode: str) -> tuple[int, int] | None:
+def find(root: ET.Element, needle: str, mode: str, prefer: str = "first") -> tuple[int, int] | None:
+    """prefer="first" 取第一个匹配；prefer="last" 取**最下方**的匹配。
+
+    prefer="last" 是为了真实界面里"同名元素多处出现"：
+      - 步骤指示器里有「导出」文字标签（clickable），底部主按钮也叫「导出」；
+      - 若取第一个，点的是顶部标签，看起来"点了没反应"，导出目录迟迟不出现。
+    取 y 最大的那个，才落在用户真正会按的主按钮上。
+    """
     parents = {child: parent for parent in root.iter() for child in parent}
     nodes = list(root.iter("node"))
 
@@ -52,30 +59,38 @@ def find(root: ET.Element, needle: str, mode: str) -> tuple[int, int] | None:
             return needle in label(node).split("\x00")
         return needle in label(node)
 
-    # ① 自身 clickable 且命中 → 直接用它。
+    def pick(cands: list[tuple[int, int]]) -> tuple[int, int] | None:
+        if not cands:
+            return None
+        return max(cands, key=lambda c: c[1]) if prefer == "last" else cands[0]
+
+    # ① 自身 clickable 且命中。
     #    这一条优先的原因：底部 tab 的 label 是「日志3·照片59」，包含「日志」；
     #    若不先看 clickable，遍历会先撞到「解析日志」按钮的文字节点，点错地方。
-    for node in nodes:
-        if node.get("clickable") == "true" and hit(node):
-            c = _center(node)
-            if c:
-                return c
+    direct = [c for node in nodes if node.get("clickable") == "true" and hit(node)
+              for c in [_center(node)] if c]
+    c = pick(direct)
+    if c:
+        return c
 
     # ② 文字节点命中 → 向上找最近的 clickable 祖先（Material3 按钮是父 clickable + 子 text）
+    via_parent: list[tuple[int, int]] = []
     for node in nodes:
         if not hit(node):
             continue
         cur: ET.Element | None = node
+        got: tuple[int, int] | None = None
         while cur is not None:
             if cur.get("clickable") == "true":
-                c = _center(cur)
-                if c:
-                    return c
+                got = _center(cur)
+                if got:
+                    break
             cur = parents.get(cur)
-        c = _center(node)
-        if c:
-            return c
-    return None
+        if not got:
+            got = _center(node)
+        if got:
+            via_parent.append(got)
+    return pick(via_parent)
 
 
 # 解析摘要里值得留档的关键片段。用白名单而不是"把整棵树打出来"：
@@ -122,12 +137,14 @@ def main() -> int:
             return 1
         return digest(p)
     if len(sys.argv) < 3:
-        print("用法: find_node.py <ui.xml> <text> [exact|contains]\n"
+        print("用法: find_node.py <ui.xml> <text> [exact|contains] [--last]\n"
               "      find_node.py --digest <ui.xml>", file=sys.stderr)
         return 2
-    path = Path(sys.argv[1])
-    needle = sys.argv[2]
-    mode = sys.argv[3] if len(sys.argv) > 3 else "contains"
+    argv = [a for a in sys.argv[1:] if a != "--last"]
+    prefer = "last" if "--last" in sys.argv else "first"
+    path = Path(argv[0])
+    needle = argv[1]
+    mode = argv[2] if len(argv) > 2 else "contains"
     if not path.exists():
         print(f"[FAIL] 找不到 {path}", file=sys.stderr)
         return 1
@@ -136,7 +153,7 @@ def main() -> int:
     except ET.ParseError as e:
         print(f"[FAIL] XML 解析失败：{e}（dump 可能被截断）", file=sys.stderr)
         return 1
-    c = find(root, needle, mode)
+    c = find(root, needle, mode, prefer)
     if c is None:
         return 1
     print(f"{c[0]} {c[1]}")
