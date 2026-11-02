@@ -96,9 +96,15 @@ U1.9 修过一次「照片行高在 125% 缩放下被压成 0.8 倍（81pt→64.
 
 | 产物 | 内容 |
 | --- | --- |
-| `docs/golden/android-baseline.json` | ZIP 结构：57 条目 / 26 目录 / 每张照片 sha256 |
+| `docs/golden/android-baseline.json` | ZIP 结构：**60 条目** / 26 目录 / 每张照片 sha256（69 张素材 + 3 张连拍后） |
 | `docs/golden/android-ledger-baseline.json` | 台账：72 行 / 504 非空单元格 / 50 嵌图 / 50 锚点 |
 | `docs/golden/screenshots/` | 启动 / 解析完成 / 导出完成三张证据截图 |
+
+**双跑幂等（V2）实测**：`SKIP_INSTALL=1 KEEP_PHOTOS=1` 连跑两次 → ZIP 快照与台账快照**均 0 差异**。
+其中台账这一条以前是做不到的：台账文件名里带导出时刻（`巡查台账_<巡查日期>_<导出日期>_<时分秒>.xlsx`），
+`file` 字段每跑一次都不同。`snapshot_xlsx.py` 现按 `_norm_file_name()` **只折叠导出时刻、保留巡查日期**
+（巡查日期写错等于台账串天，必须继续被比对出来）。同理 `run_android_real.sh` 补了 `--exclude '.*\.xlsx$'`——
+此前基线是手工加参数生成的，脚本产出的快照比基线多一条 xlsx 条目，"脚本能否复现基线"本身不成立。
 
 复现（约 3 分钟/轮）：
 

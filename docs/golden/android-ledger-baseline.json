@@ -1,6 +1,6 @@
 {
- "bytes": 248981,
- "file": "巡查台账_20260814_20261102_131801.xlsx",
+ "bytes": 248279,
+ "file": "巡查台账_20260814_<TS>.xlsx",
  "media": [
   {
    "bytes": 7595,
@@ -93,9 +93,9 @@
    "sha256": "de8ec976bd2898f3789987677d00c7a257ceef01fe83814fadc444c89a68a8b8"
   },
   {
-   "bytes": 7241,
+   "bytes": 7059,
    "name": "image26.jpg",
-   "sha256": "de8ec976bd2898f3789987677d00c7a257ceef01fe83814fadc444c89a68a8b8"
+   "sha256": "06b45a367b0f6752f34824fb5cdfa8339285f5c83b13143bdb5caee651e9ae07"
   },
   {
    "bytes": 7577,
@@ -255,14 +255,16 @@
  ],
  "meta": {
   "api": "36",
-  "apkBytes": "16304564",
-  "apkSha": "3ace40b0d536daea94a62a9d7da48927cc0d46b618ccd0592a90447ed97b183c",
-  "commit": "15e9389",
+  "apkBytes": "16472613",
+  "apkPath": "android/app/build/outputs/apk/debug/app-debug.apk",
+  "apkSha": "45d50dc8d40f614d066373bd0dc319c8cdd719fc786f7a53c9bcad11f0028350",
+  "appVersion": "1.3.2 (versionCode 6, targetSdk 34, minSdk 26)",
+  "commit": "d16ec95",
   "device": "vivo V2232A",
   "note": "台账单元格级基线；嵌图字节跨端不可比（Java ImageIO vs Bitmap.compress），只比尺寸/数量",
   "platform": "android-real",
-  "rebuildReason": "P0 修复后 GPS 恢复，照片字节与嵌图归属变化，旧基线失效",
-  "sampleManifest": "3a7c15b3b97165cc"
+  "rebuildReason": "合成素材补 3 张 <1s 连拍：仅第 14 行（K525+000 11:05）照片2 的嵌图变化（image26 7241→7059 B）；72 行 / 504 单元格 / 50 嵌图 / 50 锚点全部不变",
+  "sampleManifest": "80764d2bdf32f198"
  },
  "sheetCount": 1,
  "sheets": [

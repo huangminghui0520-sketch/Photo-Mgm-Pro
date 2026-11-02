@@ -1,5 +1,5 @@
 {
- "bytes": 239356,
+ "bytes": 239210,
  "file": "ledger.xlsx",
  "media": [
   {
@@ -73,9 +73,9 @@
    "sha256": "53c8a7175da01b16d7aae95a18430b6cfbb32d3454845766f35b44f07789540b"
   },
   {
-   "bytes": 10439,
+   "bytes": 10279,
    "name": "image22.jpg",
-   "sha256": "53c8a7175da01b16d7aae95a18430b6cfbb32d3454845766f35b44f07789540b"
+   "sha256": "fa0978009c4e27481f61d8414eb8dfb1757b9f6cccd07f50bb31c0ce9f256e02"
   },
   {
    "bytes": 10853,
@@ -224,9 +224,10 @@
   }
  ],
  "meta": {
-  "commit": "c0eef6b",
+  "commit": "d16ec95",
   "generator": "run_desktop.sh",
-  "sampleManifest": "3a7c15b3b97165cc"
+  "rebuildReason": "合成素材补 3 张 <1s 连拍（66→69 张）：11:05 事件的照片2 由「与照片1同一张」变为连拍最晚张，实测仅 media[14]（image22.jpg）字节变化 + xlsx 总字节 239356→239210，行数 72 / 单元格 504 / 嵌图 44 / 锚点 44 全部不变",
+  "sampleManifest": "80764d2bdf32f198"
  },
  "sheetCount": 1,
  "sheets": [

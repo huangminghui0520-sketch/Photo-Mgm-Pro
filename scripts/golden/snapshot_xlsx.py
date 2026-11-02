@@ -22,6 +22,7 @@ import argparse
 import hashlib
 import json
 import posixpath
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -38,6 +39,18 @@ NS = {
 
 def _sha256_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
+
+# ★ 台账文件名里含**导出时刻**（安卓：`巡查台账_<巡查日期>_<导出日期>_<导出时分秒>.xlsx`，
+#   见 AppViewModel.kt:1027），两次运行的秒级时间戳必然不同 → 快照的 `file` 字段永远对不上，
+#   台账基线就变成"每跑一次都要重记"的假基线（P1-2 的同类问题，只是它在文件名里而不在内容里）。
+#   这里只折叠**导出时刻**（8 位日期 + 6 位时分秒），保留巡查日期：巡查日期是业务字段，
+#   写错日期等于台账串天，必须继续被比对出来。PC 侧文件名是固定的 ledger.xlsx，不受影响。
+_EXPORT_TS_RE = re.compile(r"\d{8}_\d{6}(?=\.xlsx$)", re.IGNORECASE)
+
+
+def _norm_file_name(name: str) -> str:
+    return _EXPORT_TS_RE.sub("<TS>", name)
 
 
 def _shared_strings(z: zipfile.ZipFile) -> list[str]:
@@ -171,7 +184,7 @@ def snapshot(path: Path) -> dict:
             media.append({"name": name.rsplit("/", 1)[-1], "bytes": len(data),
                           "sha256": _sha256_bytes(data)})
         return {
-            "file": path.name,
+            "file": _norm_file_name(path.name),
             "bytes": path.stat().st_size,
             "sheetCount": len(sheets),
             "sheets": sheets,

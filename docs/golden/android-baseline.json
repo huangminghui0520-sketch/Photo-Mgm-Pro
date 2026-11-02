@@ -205,6 +205,27 @@
    "sha256": "6077bc80b36264b080d17200463f39ab232b6d1f9f6fc471f51b537c59e0da51"
   },
   {
+   "bytes": 16050,
+   "dir": false,
+   "method": 8,
+   "name": "13_检查K525+000桥梁伸缩缝，无异常 已拍照取证，现场照片附后/IMG_20260814_110500000.jpg",
+   "sha256": "05cce22c7625210499b668dbae5fea89cf86f8022bad2c4f4fab85813ffb1236"
+  },
+  {
+   "bytes": 15988,
+   "dir": false,
+   "method": 8,
+   "name": "13_检查K525+000桥梁伸缩缝，无异常 已拍照取证，现场照片附后/IMG_20260814_110500800.jpg",
+   "sha256": "44b9871ab49f19d7c8f4826c7a65a2c61e6c8a4c0f28f1dd3d98ffbd5159af41"
+  },
+  {
+   "bytes": 15013,
+   "dir": false,
+   "method": 8,
+   "name": "13_检查K525+000桥梁伸缩缝，无异常 已拍照取证，现场照片附后/IMG_20260814_110501600.jpg",
+   "sha256": "098a1ae512643076a0c33ee83cbab90c898eeb9a547a201d86ff17bd278edc9e"
+  },
+  {
    "bytes": 15699,
    "dir": false,
    "method": 8,
@@ -429,25 +450,25 @@
    "sha256": "d6b676a26a4dad0a3a17d17a25a908e2a01dc70e42e7387283104b493a2398ab"
   }
  ],
- "entryCount": 57,
+ "entryCount": 60,
  "file": "<ZIP>",
- "fileCount": 57,
+ "fileCount": 60,
  "meta": {
   "api": "36",
-  "apkBytes": 16304564,
+  "apkBytes": "16472613",
   "apkPath": "android/app/build/outputs/apk/debug/app-debug.apk",
-  "apkSha": "3ace40b0d536daea94a62a9d7da48927cc0d46b618ccd0592a90447ed97b183c",
+  "apkSha": "45d50dc8d40f614d066373bd0dc319c8cdd719fc786f7a53c9bcad11f0028350",
   "appVersion": "1.3.2 (versionCode 6, targetSdk 34, minSdk 26)",
-  "commit": "15e9389",
+  "commit": "d16ec95",
   "device": "vivo V2232A",
-  "excluded": "*.xlsx：内含导出时刻，两次运行 sha256 必然不同（既有结论 P1-2）；台账改由 docs/golden/android-ledger-baseline.json 做单元格级校验",
+  "excluded": "*.xlsx：内含导出时刻，两次运行 sha256 必然不同（P1-2）；台账改由 docs/golden/android-ledger-baseline.json 做单元格级校验",
   "generator": "scripts/golden/run_android_real.sh",
   "note": "ZIP 结构与照片字节基线；照片应与素材逐字节相同（P0 修复后 GPS 不再被剥离）",
   "os": "Android 16 (API 36) arm64-v8a",
   "platform": "android-real",
-  "rebuildReason": "P0（ACCESS_MEDIA_LOCATION）修复后 GPS 恢复：52 条照片 sha256 变化、4 条无 GPS 照片不变；旧基线是在'GPS 被清零'的字节上算的，已失效",
-  "runDir": ".p2work/run-p0fix2",
-  "sampleManifest": "3a7c15b3b97165cc",
+  "rebuildReason": "合成素材补 3 张 <1s 连拍（66→69 张）：ZIP 条目 57→60，新增的 3 张全部落在 13_检查K525+000桥梁伸缩缝 目录，且与素材逐字节相同；其余 57 条一条未变（按名比对：0 删除 / 0 变字节）",
+  "runDir": ".p2work/run-burst",
+  "sampleManifest": "80764d2bdf32f198",
   "timezone": "Asia/Shanghai"
  },
  "normalized": true

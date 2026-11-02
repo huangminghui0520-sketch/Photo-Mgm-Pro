@@ -360,7 +360,12 @@ PY
 
 SMP="$(python -c "import hashlib,pathlib;print(hashlib.sha256(pathlib.Path('$REPO/scripts/golden/sample/sample-manifest.json').read_bytes()).hexdigest()[:16])")"
 COMMIT="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+# ★ 必须 --exclude '*.xlsx'（2026-11-02 修）：台账 xlsx 内含导出时刻，两次运行 sha256 必然不同（P1-2），
+#   留着它会让 V2 双跑幂等永远红。此前基线是手工加参数生成的，脚本没带 → 脚本产出的快照
+#   比基线多一条 `巡查台账_<TS>.xlsx`，"脚本能不能复现基线"这件事本身不成立。
+#   台账走 docs/golden/android-ledger-baseline.json 做单元格级校验，不靠这条 ZIP 条目。
 python "$REPO/scripts/golden/snapshot_zip.py" --in "$ZIP" --out "$OUT/snapshot.json" --normalize \
+  --exclude '.*\.xlsx$' \
   --meta platform=android-real \
   --meta device="$MODEL" \
   --meta api="$API" \
