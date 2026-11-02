@@ -1,6 +1,6 @@
 {
  "bytes": 248981,
- "file": "ledger-b.xlsx",
+ "file": "巡查台账_20260814_20261102_131801.xlsx",
  "media": [
   {
    "bytes": 7595,
@@ -254,12 +254,14 @@
   }
  ],
  "meta": {
-  "apkSha": "540abdc8648deec932f1d211759dfc306e8c81e6f39655d66ee327a0c1bb9b58",
-  "derivedFrom": "巡查台账_20260814_20261102_122556.xlsx",
+  "api": "36",
+  "apkBytes": "16304564",
+  "apkSha": "3ace40b0d536daea94a62a9d7da48927cc0d46b618ccd0592a90447ed97b183c",
+  "commit": "15e9389",
   "device": "vivo V2232A",
-  "generator": "scripts/golden/snapshot_xlsx.py",
   "note": "台账单元格级基线；嵌图字节跨端不可比（Java ImageIO vs Bitmap.compress），只比尺寸/数量",
   "platform": "android-real",
+  "rebuildReason": "P0 修复后 GPS 恢复，照片字节与嵌图归属变化，旧基线失效",
   "sampleManifest": "3a7c15b3b97165cc"
  },
  "sheetCount": 1,

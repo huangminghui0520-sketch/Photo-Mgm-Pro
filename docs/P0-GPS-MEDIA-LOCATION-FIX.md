@@ -223,7 +223,7 @@ adb shell dumpsys package com.photomgm.app | grep 'ACCESS_MEDIA_LOCATION: grante
 | 只覆盖"路径读取" | 现在 `MediaStorePhotoSourceProvider` 用 `DATA` 列取物理路径，`ExifInterface(path)` 直读；未改用 `MediaStore.setRequireOriginal(uri)` 的 `content://` 读法 | 若某天 `DATA` 为空改走 URI，需要再补 `setRequireOriginal`，否则 GPS 会再次为 null（但那时 `Photo.latitude` 会是 null 而非崩，可被 `check_gps.py` 发现） |
 | 未处理"部分照片授权" | Android 14 的 `READ_MEDIA_VISUAL_USER_SELECTED`（用户只选几张）未申请 | 用户选"选择部分照片"时照片数会偏少；不影响 GPS 判定 |
 | 未加"去设置页"引导 | 权限被"不再询问"后，只在设置页给出文字说明 + 重新解析提示 | 用户需自行去系统设置授权；属可接受的最小改动 |
-| 未重建安卓黄金基线 | 旧基线是在"GPS 被剥离"前提下拍的 | T11 之前必须重建（见 §8.2） |
+| ~~未重建安卓黄金基线~~ | ✅ **已重建（2026-11-02）**：`android-baseline.json`（57 条目，去掉时间相关的 xlsx）+ `android-ledger-baseline.json`（72 行 / 504 单元格 / 50 嵌图，与旧基线结构一致） | 结构未变、字节变了：52 条照片 sha256 更新为"GPS 已恢复"后的值 |
 
 ---
 
