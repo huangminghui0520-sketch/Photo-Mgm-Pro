@@ -102,6 +102,15 @@ data class PhotosSheetLayout(
 const val PHOTOS_HEADER_H = 38
 const val PHOTOS_ACTION_H = 42
 
+/**
+ * 缩略图右上角勾选框的命中区边长（dp）。
+ *
+ * ★ 视觉框 16、命中区 24：手指/鼠标不必对准 16 dp 的小方块。
+ *   这个数值同时被两处使用 —— 红勾自己的手势区，以及格子手势的"这块不归我"豁免区。
+ *   两处必须是同一个常量，否则豁免区比命中区小一圈时，边缘那几像素仍会同时触发两个逻辑。
+ */
+const val CHECK_HIT_DP = 24
+
 /** 大图区可用高度（扣掉头部、缩略条、操作条与三条 1 dp 分隔线）。 */
 fun previewHeight(sheet: PhotosSheetLayout): Int =
     sheet.height - PHOTOS_HEADER_H - sheet.stripH - PHOTOS_ACTION_H - 3
@@ -109,9 +118,11 @@ fun previewHeight(sheet: PhotosSheetLayout): Int =
 fun photosSheetLayout(windowWidth: Int, windowHeight: Int): PhotosSheetLayout {
     val w = dialogWidth(windowWidth)
     val h = dialogHeight(windowHeight)
-    // 侧栏只放"台账两格 + 类型 + 提示"，240 就够；原来 280 是给四行重复事实留的位置，
-    // 那些事实头部已经有了（时间段、桩号、张数），省下的 40 全部给大图。
-    val side = if (w >= 720) 240 else 0
+    // 侧栏：台账两格 + 类型 + 提示 + 巡查日志内容。
+    // ★ 从 240 提到 300（v3.7）：日志原文一行就是一条完整记录（"10时00分 接报…事故…"），
+    //   240 宽下每行只能放 12 个字，一条记录要折 4~5 行，读起来反而比不看更累。
+    //   这 60 dp 是从大图那里让出来的，取舍是"复核事件内容"比"大图再宽一点"更常用。
+    val side = if (w >= 720) 300 else 0
     // 弹窗矮的时候缩略条要压：它只是"切换照片"的入口，大图才是主体。
     val stripH = if (h >= 560) 92 else 72
     val stripTile = if (h >= 560) 64 else 52

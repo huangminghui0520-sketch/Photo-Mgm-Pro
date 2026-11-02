@@ -18,9 +18,12 @@
 //   没勾选时操作对象就是当前这张（model/operationTargets），所以主路径仍是两次点击。
 package com.photomgm.desktop.ui.dialog
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,12 +56,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,19 +86,24 @@ import com.photomgm.desktop.ui.component.PmIconButton
 import com.photomgm.desktop.ui.component.PmTextField
 import com.photomgm.desktop.ui.component.Tag
 import com.photomgm.desktop.ui.component.Tone
+import com.photomgm.desktop.ui.component.inTopEndZone
 import com.photomgm.desktop.ui.component.pmPress
 import com.photomgm.desktop.ui.format.hhmm
 import com.photomgm.desktop.ui.format.photoMeta
 import com.photomgm.desktop.ui.format.timeRange
+import com.photomgm.desktop.ui.image.rememberPhotoImage
 import com.photomgm.desktop.ui.model.AssignMode
+import com.photomgm.desktop.ui.model.CHECK_HIT_DP
 import com.photomgm.desktop.ui.model.PHOTOS_ACTION_H
 import com.photomgm.desktop.ui.model.PHOTOS_HEADER_H
 import com.photomgm.desktop.ui.model.Selection
 import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.model.WorkQueue
+import com.photomgm.desktop.ui.model.clickPhotoSelection
 import com.photomgm.desktop.ui.model.filterPhotos
 import com.photomgm.desktop.ui.model.ledgerByEvent
+import com.photomgm.desktop.ui.model.nextPhotoSelection
 import com.photomgm.desktop.ui.model.operationTargets
 import com.photomgm.desktop.ui.model.photosSheetLayout
 import com.photomgm.desktop.ui.model.slotPhotoIds
@@ -119,8 +132,12 @@ fun PhotosSheet(
     val targets = operationTargets(ui.selectedPhotoIds, active?.id)
     val layout = photosSheetLayout(windowWidth, windowHeight)
     val close = { onUi(ui.copy(sheet = null)) }
+    // ★ 点击回调里必须读**最新** ui（Ctrl 多选是按当前勾选集合累积的）。
+    //   Strip 里每个格子的 pmPress 只在首次组合时启动，闭包里的 ui 可能是弹窗刚打开那一帧的
+    //   —— 直接用它就会"每次只从空集加一张"，看起来像多选坏了。see component/Press.kt。
+    val uiNow by rememberUpdatedState(ui)
 
-    SheetHost(onDismiss = close) {
+    SheetHost(onDismiss = close) { dragHandle ->
         Column(
             Modifier
                 .width(layout.width.dp)
@@ -132,6 +149,7 @@ fun PhotosSheet(
                 state = state,
                 event = event,
                 target = target,
+                dragHandle = dragHandle,
                 onClose = close,
                 onPick = { id ->
                     onUi(
@@ -139,6 +157,7 @@ fun PhotosSheet(
                             sheet = Sheet.Photos(Selection.Event(id)),
                             activePhotoId = null,
                             selectedPhotoIds = emptySet(),
+                            selectionAnchor = null,
                             photoQuery = "",
                         ),
                     )
@@ -176,7 +195,7 @@ fun PhotosSheet(
                         // 移回它的家即可（core 的 movePhotos 会顺带清掉复制关系）。
                         onDropCopy = { photoId, keepEventId ->
                             actions.movePhotosTo(listOf(photoId), keepEventId)
-                            onUi(ui.copy(selectedPhotoIds = emptySet()))
+                            onUi(ui.copy(selectedPhotoIds = emptySet(), selectionAnchor = null))
                         },
                     )
                 }
@@ -197,29 +216,42 @@ fun PhotosSheet(
                     photos.isNotEmpty() -> "没有匹配「${ui.photoQuery.trim()}」的照片"
                     else -> "没有照片"
                 },
-                // ★ 点图有两种结果，靠 Ctrl 区分（键鼠都在时按键盘习惯走）：
-                //   Ctrl+点 = 切换这张的勾选（保留已勾的），普通点 = 只看这张、且只勾这张。
-                //   不按 Ctrl 时清掉其它勾选，是为了避免"看着 A、操作着一堆之前勾的"这种错觉。
-                //   完全不用键盘也能选多张：点右上角方格逐张勾（见 Strip 的 onToggle）。
-                onActivate = { photo, additive ->
-                    val next = if (additive) {
-                        if (ui.selectedPhotoIds.contains(photo.id)) {
-                            ui.selectedPhotoIds - photo.id
-                        } else {
-                            ui.selectedPhotoIds + photo.id
-                        }
-                    } else {
-                        setOf(photo.id)
-                    }
-                    onUi(ui.copy(activePhotoId = photo.id, selectedPhotoIds = next))
+                // ★ 点图只有两种结果（v3.7 收窄）：
+                //   普通点 = 只看这张、且只勾这张；Shift+点 = 从锚点连选到这张。
+                //   "切换这一张、保留其它"不在这里 —— 它只由右上角红勾触发（见 Strip 的 onToggle），
+                //   这样一次点击永远只可能落到一个分支上，不存在"两个逻辑都跑一遍"的错乱。
+                onActivate = { photo, shift ->
+                    val now = uiNow
+                    // 连选按**屏幕上看到的顺序**算（shown 可能已被搜索过滤）。
+                    val res = clickPhotoSelection(
+                        selected = now.selectedPhotoIds,
+                        ordered = shown.map { it.id },
+                        anchor = now.selectionAnchor,
+                        id = photo.id,
+                        shift = shift,
+                    )
+                    onUi(
+                        now.copy(
+                            activePhotoId = photo.id,
+                            selectedPhotoIds = res.selected,
+                            selectionAnchor = res.anchor,
+                        ),
+                    )
                 },
                 onToggle = { photo ->
-                    val next = if (ui.selectedPhotoIds.contains(photo.id)) {
-                        ui.selectedPhotoIds - photo.id
-                    } else {
-                        ui.selectedPhotoIds + photo.id
-                    }
-                    onUi(ui.copy(selectedPhotoIds = next, activePhotoId = photo.id))
+                    val now = uiNow
+                    onUi(
+                        now.copy(
+                            // ★ 红勾只改"勾了哪几张"，**不动 activePhotoId**（v3.7）。
+                            //   之前它顺带把大图切到这张，于是"点红勾勾选第 5 张"会把正在复核的
+                            //   第 1 张换掉 —— 用户看到的是"点一下红勾，大图和照片条都跳了"，
+                            //   很难判断这次到底改的是勾选还是预览。勾选与预览解耦后，
+                            //   "红勾 = 加选/减选"、"点图 = 换预览"各归各的。
+                            selectedPhotoIds = nextPhotoSelection(now.selectedPhotoIds, photo.id, additive = true),
+                            // 勾选也算"我落到了这一张"，之后的 Shift 连选从这里起。
+                            selectionAnchor = photo.id,
+                        ),
+                    )
                 },
             )
 
@@ -239,7 +271,7 @@ fun PhotosSheet(
                 },
                 onDetach = {
                     actions.movePhotosTo(targets, null)
-                    onUi(ui.copy(selectedPhotoIds = emptySet()))
+                    onUi(ui.copy(selectedPhotoIds = emptySet(), selectionAnchor = null))
                 },
             )
         }
@@ -251,12 +283,15 @@ fun PhotosSheet(
  *
  * ★ 原来这里是两行（第二行是"N 张照片 · 点缩略图切换"）。删掉的理由：
  *   那句提示和操作条左边的文案说的是同一件事，而头部每多一行，大图就少 18 dp。
+ * ★ 这一行同时是**拖动区**（[dragHandle]）：整条头都能拖，按钮照样能点 ——
+ *   拖动只有"按下后移动超过阈值"才开始，静止的点击仍然落到 ✕ / ‹ › 上。
  */
 @Composable
 private fun Header(
     state: AppState,
     event: EventSnapshot?,
     target: Selection,
+    dragHandle: Modifier,
     onClose: () -> Unit,
     onPick: (Int) -> Unit,
 ) {
@@ -267,6 +302,7 @@ private fun Header(
         Modifier
             .fillMaxWidth()
             .height(PHOTOS_HEADER_H.dp)
+            .then(dragHandle)
             .padding(start = PmSpace.l, end = PmSpace.s),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -322,6 +358,8 @@ private fun Preview(photo: PhotoInfo?, onReveal: () -> Unit, modifier: Modifier)
                 Text("没有可显示的照片", style = PmType.body, color = PmColor.ink3)
             } else {
                 val tone = PmColor.placeholder[(photo.id.hashCode() and 0x7fffffff) % PmColor.placeholder.size]
+                // 大图按 1400 px 取：弹窗高度上限 720 dp，2× 缩放下也不会发虚，又不至于解码原图。
+                val image = rememberPhotoImage(photo.sourceRef, maxEdge = 1400)
                 Box(
                     Modifier
                         .fillMaxHeight()
@@ -331,16 +369,26 @@ private fun Preview(photo: PhotoInfo?, onReveal: () -> Unit, modifier: Modifier)
                         .border(1.dp, PmColor.lineStrong, RoundedCornerShape(PmRadius.card)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Filled.Image, contentDescription = null, tint = PmColor.ink4, modifier = Modifier.size(34.dp))
-                        Spacer(Modifier.height(PmSpace.s))
-                        Text(
-                            photo.displayName.substringAfterLast('.', "").uppercase().ifEmpty { "IMG" },
-                            style = PmType.label,
-                            color = PmColor.ink3,
+                    if (image != null) {
+                        // Fit 而不是 Crop：复核要判断"这张对不对"，先得看到整张，不能裁掉边角。
+                        Image(
+                            bitmap = image,
+                            contentDescription = photo.displayName,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.matchParentSize(),
                         )
-                        Spacer(Modifier.height(PmSpace.xs))
-                        Text("缩略图待接入（U1.3）", style = PmType.micro, color = PmColor.ink4)
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Filled.Image, contentDescription = null, tint = PmColor.ink4, modifier = Modifier.size(34.dp))
+                            Spacer(Modifier.height(PmSpace.s))
+                            Text(
+                                photo.displayName.substringAfterLast('.', "").uppercase().ifEmpty { "IMG" },
+                                style = PmType.label,
+                                color = PmColor.ink3,
+                            )
+                            Spacer(Modifier.height(PmSpace.xs))
+                            Text("正在读取 / 该格式暂不支持预览", style = PmType.micro, color = PmColor.ink4)
+                        }
                     }
                 }
             }
@@ -400,6 +448,33 @@ private fun SidePanel(
             return@Column
         }
 
+        // ── 巡查日志内容（v3.7 新增）────────────────────────────────────────
+        // 复核时真正要回答的是"这条记录说的和这些照片对得上吗"，
+        // 而原来弹窗里只有类型/桩号/时间段这些**解析结果**，看不到记录本身。
+        // 日志原文放在最上面：它是判断依据，先读它，再看照片和台账格。
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(PmRadius.control))
+                .background(PmColor.surface2)
+                .padding(PmSpace.m),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("巡查日志内容", style = PmType.label, color = PmColor.ink2)
+                Spacer(Modifier.weight(1f))
+                Tag("原始记录", Tone.NEUTRAL)
+            }
+            Spacer(Modifier.height(PmSpace.xs))
+            val content = event.description.trim()
+            Text(
+                content.ifEmpty { "（这条记录没有文字内容，只有时间与照片）" },
+                style = PmType.body,
+                // 空内容用 ink4 弱化，避免被当成"日志里真写了这句话"。
+                color = if (content.isEmpty()) PmColor.ink4 else PmColor.ink,
+            )
+        }
+
+        Spacer(Modifier.height(PmSpace.m))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("台账里的两张", style = PmType.label, color = PmColor.ink2)
             Spacer(Modifier.weight(1f))
@@ -510,11 +585,13 @@ private fun SlotRow(slot: Int, photo: PhotoInfo?, active: PhotoInfo?, onMark: (I
 /**
  * 缩略条。
  *
- * ★ "选"有两个落点，任选一个都能完成多选：
- *   · Ctrl+点图 —— 键鼠习惯，来回切换这张的勾选；
- *   · 点右上角方格 —— 不用键盘也能逐张勾，方格是看得见的状态指示。
- *   只有一个落点是不够的：只留 Ctrl 的话，不知道快捷键的人选不了第二张；
- *   只留方格的话，习惯 Ctrl 的人会以为多选坏了。
+ * ★ "选"的两个落点，语义严格分开（v3.7 定稿）：
+ *   · 点格子本体 —— 只看这张、只勾这张；`Shift`+点 = 从锚点连选一段；
+ *   · 点右上角红勾 —— **唯一**的"切换这一张、保留其它"入口。
+ *   Ctrl+点图 的加选已经删掉：它和红勾是同一件事的两个入口，而两个入口在手势层
+ *   无法可靠区分（按下阶段谁都可能先拿到这次 press），现场表现就是"点红勾/连点几次
+ *   勾选自己乱跳"。现在点图永远只做单选或连选，勾选集合只可能被红勾改，行为可预测。
+ *   红勾本身也够用：不知道快捷键的人点它、习惯 Ctrl 的人点它也得到同一个结果。
  */
 @Composable
 private fun Strip(
@@ -525,7 +602,7 @@ private fun Strip(
     tile: Int,
     height: Int,
     emptyText: String,
-    onActivate: (PhotoInfo, additive: Boolean) -> Unit,
+    onActivate: (PhotoInfo, shift: Boolean) -> Unit,
     onToggle: (PhotoInfo) -> Unit,
 ) {
     if (photos.isEmpty()) {
@@ -534,6 +611,10 @@ private fun Strip(
         }
         return
     }
+    val density = LocalDensity.current
+    val checkPx = with(density) { CHECK_HIT_DP.dp.roundToPx() }
+    // 红勾回调同样要读最新闭包：pointerInput 的 block 只在首次组合启动（见 component/Press.kt）。
+    val toggleNow by rememberUpdatedState(onToggle)
     LazyRow(
         modifier = Modifier.fillMaxWidth().height(height.dp),
         contentPadding = PaddingValues(horizontal = PmSpace.l, vertical = PmSpace.s),
@@ -544,6 +625,8 @@ private fun Strip(
             val isActive = photo.id == active?.id
             val isSelected = selected.contains(photo.id)
             val tone = PmColor.placeholder[(photo.id.hashCode() and 0x7fffffff) % PmColor.placeholder.size]
+            val px = with(density) { tile.dp.roundToPx() }
+            val image = rememberPhotoImage(photo.sourceRef, maxEdge = (px * 2).coerceAtLeast(64))
             Box(
                 Modifier
                     .size(tile.dp)
@@ -559,14 +642,38 @@ private fun Strip(
                         shape = RoundedCornerShape(PmRadius.control),
                     )
                     .pointerHoverIcon(PointerIcon.Hand)
-                    .pmPress { additive -> onActivate(photo, additive) },
+                    // ★ 红勾那 24×24 的直角区域**不归格子**：点在它上面时这里直接不响应，
+                    //   由下面的红勾自己处理。旧实现靠"子节点消费了没"来猜，按下阶段
+                    //   并不保证消费 → 一次点击同时跑单选和切换，勾选被覆盖（现场事故）。
+                    .pmPress(accept = { pos, size -> !inTopEndZone(pos, size, checkPx) }) { mods ->
+                        onActivate(photo, mods.shift)
+                    },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    photo.captureTimeMs?.let { hhmm(it) } ?: "无时间",
-                    style = PmType.micro,
-                    color = if (photo.captureTimeMs == null) PmColor.warn else PmColor.ink2,
-                )
+                if (image != null) {
+                    Image(
+                        bitmap = image,
+                        contentDescription = photo.displayName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                }
+                // 时刻：深色胶囊压在右下角（图上居中放灰字是读不出来的）。
+                val time = photo.captureTimeMs?.let { hhmm(it) }
+                if (time != null) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(3.dp)
+                            .clip(RoundedCornerShape(PmRadius.control))
+                            .background(Color.Black.copy(alpha = 0.58f))
+                            .padding(horizontal = 3.dp, vertical = 1.dp),
+                    ) {
+                        Text(time, style = PmType.micro, color = Color.White)
+                    }
+                } else if (image == null) {
+                    Text("无时间", style = PmType.micro, color = PmColor.warn)
+                }
                 val slot = slots[photo.id]
                 if (slot != null) {
                     Box(
@@ -579,14 +686,29 @@ private fun Strip(
                         Text("照$slot", style = PmType.micro, color = PmColor.surface)
                     }
                 }
-                // 勾选框：24 dp 命中区（框本身 16）压在右上角。它消费掉按下事件，
-                // 所以点它不会顺带切换大图（见 pmPress 的 isConsumed 判断）。
-                // 未勾选时描边用 ink3：placeholder 底色很浅，lineStrong 在上面几乎看不见。
+                // 勾选框：24 dp 命中区（框本身 16）压在右上角，是**唯一的加选入口**。
+                //
+                // ★ 不用 clickable 而用 awaitEachGesture：clickable 在按下阶段不保证 consume，
+                //   父层（格子本体）就可能先把它当成一次"点图"。这里 down 到手立刻 consume，
+                //   配合格子的几何豁免，两道保险锁住"点红勾只改勾选、不动预览"。
+                // ★ 抬起必须落在同一块区域（waitForUpOrCancellation 会因移出而返回 null）：
+                //   按下后拖走再松手等于放弃这次勾选，与 Windows 复选框一致。
                 Box(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .size(24.dp)
-                        .clickable(indication = null, interactionSource = null) { onToggle(photo) },
+                        .size(CHECK_HIT_DP.dp)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .pointerInput(photo.id) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                down.consume()
+                                val up = waitForUpOrCancellation()
+                                if (up != null) {
+                                    up.consume()
+                                    toggleNow(photo)
+                                }
+                            }
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     Box(
@@ -645,7 +767,7 @@ private fun ActionBar(
                 // 只有真多选（≥2）时"已勾选 N 张"才有信息量：单张时它就是"当前这张"，
                 // 而普通点击本来就会重置成一张，那句话会一直挂着当噪音。
                 ui.selectedPhotoIds.size > 1 -> "已勾选 ${ui.selectedPhotoIds.size} 张"
-                photoCount > 0 -> "$photoCount 张 · 点图切换 · Ctrl+点 加选"
+                photoCount > 0 -> "$photoCount 张 · 点图预览 · Shift+点 连选 · 右上角红勾加选"
                 else -> "无照片"
             },
             style = PmType.caption,

@@ -106,3 +106,20 @@ fun assignSuccessNotice(mode: AssignMode, applied: Int, targetLabel: String): Lo
 
 /** 统一的失败/未生效提示（[reason] 来自 [rejectReason]）。 */
 fun assignFailureNotice(reason: String): LocalNotice = LocalNotice(reason, NoticeTone.WARN)
+
+/**
+ * 按了「导出」但条件不满足时的解释；null = 现在可以导出。
+ *
+ * ★ 为什么不让按钮直接置灰了事：灰按钮只会说"不行"，不说是"为什么不行"。
+ *   现场最常见的就是"没设导出目录"（canExport 为假、按钮全灰），
+ *   用户看到的是一个点不动的主按钮，只能猜 —— 于是"没有导出入口"。
+ *   现在按钮始终可点，点不出结果时用一条 WARN 提示把下一步说清楚。
+ */
+fun exportBlockReason(state: AppState, busy: Busy? = null): String? = when {
+    busy == Busy.EXPORT || state.status == CoreStatus.EXPORTING -> "正在导出，等这一次结束再导"
+    busy == Busy.ANALYZE || state.status == CoreStatus.ANALYZING -> "还在分析，分析完成后才能导出"
+    state.status == CoreStatus.CLOSED -> "程序已关闭，无法导出"
+    state.events.isEmpty() -> "还没有可导出的事件：先粘贴或导入巡查日志，再点「开始分析」"
+    state.settings.outputDir.isNullOrBlank() -> "还没有设置导出目录：打开右上角「设置」，在「导出目录」里选一个文件夹"
+    else -> null
+}

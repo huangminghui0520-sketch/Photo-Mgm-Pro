@@ -68,7 +68,7 @@ fun SettingsSheet(
     val width = minOf(560, windowWidth - 48).coerceAtLeast(420)
     val maxH = dialogHeight(windowHeight)
 
-    SheetHost(onDismiss = { onUi(ui.copy(sheet = null)) }) {
+    SheetHost(onDismiss = { onUi(ui.copy(sheet = null)) }) { dragHandle ->
         Column(
             Modifier
                 .width(width.dp)
@@ -77,7 +77,7 @@ fun SettingsSheet(
                 .background(PmColor.surface),
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(start = PmSpace.xl, end = PmSpace.m, top = PmSpace.l, bottom = PmSpace.m),
+                Modifier.fillMaxWidth().then(dragHandle).padding(start = PmSpace.xl, end = PmSpace.m, top = PmSpace.l, bottom = PmSpace.m),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("设置", style = PmType.display, color = PmColor.ink)
@@ -123,7 +123,7 @@ fun SettingsSheet(
 
                 Field(
                     label = "导出目录",
-                    hint = "每次导出会在其下新建 PhotoMgm_export_日期_时刻/ ，不改动源文件。",
+                    hint = "每次导出会在其下新建 月日_时分秒/（如 1101_203200/），不改动源文件。",
                     trailing = {
                         if (state.settings.outputDir != null) {
                             PmButton(

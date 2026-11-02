@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,8 +52,10 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import com.photomgm.desktop.core.api.AppState
 import com.photomgm.desktop.core.api.CoreStatus
@@ -66,15 +69,19 @@ import com.photomgm.desktop.ui.component.bg
 import com.photomgm.desktop.ui.component.fg
 import com.photomgm.desktop.ui.dialog.AssignSheet
 import com.photomgm.desktop.ui.dialog.ConfirmReanalyzeSheet
+import com.photomgm.desktop.ui.dialog.DatePickerLayer
 import com.photomgm.desktop.ui.dialog.PhotosSheet
 import com.photomgm.desktop.ui.dialog.SettingsSheet
 import com.photomgm.desktop.ui.model.Busy
+import com.photomgm.desktop.ui.model.LocalNotice
 import com.photomgm.desktop.ui.model.NoticeTone
 import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.model.WorkQueue
+import com.photomgm.desktop.ui.model.exportBlockReason
 import com.photomgm.desktop.ui.model.exportKey
 import com.photomgm.desktop.ui.page.WorkspacePage
+import com.photomgm.desktop.ui.page.patrolDateNotice
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius
 import com.photomgm.desktop.ui.theme.PmSize
@@ -110,7 +117,11 @@ fun AppShell(
                     }
 
                     event.isCtrlPressed && event.key == Key.E -> {
-                        if (state.canExport) actions.export(); true
+                        // 与顶栏同一个判定：条件不足时给出原因，而不是"按了没反应"。
+                        val reason = exportBlockReason(state, ui.busy)
+                        if (reason == null) actions.export()
+                        else onUi(ui.copy(notice = LocalNotice(reason, NoticeTone.WARN)))
+                        true
                     }
 
                     event.isCtrlPressed && event.key == Key.Comma -> {
@@ -119,8 +130,13 @@ fun AppShell(
 
                     event.key == Key.Escape -> {
                         // Esc 只做一件事：关掉当前覆盖层/选择。不退出、不改数据。
-                        if (ui.sheet != null) onUi(ui.copy(sheet = null))
-                        else onUi(ui.copy(selectedPhotoIds = emptySet()))
+                        // 顺序＝层次：日历浮层在最上，其次弹窗，最后才是照片勾选。
+                        when {
+                            ui.datePickerOpen -> onUi(ui.copy(datePickerOpen = false))
+                            ui.sheet != null -> onUi(ui.copy(sheet = null))
+                            // 清勾选时连锚点一起清：留着锚点，下一次 Shift 会从"上一批的起点"连选。
+                            else -> onUi(ui.copy(selectedPhotoIds = emptySet(), selectionAnchor = null))
+                        }
                         true
                     }
 
@@ -130,6 +146,9 @@ fun AppShell(
     ) {
         val width = maxWidth.value.toInt()
         val height = maxHeight.value.toInt()
+        val density = LocalDensity.current
+        // 日期字段在窗口里的像素位置：由 LogBar 的字段上报，供日历浮层贴边定位。
+        val dateAnchor = remember { mutableStateOf(IntRect.Zero) }
 
         // 渲染日志：把"这个宽度下排成了什么样"写成可 diff 的一行（DPI 走查与回归对比用）。
         // ★ 正常运行时 UiLog 静默，这里直接跳过 —— 不构造字符串、不触碰任何 IO。
@@ -159,7 +178,7 @@ fun AppShell(
             MessageArea(state, ui, onUi, actions)
 
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                WorkspacePage(state, ui, onUi, actions, width)
+                WorkspacePage(state, ui, onUi, actions, width) { rect -> dateAnchor.value = rect }
                 if (ui.busy != null) {
                     BusyOverlay(
                         busy = ui.busy,
@@ -171,6 +190,26 @@ fun AppShell(
 
             Hairline()
             StatusBar(state, ui, onUi)
+        }
+
+        // 日历浮层：画在整页之上、不参与布局（页面高度/滚动位置都不变）。
+        if (ui.datePickerOpen && ui.sheet == null) {
+            DatePickerLayer(
+                date = state.settings.patrolDate,
+                anchor = dateAnchor.value,
+                windowWidth = with(density) { maxWidth.roundToPx() },
+                windowHeight = with(density) { maxHeight.roundToPx() },
+                onPick = { picked ->
+                    actions.setPatrolDate(picked)
+                    onUi(
+                        ui.copy(
+                            datePickerOpen = false,
+                            notice = patrolDateNotice(state, picked) ?: ui.notice,
+                        ),
+                    )
+                },
+                onClose = { onUi(ui.copy(datePickerOpen = false)) },
+            )
         }
 
         when (ui.sheet) {
@@ -224,12 +263,24 @@ private fun TopBar(state: AppState, ui: UiState, onUi: (UiState) -> Unit, action
 
         // 顶栏只留"导出 / 设置"两个全局动作：分析动作紧贴在日志输入框旁边，
         // 两处都放会让人以为要做两件事，且禁用态在白色顶栏上看起来只是一行灰字。
+        //
+        // ★ 导出按钮**始终可点**（只在忙的时候禁用）：
+        //   以前是 `enabled = state.canExport`，最常见的"没设导出目录"会让它整块变灰，
+        //   用户看到的是一个点不动的主按钮 —— 反馈里就变成了"界面上没有导出入口"。
+        //   现在点它会得到一句明确的"该先做什么"，而不是什么都不发生。
         PmButton(
             "导出",
-            actions.export,
+            {
+                val reason = exportBlockReason(state, ui.busy)
+                if (reason == null) {
+                    actions.export()
+                } else {
+                    onUi(ui.copy(notice = LocalNotice(reason, NoticeTone.WARN)))
+                }
+            },
             kind = ButtonKind.PRIMARY,
             icon = Icons.Filled.FileDownload,
-            enabled = state.canExport,
+            enabled = ui.busy == null,
         )
         Spacer(Modifier.width(PmSpace.s))
         PmButton(

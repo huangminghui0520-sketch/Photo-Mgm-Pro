@@ -7,10 +7,12 @@
 //     ③ 输入框里没有"这个月哪几天在干活"的信息，改日期前无从判断。
 //   日历把这三件事一次解决：点格子 = 选定，淡色补位日让月份边界可见，面板里直接显示已选日期。
 //
-// ★ 面板是**就地展开**（不是浮层）：它长在主页输入带的日期列里（见 ui/page/LogBar 的 DateSection），
-//   展开时把下面的日志/列表往下推。做成浮层就要处理 z 序、点外部关闭、贴着窗口下沿时的翻转，
-//   而"往下推"在桌面端本来就是可预测的行为，也不需要额外状态
-//   （open 是组件本地状态，不污染 UiState —— 它是一次瞬时展开，不是业务状态）。
+// ★ 面板是**浮层**（v3.4 改），且浮层长在根覆盖层里（见 ui/dialog/DatePickerLayer）：
+//   上一版把它就地展开在日期列下方，于是"点一下日期 → 下面的日志框和整列事件卡片整体下移"，
+//   展开/收起两次跳版。日历是一次性的选择动作，它不该改变页面结构。
+//   现在的分工是：
+//     · 这个文件只画「日期字段 + 前后一天 + 今天」这一行，并把字段在窗口里的位置报出去（onAnchor）；
+//     · 根覆盖层（AppShell）按这个位置把日历卡片画在最上层，点外部即关闭，页面布局一动不动。
 //
 // ★ 这个组件**有意不参与键盘**（用户明确要求，是全项目唯一的例外）：
 //   · 日期格子与日期字段都走 `pmPress`（pointerInput），不是 `clickable`：
@@ -53,7 +55,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.roundToIntRect
 import com.photomgm.desktop.ui.format.dateText
 import com.photomgm.desktop.ui.format.nowDate
 import com.photomgm.desktop.ui.model.DayCell
@@ -69,52 +75,49 @@ import java.time.YearMonth
 import java.time.format.TextStyle as JTextStyle
 import java.util.Locale
 
-/** 日历格：34×26。7 列 = 238，加面板内边距后 254 —— 主页日期列 312，放得下且不压到日志框。
- *  高度按"展开后整个面板 + 日志框仍能塞进 540 dp 高的窗口"倒推：6 行 × 26 是上限。 */
+/** 日历格：34×26。7 列 = 238，加面板内边距后 254 —— 主页日期列 312，浮层也放得下。 */
 private val CELL_W = 34.dp
 private val CELL_H = 26.dp
 
+/** 日历面板宽度（含内边距）：浮层定位时要用它算右边界。 */
+val CALENDAR_PANEL_W = 262.dp
+
+/**
+ * 日期行：字段 + 前后一天 + 今天。
+ *
+ * [open] / [onToggle] 由调用方持有：面板画在根覆盖层里，组件本身不再自己"展开"。
+ * [onAnchor] 上报字段在**窗口坐标系**里的像素矩形，供浮层贴边定位（下方放不下时向上翻）。
+ */
 @Composable
 fun PmDateField(
     date: LocalDate,
     onChange: (LocalDate) -> Unit,
+    open: Boolean,
+    onToggle: () -> Unit,
+    onAnchor: (IntRect) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var open by remember { mutableStateOf(false) }
-    // 面板打开时从当前选中月起步；换日期后重新从新日期起步（关掉再开会回到"我选的那天"）。
-    var cursor by remember(date, open) { mutableStateOf(YearMonth.from(date)) }
     val today = remember { nowDate() }
 
-    Column(modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            DateButton(date = date, open = open, onClick = { open = !open })
-            Spacer(Modifier.width(PmSpace.xs))
-            PmIconButton(Icons.Filled.ChevronLeft, "前一天", { onChange(date.minusDays(1)) }, size = 28.dp)
-            PmButton("今天", { onChange(today) }, kind = ButtonKind.GHOST)
-            PmIconButton(Icons.Filled.ChevronRight, "后一天", { onChange(date.plusDays(1)) }, size = 28.dp)
-        }
-
-        if (open) {
-            Spacer(Modifier.height(PmSpace.m))
-            CalendarPanel(
-                year = cursor.year,
-                month = cursor.monthValue,
-                selected = date,
-                today = today,
-                onShiftMonth = { delta -> cursor = cursor.plusMonths(delta) },
-                onPick = { picked ->
-                    onChange(picked)
-                    open = false
-                },
-                onClose = { open = false },
-            )
-        }
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        DateButton(
+            date = date,
+            open = open,
+            onClick = onToggle,
+            modifier = Modifier.onGloballyPositioned { coords ->
+                onAnchor(coords.boundsInWindow().roundToIntRect())
+            },
+        )
+        Spacer(Modifier.width(PmSpace.xs))
+        PmIconButton(Icons.Filled.ChevronLeft, "前一天", { onChange(date.minusDays(1)) }, size = 28.dp)
+        PmButton("今天", { onChange(today) }, kind = ButtonKind.GHOST)
+        PmIconButton(Icons.Filled.ChevronRight, "后一天", { onChange(date.plusDays(1)) }, size = 28.dp)
     }
 }
 
 /** 字段本体：看起来是个输入框，实际是一个按钮（避免"能打字但打了也不生效"的半可用状态）。 */
 @Composable
-private fun DateButton(date: LocalDate, open: Boolean, onClick: () -> Unit) {
+private fun DateButton(date: LocalDate, open: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val shape = RoundedCornerShape(PmRadius.control)
@@ -122,7 +125,7 @@ private fun DateButton(date: LocalDate, open: Boolean, onClick: () -> Unit) {
     val weekday = date.dayOfWeek.getDisplayName(JTextStyle.SHORT, Locale.CHINA)
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .width(196.dp)
             .height(PmSize.control)
             .clip(shape)
@@ -155,22 +158,26 @@ private fun DateButton(date: LocalDate, open: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * 日历面板（浮层内容）。
+ *
+ * ★ 月份游标是面板**自己的**瞬时状态（关掉再开回到"我选的那天"），不进 UiState：
+ *   它不参与任何业务判断，只是"刚才翻到哪儿了"。
+ */
 @Composable
-private fun CalendarPanel(
-    year: Int,
-    month: Int,
+fun PmCalendarPanel(
     selected: LocalDate,
-    today: LocalDate,
-    onShiftMonth: (Long) -> Unit,
     onPick: (LocalDate) -> Unit,
     onClose: () -> Unit,
 ) {
-    val grid = remember(year, month) { monthGrid(year, month) }
+    val today = remember { nowDate() }
+    var cursor by remember(selected) { mutableStateOf(YearMonth.from(selected)) }
+    val grid = remember(cursor.year, cursor.monthValue) { monthGrid(cursor.year, cursor.monthValue) }
     val shape = RoundedCornerShape(PmRadius.card)
 
     Column(
         Modifier
-            .width(262.dp)
+            .width(CALENDAR_PANEL_W)
             .clip(shape)
             .background(PmColor.surface)
             .border(1.dp, PmColor.line, shape)
@@ -178,14 +185,14 @@ private fun CalendarPanel(
     ) {
         // 标题行：月份是主角，翻月只留两个箭头（不做年视图，翻 12 次也就一秒）
         Row(verticalAlignment = Alignment.CenterVertically) {
-            PmIconButton(Icons.Filled.ChevronLeft, "上个月", { onShiftMonth(-1) }, size = 26.dp)
+            PmIconButton(Icons.Filled.ChevronLeft, "上个月", { cursor = cursor.minusMonths(1) }, size = 26.dp)
             Spacer(Modifier.width(PmSpace.xs))
             Text(grid.title, style = PmType.bodyStrong, color = PmColor.ink)
             Spacer(Modifier.width(PmSpace.xs))
-            PmIconButton(Icons.Filled.ChevronRight, "下个月", { onShiftMonth(1) }, size = 26.dp)
+            PmIconButton(Icons.Filled.ChevronRight, "下个月", { cursor = cursor.plusMonths(1) }, size = 26.dp)
             Spacer(Modifier.weight(1f))
             // 只有"今天不在当前显示的月份"时才给这个入口：同月时它和标题重复，是噪音。
-            if (year != today.year || month != today.monthValue) {
+            if (cursor.year != today.year || cursor.monthValue != today.monthValue) {
                 PmButton("回今天", { onPick(today) }, kind = ButtonKind.GHOST)
             }
         }

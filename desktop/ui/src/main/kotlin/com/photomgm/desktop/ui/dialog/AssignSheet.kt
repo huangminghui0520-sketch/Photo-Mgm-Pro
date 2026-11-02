@@ -162,7 +162,7 @@ fun AssignSheet(
         onUi(ui.copy(sheet = null, selectedPhotoIds = emptySet(), notice = notice))
     }
 
-    SheetHost(onDismiss = { onUi(ui.copy(sheet = null)) }) {
+    SheetHost(onDismiss = { onUi(ui.copy(sheet = null)) }) { dragHandle ->
         Column(
             Modifier
                 .width(width.dp)
@@ -171,7 +171,7 @@ fun AssignSheet(
                 .background(PmColor.surface),
         ) {
             Row(
-                Modifier.fillMaxWidth().padding(start = PmSpace.xl, end = PmSpace.m, top = PmSpace.l, bottom = PmSpace.m),
+                Modifier.fillMaxWidth().then(dragHandle).padding(start = PmSpace.xl, end = PmSpace.m, top = PmSpace.l, bottom = PmSpace.m),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {

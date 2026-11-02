@@ -105,9 +105,11 @@ class LayoutTest {
 
     @Test
     fun `照片弹窗的信息区被压到最薄`() {
-        // 侧栏 240（原 280）、缩略条 92/72（原 108/84）：这三条是"给照片让出空间"的口径。
+        // 侧栏 300（v3.7 起，为"巡查日志内容"留出可读宽度）、缩略条 92/72。
+        // 侧栏从 240 提到 300 是唯一一次反向调整：日志原文一行就是一条完整记录，
+        // 240 宽下每条记录要折 4~5 行，读起来比不看更累。
         val small = photosSheetLayout(886, 503)
-        assertEquals(240, small.sideW)
+        assertEquals(300, small.sideW)
         assertEquals(72, small.stripH)
         assertEquals(52, small.stripTile)
         assertEquals(38, PHOTOS_HEADER_H)
@@ -116,7 +118,7 @@ class LayoutTest {
         assertEquals(300, previewHeight(small))
 
         val large = photosSheetLayout(1366, 740)
-        assertEquals(240, large.sideW)
+        assertEquals(300, large.sideW)
         assertEquals(92, large.stripH)
         assertEquals(64, large.stripTile)
         // 692 - 38 - 92 - 42 - 3 = 517

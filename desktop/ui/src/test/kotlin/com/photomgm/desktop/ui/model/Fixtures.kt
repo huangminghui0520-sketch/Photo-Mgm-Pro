@@ -48,7 +48,7 @@ fun event(
     hints = hints,
 )
 
-fun exportResult(dir: String = "/out/PhotoMgm_export_20261101_120000"): ExportResult = ExportResult(
+fun exportResult(dir: String = "/out/1101_120000"): ExportResult = ExportResult(
     exportDir = Paths.get(dir),
     ledgerFile = Paths.get("$dir/ledger.xlsx"),
     logFile = Paths.get("$dir/export.log"),

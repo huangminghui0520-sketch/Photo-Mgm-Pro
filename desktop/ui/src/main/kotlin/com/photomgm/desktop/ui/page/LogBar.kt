@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import com.photomgm.desktop.core.api.AppState
 import com.photomgm.desktop.core.api.CoreStatus
@@ -63,6 +64,7 @@ import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmSpace
 import com.photomgm.desktop.ui.theme.PmType
+import java.time.LocalDate
 
 /**
  * 日期列的固定宽：日期字段 196 + 前后一天 28×2 + 今天 48 + 三个 4 dp 间隙。
@@ -78,6 +80,7 @@ fun LogBar(
     ui: UiState,
     onUi: (UiState) -> Unit,
     actions: Actions,
+    onDateAnchor: (IntRect) -> Unit,
 ) {
     Row(
         Modifier
@@ -86,7 +89,7 @@ fun LogBar(
             .padding(horizontal = PmSpace.xl, vertical = PmSpace.l),
         verticalAlignment = Alignment.Top,
     ) {
-        DateSection(state, ui, onUi, actions)
+        DateSection(state, ui, onUi, actions, onDateAnchor)
         Spacer(Modifier.width(PmSpace.xl))
         if (ui.logEntryVisible) {
             LogEntry(state, ui, onUi, actions, Modifier.weight(1f))
@@ -97,10 +100,28 @@ fun LogBar(
 }
 
 /**
+ * 改巡查日期 = 改一次输入，不销毁任何东西。
+ *
+ * 但如果已经分析出事件了，必须用一条可关闭的提示说清"结果还是旧日期的、下一步点哪儿"，
+ * 而不是把联系人拦在确认弹窗前面。
+ */
+fun patrolDateNotice(state: AppState, picked: LocalDate): LocalNotice? =
+    if (state.events.isEmpty()) {
+        null
+    } else {
+        LocalNotice(
+            "巡查日期已改为 ${dateText(picked)}：" +
+                "点「重新分析」按新日期重扫照片，已有的事件与人工调整会重算。",
+            NoticeTone.WARN,
+        )
+    }
+
+/**
  * 巡查日期（日期字段 + 前后一天 + 今天）。
  *
- * 日历面板就地展开在这一列下方（不是浮层）：输入带本身就是页面第一段，
- * 展开时把下面的日志/列表往下推，行为可预测，也不需要在页面里做第二套覆盖层。
+ * ★ 日历面板不在这一列里展开，而是画在根覆盖层上（ui/dialog/DatePickerLayer）：
+ *   "就地展开"会把下面的日志框和整列事件卡片往下推 240 dp，展开/收起各跳版一次。
+ *   这里只负责画控件行 + 把字段在窗口里的位置报上去，布局永远是固定高度。
  */
 @Composable
 private fun DateSection(
@@ -108,6 +129,7 @@ private fun DateSection(
     ui: UiState,
     onUi: (UiState) -> Unit,
     actions: Actions,
+    onDateAnchor: (IntRect) -> Unit,
 ) {
     Column(Modifier.width(DATE_COL_W)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -120,20 +142,11 @@ private fun DateSection(
             date = state.settings.patrolDate,
             onChange = { picked ->
                 actions.setPatrolDate(picked)
-                // 日期改了但结果还是旧的：用一条可关闭的提示说清楚"下一步点哪儿"，
-                // 而不是把联系人拦在确认弹窗前面（改日期只是输入，不销毁任何东西）。
-                if (state.events.isNotEmpty()) {
-                    onUi(
-                        ui.copy(
-                            notice = LocalNotice(
-                                "巡查日期已改为 ${dateText(picked)}：" +
-                                    "点「重新分析」按新日期重扫照片，已有的事件与人工调整会重算。",
-                                NoticeTone.WARN,
-                            ),
-                        ),
-                    )
-                }
+                onUi(ui.copy(notice = patrolDateNotice(state, picked) ?: ui.notice))
             },
+            open = ui.datePickerOpen,
+            onToggle = { onUi(ui.copy(datePickerOpen = !ui.datePickerOpen)) },
+            onAnchor = onDateAnchor,
         )
     }
 }

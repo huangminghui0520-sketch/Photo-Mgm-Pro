@@ -38,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import algorithm.DedupKeepMode
 import com.photomgm.desktop.core.api.AppState
@@ -77,6 +78,8 @@ fun WorkspacePage(
     onUi: (UiState) -> Unit,
     actions: Actions,
     contentWidth: Int,
+    /** 日期字段在窗口里的位置（上交给根覆盖层定位日历浮层，见 AppShell）。 */
+    onDateAnchor: (IntRect) -> Unit,
 ) {
     val stats = remember(state) { WorkQueue.stats(state) }
     val byId = remember(state.photos) { WorkQueue.byId(state) }
@@ -86,11 +89,17 @@ fun WorkspacePage(
     val maxTiles = maxTiles(contentWidth, tile)
 
     fun open(target: Selection, firstPhoto: Long?) = onUi(
-        ui.copy(sheet = Sheet.Photos(target), activePhotoId = firstPhoto, selectedPhotoIds = emptySet()),
+        ui.copy(
+            sheet = Sheet.Photos(target),
+            activePhotoId = firstPhoto,
+            selectedPhotoIds = emptySet(),
+            // 新事件 = 新的一段：旧锚点留着会让第一次 Shift 从上一个事件的照片开始连选。
+            selectionAnchor = null,
+        ),
     )
 
     Column(Modifier.fillMaxSize()) {
-        LogBar(state, ui, onUi, actions)
+        LogBar(state, ui, onUi, actions, onDateAnchor)
 
         resultToShow(ui, state)?.let { result ->
             ResultBanner(
@@ -124,7 +133,9 @@ fun WorkspacePage(
                         slots = slotPhotoIds(ledger[event.id], photos),
                         tile = tile,
                         maxTiles = maxTiles,
-                        onClick = { open(Selection.Event(event.id), event.photoIds.firstOrNull()) },
+                        // 打开时预览最早的那张：缩略条与卡片都按拍摄时间升序，
+                        // "第一张"应当是时间上的第一张，而不是 core 列表里的第一张。
+                        onClick = { open(Selection.Event(event.id), photos.firstOrNull()?.id) },
                         // 卡片里单张照片的"移动/复制"：复用照片弹窗用的那个目标选择层，
                         // 只是这里的对象固定为这一张。 from 必须是它现在所在的事件 ——
                         // 目标列表要据此把"它自己所在的事件"排除掉（不能把照片移到它正在的地方）。

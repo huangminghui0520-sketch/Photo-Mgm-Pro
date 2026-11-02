@@ -87,6 +87,15 @@ data class UiState(
 
     val filter: ReviewFilter = ReviewFilter.ALL,
     val query: String = "",
+
+    /**
+     * 巡查日期的浮层日历是否打开。
+     *
+     * ★ 放在 UiState 而不是组件本地状态：面板画在**根覆盖层**里（它必须盖住整页却不改变布局），
+     *   而"要不要画"这件事得由持有 UiState 的一方决定（见 AppShell）。
+     */
+    val datePickerOpen: Boolean = false,
+
     val sheet: Sheet? = null,
 
     /** 照片弹窗里正在预览的那张（左大图）。 */
@@ -100,6 +109,17 @@ data class UiState(
      *   抽屉式规则见 [operationTargets]：没勾选时，操作对象就是当前这张。
      */
     val selectedPhotoIds: Set<Long> = emptySet(),
+
+    /**
+     * Shift 连选的锚点：上一次**普通点 / 红勾 / Shift 终点**落在哪一张。
+     *
+     * ★ 锚点不等于 active：active 会跟着 Shift 连选的终点走（大图要显示刚点到的那张），
+     *   而锚点必须留在起点 —— 否则"点 1 号、Shift+点 5 号、再 Shift+点 3 号"
+     *   会变成"从 5 号往回选"，与资源管理器/Excel 的口径不同，用户要重新找起点。
+     * ★ 只存 id、不存下标：列表会被搜索过滤、照片会被移走，下标立刻失效。
+     *   下标在点击那一刻按**当前可见顺序**现算（见 [clickPhotoSelection]）。
+     */
+    val selectionAnchor: Long? = null,
 
     /** 照片弹窗里的搜索词（按文件名 / 拍摄时刻过滤缩略条）。 */
     val photoQuery: String = "",
@@ -177,6 +197,8 @@ fun reduce(ui: UiState, state: AppState): UiState {
         sheet = validSheet(next.sheet, state),
         selectedPhotoIds = next.selectedPhotoIds.filterTo(LinkedHashSet()) { id -> state.photos.any { it.id == id } },
         activePhotoId = next.activePhotoId?.takeIf { id -> state.photos.any { it.id == id } },
+        // 锚点指向的照片可能已经不在（重新分析后 id 全变）→ 松开，Shift 连选会退化成单选。
+        selectionAnchor = next.selectionAnchor?.takeIf { id -> state.photos.any { it.id == id } },
     )
 
     // ⑥ 弹窗关掉后清掉它的搜索词：否则下次打开会看到一个"少了几张"的照片条，
@@ -239,6 +261,70 @@ fun sheetSelection(ui: UiState): Selection = when (val s = ui.sheet) {
  */
 fun operationTargets(selected: Set<Long>, active: Long?): List<Long> =
     if (selected.isNotEmpty()) selected.toList() else listOfNotNull(active)
+
+/**
+ * 点一张缩略图后新的勾选集合（纯函数，单测盯住）。
+ *
+ * ★ 抽出来是因为这里出过一次真实事故：Ctrl+点看起来"最多只能选两张"。
+ *   根因不在这个判断，而在点击回调拿到的是**旧的一份 UiState**（见 component/Press.kt），
+ *   于是"在已选集上累积"这件事每次都从弹窗刚打开时的空集重来。
+ *   现在把累积规则放在只有一个出口的纯函数里：加选是在 [selected] 上增删，不是重新构造。
+ *
+ * [additive]（Ctrl）= 切换这张、保留其它；否则 = 只留这张。
+ */
+fun nextPhotoSelection(selected: Set<Long>, id: Long, additive: Boolean): Set<Long> = when {
+    !additive -> setOf(id)
+    selected.contains(id) -> selected - id
+    else -> selected + id
+}
+
+/** 一次点击的结果：新的勾选集合 + 新的连选锚点（两者必须一起写回，否则 Shift 会算错起点）。 */
+data class PhotoSelectionResult(
+    val selected: Set<Long>,
+    val anchor: Long?,
+)
+
+/**
+ * 点一张缩略图（带 Shift 状态）之后的勾选状态。
+ *
+ * 口径（v3.7 起只有两条；"加选/切换"不再由点图承担，见下）：
+ *
+ * | 按法 | 结果 | 锚点 |
+ * | --- | --- | --- |
+ * | 普通点 | **只留这张**（清掉其它勾选） | 移到这张 |
+ * | Shift+点 | 从锚点到这张的**连续一段**（替换原勾选） | **不动** |
+ *
+ * ★ 为什么取消 Ctrl+点的加选：现场报的"点击判定错乱"里有一半是它引起的 ——
+ *   缩略条上同一个 press 既可能来自格子、又可能来自右上角红勾（按下阶段不保证消费），
+ *   谁先谁后决定了这次是"单选"还是"切换"，用户看到的就是"点一下选上、点一下又取消"。
+ *   现在"切换这一张、保留其它"只有**红勾**一个入口（[nextPhotoSelection] + additive=true），
+ *   点图本体永远只做"单选 / 连选"两件事，修饰键读错也不会造成勾选集合错乱。
+ * ★ 为什么 Shift 要替换而不是追加：连选的用途是"这一批一起移走"，
+ *   如果每次都往上叠，改一次主意就得逐个取消 —— 而现场复核是"先粗选一段、再微调"。
+ * ★ 为什么锚点不跟着 Shift 走：见 [UiState.selectionAnchor] 的说明（要能反复调整终点）。
+ * ★ 顺序取 [ordered]（**当前可见**的缩略条顺序），不取 id 顺序：
+ *   搜索结果只有 3 张时，Shift 选的就是屏幕上这 3 张里的一段，跟眼睛看到的一致。
+ * ★ 锚点缺失 / 已被过滤掉（换了事件、搜过别的词）→ 退化成普通点（单选）。
+ *   宁可少选，也不要"从一张看不见的照片开始连选"，那必然选到用户没预期的集合。
+ */
+fun clickPhotoSelection(
+    selected: Set<Long>,
+    ordered: List<Long>,
+    anchor: Long?,
+    id: Long,
+    shift: Boolean,
+): PhotoSelectionResult {
+    if (!shift) return PhotoSelectionResult(setOf(id), id)
+
+    val from = anchor?.let { ordered.indexOf(it) } ?: -1
+    val to = ordered.indexOf(id)
+    if (from < 0 || to < 0) {
+        // 没有可用锚点：当成普通点（宁可单选，也不要凭空连选）
+        return PhotoSelectionResult(setOf(id), id)
+    }
+    val (lo, hi) = if (from <= to) from to to else to to from
+    return PhotoSelectionResult(ordered.subList(lo, hi + 1).toSet(), anchor)
+}
 
 private fun validSheet(sheet: Sheet?, state: AppState): Sheet? = when (sheet) {
     null, Sheet.Settings, Sheet.ConfirmReanalyze -> sheet

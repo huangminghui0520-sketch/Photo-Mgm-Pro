@@ -41,6 +41,7 @@
 //   core 也直接拒绝复制（见 Feedbacl.rejectReason 里的同一条理由）。
 package com.photomgm.desktop.ui.component
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -76,6 +77,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -87,6 +90,7 @@ import com.photomgm.desktop.core.api.EventSnapshot
 import com.photomgm.desktop.core.api.PhotoInfo
 import com.photomgm.desktop.ui.format.hhmm
 import com.photomgm.desktop.ui.format.timeRange
+import com.photomgm.desktop.ui.image.rememberPhotoImage
 import com.photomgm.desktop.ui.model.AssignMode
 import com.photomgm.desktop.ui.model.CARD_COUNT_W
 import com.photomgm.desktop.ui.model.CARD_HEADER_H
@@ -363,6 +367,9 @@ private fun PhotoThumb(
     val tone = PmColor.placeholder[(photo.id.hashCode() and 0x7fffffff) % PmColor.placeholder.size]
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    // 按格子实际像素取图（×2 供 150%+ 缩放时仍然锐利）；命中缓存时是同步返回的。
+    val px = with(LocalDensity.current) { tile.dp.roundToPx() }
+    val image = rememberPhotoImage(photo.sourceRef, maxEdge = (px * 2).coerceAtLeast(64))
     Box(
         Modifier
             .size(tile.dp)
@@ -373,17 +380,40 @@ private fun PhotoThumb(
             .hoverable(interaction),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            photo.captureTimeMs?.let { hhmm(it) } ?: "无时间",
-            style = PmType.micro,
-            color = if (photo.captureTimeMs == null) PmColor.warn else PmColor.ink2,
-        )
+        if (image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = photo.displayName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        } else {
+            // 还没解码完 / 解不出来（HEIC、文件被移走）：退回落色块，格子里不留空白。
+            Text(
+                photo.displayName.substringAfterLast('.', "").uppercase().ifEmpty { "IMG" },
+                style = PmType.micro,
+                color = PmColor.ink3,
+            )
+        }
+        // 时刻压在图上：深色胶囊 + 白字，浅色照片/深色照片都读得清（原来是浅底上居中一行灰字）。
+        val time = photo.captureTimeMs?.let { hhmm(it) }
+        if (time != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(3.dp)
+                    .clip(RoundedCornerShape(PmRadius.control))
+                    .background(Color.Black.copy(alpha = 0.58f))
+                    .padding(horizontal = 3.dp, vertical = 1.dp),
+            ) {
+                Text(time, style = PmType.micro, color = Color.White)
+            }
+        }
         if (slot != null) {
             Box(
                 Modifier
-                    // 角标放左下：右上角留给"派生文件"点、中间留给拍摄时刻。
-                    // 放左上会把时刻顶到偏下，一眼看去"这张图的时间对不齐"。
-                    .align(Alignment.BottomStart)
+                    // 角标放左上：左下/右下已经给了时刻与派生点，图上只有两个角是"干净"的。
+                    .align(Alignment.TopStart)
                     .padding(3.dp)
                     .clip(RoundedCornerShape(PmRadius.control))
                     .background(PmColor.accent)
@@ -395,11 +425,11 @@ private fun PhotoThumb(
         if (photo.isDerived) {
             Box(
                 Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.TopEnd)
                     .padding(3.dp)
                     .size(5.dp)
                     .clip(RoundedCornerShape(PmRadius.pill))
-                    .background(PmColor.ink3),
+                    .background(Color.White.copy(alpha = 0.9f)),
             )
         }
         if (hovered) {

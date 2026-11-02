@@ -40,10 +40,11 @@ fun ConfirmReanalyzeSheet(
     actions: Actions,
 ) {
     val moved = state.events.sumOf { it.photoIds.size } - state.analysis?.matchedCount.let { it ?: 0 }
-    SheetHost(onDismiss = { onUi(ui.copy(sheet = null)) }) {
+    SheetHost(onDismiss = { onUi(ui.copy(sheet = null)) }) { dragHandle ->
         Column(
             Modifier
                 .width(420.dp)
+                .then(dragHandle)
                 .clip(RoundedCornerShape(PmRadius.panel))
                 .background(PmColor.surface)
                 .padding(PmSpace.xl),

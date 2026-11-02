@@ -81,21 +81,39 @@ object WorkQueue {
             e.description.contains(q, ignoreCase = true) ||
             e.eventType.contains(q, ignoreCase = true)
 
-    /** 当前照片弹窗该显示的照片（按 core 给的 photoIds 顺序，不重排）。 */
+    /** 当前照片弹窗该显示的照片（按拍摄时间升序，见 [sortedByCapture]）。 */
     fun photosOf(state: AppState, selection: Selection, byId: Map<Long, PhotoInfo>): List<PhotoInfo> =
         when (selection) {
             is Selection.Event -> {
                 val ids = state.eventPhotoIds[selection.id] ?: emptyList()
-                ids.mapNotNull { byId[it] }
+                sortedByCapture(ids.mapNotNull { byId[it] })
             }
 
-            Selection.Unmatched -> state.unmatchedPhotoIds.mapNotNull { byId[it] }
+            Selection.Unmatched -> sortedByCapture(state.unmatchedPhotoIds.mapNotNull { byId[it] })
             Selection.None -> emptyList()
         }
 
     /** 事件卡片里的照片（卡片只用 photoIds，不用 eventPhotoIds —— 二者对事件行是同一个集合）。 */
     fun photosOfEvent(event: EventSnapshot, byId: Map<Long, PhotoInfo>): List<PhotoInfo> =
-        event.photoIds.mapNotNull { byId[it] }
+        sortedByCapture(event.photoIds.mapNotNull { byId[it] })
+
+    /**
+     * 事件内照片的顺序：**拍摄时间升序**，无时间的排最后。
+     *
+     * ★ 为什么在 UI 层排、而不是让 core 直接按时间发 photoIds：
+     *   core 的 photoIds 顺序同时决定导出文件名序号（`01_`、`02_`…）和台账的"照片1/照片2"，
+     *   换顺序会连带改导出产物 —— 那是另一件事，要改得连台账一起评审。
+     *   这里只解决"缩略条和卡片上看到的先后"：现场复核是按时间读照片的
+     *   （先到桥面、再下桥底、最后拍护栏），按 id 顺序读会来回跳。
+     * ★ 同一时刻（连拍、同一次快门的多份派生文件）按 id 兜底：id 由 sourceRef 稳定分配，
+     *   所以两次打开弹窗的顺序一致 —— 顺序不稳定会让"第三张"这种口头沟通失效。
+     * ★ 无拍摄时间的排最后而不是排最前：它们是需要人工判断的少数，
+     *   排最前会把"这一组照片"的起点让给一张看不清时刻的图。
+     */
+    fun sortedByCapture(photos: List<PhotoInfo>): List<PhotoInfo> =
+        photos.sortedWith(
+            compareBy<PhotoInfo> { it.captureTimeMs ?: Long.MAX_VALUE }.thenBy { it.id },
+        )
 
     /** 弹窗标题：事件用「地点 + 描述」，未匹配池用「未匹配照片」。 */
     fun titleOf(state: AppState, target: Selection): String = when (target) {

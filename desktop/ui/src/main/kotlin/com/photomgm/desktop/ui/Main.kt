@@ -10,6 +10,8 @@
 //   --demo               造真实素材并跑真实分析（用来看真实 AppState 下的界面）
 //   --size 984x540       强制窗口尺寸（验收各宽度档的排版）
 //   --shot out.png       截图到文件（DPI 走查留证）
+//   --sheet photos       直接打开某个覆盖层（settings/photos/move/copy，配合 --shot）
+//   --date-picker        直接展开巡查日期的浮层日历（配合 --shot 验证浮层定位）
 //   --log-file out.log   UTF-8 渲染日志
 //   --data-dir <dir>     覆盖数据目录（演示/测试不污染 %APPDATA%）
 package com.photomgm.desktop.ui
@@ -67,6 +69,8 @@ private data class Options(
     val dataDir: Path? = null,
     /** 直接打开某个弹窗（只用于截图走查，不改变业务逻辑）。 */
     val sheet: String? = null,
+    /** 直接展开巡查日期的浮层日历（只用于截图走查）。 */
+    val datePicker: Boolean = false,
 )
 
 fun main(args: Array<String>) {
@@ -147,7 +151,7 @@ fun main(args: Array<String>) {
                 null -> base
                 else -> base.copy(sheet = forced, logEntryVisible = false)
             }
-            mutableStateOf(shown)
+            mutableStateOf(if (opts.datePicker) shown.copy(datePickerOpen = true) else shown)
         }
         var handle by remember { mutableStateOf<OperationHandle?>(null) }
 
@@ -351,6 +355,7 @@ private fun parse(args: Array<String>): Options {
             "--log-file" -> opts = opts.copy(logFile = args.getOrNull(++i))
             "--data-dir" -> args.getOrNull(++i)?.let { opts = opts.copy(dataDir = Paths.get(it)) }
             "--sheet" -> opts = opts.copy(sheet = args.getOrNull(++i))
+            "--date-picker" -> opts = opts.copy(datePicker = true)
             else -> UiLog.line("忽略未知参数 ${args[i]}")
         }
         i++

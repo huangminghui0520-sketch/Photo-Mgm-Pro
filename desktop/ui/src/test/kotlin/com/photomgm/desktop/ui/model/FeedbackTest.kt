@@ -124,4 +124,32 @@ class FeedbackTest {
         assertTrue(text.contains("另 2 张该事件已有"), "沉默褪成'少复制了一张'：$text")
         assertTrue(text.contains("已复制 1 张"), "$text")
     }
+
+    // ── 导出入口（v3.7：按钮不再静默禁用，而要说出"下一步点哪儿"） ──────────
+
+    @Test
+    fun `没有事件时说清楚要先分析`() {
+        val reason = exportBlockReason(appState(events = emptyList()))
+        assertNotNull(reason)
+        assertTrue(reason.contains("分析"), "要指向下一步：$reason")
+    }
+
+    @Test
+    fun `没设导出目录时指向设置里的导出目录`() {
+        val reason = exportBlockReason(appState(events = listOf(event(1)), outputDir = null))
+        assertNotNull(reason)
+        assertTrue(reason.contains("设置") && reason.contains("导出目录"), "要指出去哪儿设：$reason")
+    }
+
+    @Test
+    fun `条件齐备时不拦导出`() {
+        assertNull(exportBlockReason(appState(events = listOf(event(1)), outputDir = "/out")))
+    }
+
+    @Test
+    fun `忙的时候先说明在忙什么`() {
+        val state = appState(events = listOf(event(1)))
+        assertTrue(exportBlockReason(state, Busy.EXPORT)!!.contains("导出"))
+        assertTrue(exportBlockReason(state, Busy.ANALYZE)!!.contains("分析"))
+    }
 }
