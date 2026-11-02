@@ -84,6 +84,30 @@ class DedupKeepModeTest {
     }
 
     @Test
+    fun `相邻瞬间间隔小于1s时不得并组（真实数据 regression）`() {
+        // ★ 2026-11-02 真实素材实测（/sdcard/Pictures/pmgolden-real，10月24日 K152+200M 过车涵洞）：
+        //   连拍 4 张，A(…153741122 主图)、B(…153741123_original)、C(…153742079 主图)、D(…153742081_original)。
+        //   A 与 C 拍摄时间只差 957ms、GPS 相距 2.74m —— **双双落在 1s / 10m 容差内**，
+        //   于是 C 直接满足 isSame 而被并入 A 组（不是链式传递，是直接相邻），
+        //   retain 选 A 为代表 → B、C、D 全部丢弃 → **C 这张真实照片从导出结果里消失**。
+        //   上面那条「禁止链式」用例用的是 +1000/+2000，刚好卡在容差外侧，所以没测到这个情形。
+        //
+        //   语义约束：一个重复组 = 1 张主图 + N 张派生（同一张的不同加工版本）。
+        //   组内出现第 2 张主图 ⇒ 不可能是同一张的版本 ⇒ 必须拆开。
+        val a = photo(1, "IMG_20261024_153741122.jpg", t0, 22.996410, 113.014319)
+        val b = photo(2, "IMG_20261024_153741123_original.jpg", t0 + 1, 22.996410, 113.014319)
+        val c = photo(3, "IMG_20261024_153742079.jpg", t0 + 957, 22.996404, 113.014345)
+        val d = photo(4, "IMG_20261024_153742081_original.jpg", t0 + 959, 22.996404, 113.014345)
+        val groups = PhotoIngest.groupDupContent(listOf(a, b, c, d))
+        assertEquals(setOf(1L, 3L), groups.keys, "两个瞬间各自成组，代表都是各自的主图")
+        assertEquals(listOf(2L), groups[1]!!.map { it.id }, "A 组只含自己的派生")
+        assertEquals(listOf(4L), groups[3]!!.map { it.id }, "C 组只含自己的派生")
+        // 最关键的断言：两张主图都必须作为代表保留，任何一张都不能被当成别人的副本丢弃
+        assertTrue(groups.values.flatten().none { it.id == 1L || it.id == 3L },
+            "主图只能是代表，绝不能出现在待丢弃列表里")
+    }
+
+    @Test
     fun `同刻双份EXIF秒差1s仍可合并`() {
         // 真实场景：水印相机双份 EXIF 秒级时间戳可能差 1s（如 08:47:45 主图 + 08:47:46 original），
         // GPS 完全一致 → 仍应合并为一组（严格同秒判定反而漏掉）。

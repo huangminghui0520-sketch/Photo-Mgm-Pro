@@ -221,7 +221,7 @@
 | --- | --- |
 | 目标 | 1165 行降到 ~250 行：留 `UiState` 投影 + SAF + 缩略图，其余委派给共享用例 |
 | 依赖 | T08、T09 |
-| 改动 | `AppViewModel` 内部方法体改为委派 `AnalysisPipeline`/`AdjustUseCase`/`SettingsUseCase`（**公开方法签名全部保留**：`parseLogs`/`buildLedger`/`movePhotos`/`exportZip`/`markLedgerPhoto`/…）；删除 `PhotoRepository.kt`；`LogsTextStore`/`Cancellable` 改调共享实现；**逐段搬运 5 个踩坑修复**：导出重入 `exportBusy.compareAndSet`、`runCatchingCancellable`（取消不被吞）、`dupGroups` 原子引用一次性发布、缓存时区版本位、**GPS 语义版本位 + `geoAvailable` 降级口径（P0 新增，见 `docs/P0-GPS-MEDIA-LOCATION-FIX.md` §8.2）** |
+| 改动 | `AppViewModel` 内部方法体改为委派 `AnalysisPipeline`/`AdjustUseCase`/`SettingsUseCase`（**公开方法签名全部保留**：`parseLogs`/`buildLedger`/`movePhotos`/`exportZip`/`markLedgerPhoto`/…）；删除 `PhotoRepository.kt`；`LogsTextStore`/`Cancellable` 改调共享实现；**逐段搬运 6 个踩坑修复**：导出重入 `exportBusy.compareAndSet`、`runCatchingCancellable`（取消不被吞）、`dupGroups` 原子引用一次性发布、缓存时区版本位、**GPS 语义版本位 + `geoAvailable` 降级口径（P0 新增，见 `docs/P0-GPS-MEDIA-LOCATION-FIX.md` §8.2）**、**去重锚点模型（P0-2 新增：锚点之间永不合并，见 `docs/DEDUP-ADJACENT-BURST-FIX.md`）** |
 | 产出 | 1 个主文件 1165 → ~250；删 1 文件、薄化 3 文件 |
 | 验证 | ① 10 个既有测试全绿（**这条是硬门槛**：`ExportGateTest` 验证重入、`SetLogsTextWiringTest` 验证接线、`ThumbnailCacheWiringTest` 验证缓存）；② 黄金样本全等（安卓侧 ZIP 条目清单 + 每条目哈希）；③ 12 项手工清单；④ `AppViewModel` 行数断言进 CI（可选） |
 | 回滚 | **分两个提交**（① 委派分析/调整；② 委派导出/设置），便于定位 |
@@ -436,7 +436,8 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | **T01 黄金样本基线** | ✅ **已完成**（PC 侧；Android 侧推迟到 M3，见 T01 遗留） |
 | **T02 shared 骨架 + 迁移** | ✅ **已完成 → 抵达 M1**（42 文件纯 rename，两端编译/测试/门禁/黄金样本全绿） |
 | **P-2b P0 修复（GPS 被系统剥离）** | ✅ **已完成**（真机正向实测通过；文档 `docs/P0-GPS-MEDIA-LOCATION-FIX.md`；安卓基线已同轮重建，见提交 `8b8664b`）。**遗留**：负向"部分剥离"待复现 → 已编号 **P1-3**，处置见 §12.8 R12 |
-| **T03 纯函数上移 A** | 🔜 **下一步开工**（前置已解除：GPS 语义已确认，不再基于"恒 null"的假设）。执行细则见 **§12.4** |
+| **P0-2 修复（连拍 <1s 误删真实照片）** | ✅ **已完成**（2026-11-02，真实素材首次端到端暴露）：`groupDupContent` 改「锚点 + 派生就近附着」；真机导出 **54 → 55 张**、55/55 逐字节一致；两端黄金样本零回归。文档 `docs/DEDUP-ADJACENT-BURST-FIX.md`。**遗留**：合成素材缺 <1s 连拍用例 |
+| **T03 纯函数上移 A** | 🔜 **下一步开工**（前置已解除：GPS 语义已确认、去重误删已修）。执行细则见 **§12.4** |
 | T04~T14 | 待开工（T04/T05 排期见 §12.3） |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
@@ -616,7 +617,7 @@ C2 之后必须**同时**更新 `docs/golden/desktop-baseline.json`（`meta.rebu
 
 | # | 风险 | 触发任务 | 后果 | 等级 | 探测手段 | 应对 |
 | --- | --- | --- | --- | --- | --- | --- |
-| R12 | **GPS"部分可用"混合态** | T11 及任何去重改动 | 一方有 GPS、一方无 → `isSame` 直接判否 → 本该合并的双份**漏并**，用户只看到"多了一张" | 中高 | P1-3 复现脚本；导出前后照片数比对 | T11 前定性；去重判据显式处理混合态（缺 GPS 侧退化为"时间+文件名"，**不直接判否**） |
+| R12 | **去重把「场景相同」当成「同一张」** | T11 及任何去重改动 | **已实测发生**：GPS 有效时 `isSame` 只有「时间 + 距离」，同地连拍的两张**不同**照片被并成一组，后者**被永久删除**（真实素材 110 张只导出 54 张）。P1-3 的 GPS 混合态是它的镜像（那一侧表现为漏并） | **已发生（最高）** | 真实素材导出照片数 vs 主图数；`55/55 逐字节相同` | **已修**（锚点模型，见 `docs/DEDUP-ADJACENT-BURST-FIX.md`）：T11 重构**必须保留「锚点之间永不合并」**，不得退回「时间 + GPS 两两判重」；任何去重改动都要跑「真实素材张数 + 逐字节」双校验 |
 | R13 | **基线二次失效（假绿）** | T03、T04 | 拿旧基线当"全等"判据，或基线换了没留档 | 中 | `meta.rebuildReason` + 提交内基线 diff | 基线与改动**同提交**更新；旧版存 `history/`；比较命令固定带 `--ignore '^meta'` |
 | R14 | **测试迁移净损失** | T03 | 5 条断言被"顺手合并"→ 覆盖下降且无人发现 | 中 | 搬前搬后测试条数对比 | 断言一行不改；新增 4 类同一提交；条数只许多不许少 |
 | R15 | **D9 掩盖的其他差异暴露** | T03 | 以为"对齐完就零差异"，结果冒出 D5/排序差异，被误判为回归 | 中 | 跨端 V4 复测 | 预先声明：D5（派生判定）差异在 T04 前仍可能存在，**不算 T03 回归**；只要求"新增差异为零" |

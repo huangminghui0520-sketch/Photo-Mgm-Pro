@@ -175,3 +175,40 @@ $ADB -s $S shell "content query --uri content://media/external/images/media --pr
 3. **`run-as` 读不到 `/sdcard`**（SELinux 限制，返回 `cat: …: Permission denied` 82 字节）。想验证设备副本字节/EXIF，用 `adb pull`，不要用 `run-as cat`——否则拿到一个 82 字节的"文件"，会误判成 GPS 又被剥离。
 
 > 这批素材**全是 JPG**，没有 HEIC/RAW。厂商 HEIC 分支（`isHeic`、EXIF 读不出时的降级提示）仍**没有真实样本覆盖**，M3 验收时要单独说明。
+
+## 9. 合成素材的已知盲区（真实素材已击中两次）
+
+合成素材是"每条边界都能精确指定"的受控数据，但它**只能覆盖你想到的边界**。
+下面两条都是真实素材第一次跑就击中的，合成素材在结构上测不出来：
+
+| 盲区 | 为什么合成素材测不出 | 真实素材上的后果 | 记录 |
+| --- | --- | --- | --- |
+| **同一地点 1 秒内连拍** | `make_sample.py` 刻意让同事件照片间隔 **30s**（为了让它们落在 5min 归组窗口内且互不重复），于是"1s 内连拍"从未出现 | 去重把两张**内容不同**的连拍当成同一张，后者**被永久删除**（110 张只导出 54 张） | `docs/DEDUP-ADJACENT-BURST-FIX.md` |
+| **GPS 被系统剥离** | 素材是本地文件，不经过 Android MediaProvider/FUSE | 照片定位全部变 `null`，去重退化 | `docs/P0-GPS-MEDIA-LOCATION-FIX.md` |
+
+**结论（写在这里防止后人误解黄金样本的效力）**：
+
+> 「黄金样本全等」只能证明**没有回归**，不能证明**没有缺陷**。两者判据不同，不能互相替代。
+> 每次改动去重 / 分类 / 时间解析后，除了跑黄金样本，**必须再跑一遍真实素材并核对张数与字节**。
+
+当前真实素材核对口径（真机）：
+
+```bash
+# 期望：ZIP 照片数 == 素材主图数（55），且逐字节相同
+python - <<'PY'
+import zipfile, pathlib, hashlib
+SRC = pathlib.Path(r"C:/Users/28988/Desktop/ceshi")
+z = zipfile.ZipFile(next(pathlib.Path(".p2work/real/run2/raw").glob("*.zip")))
+imgs = [n for n in z.namelist() if n.lower().endswith(".jpg")]
+mains = {p.name for p in SRC.glob("*.jpg") if not p.name.endswith("_original.jpg")}
+names = {n.rsplit("/", 1)[-1] for n in imgs}
+assert len(imgs) == len(mains) == 55, (len(imgs), len(mains))
+assert names == mains, (mains - names, names - mains)
+assert all(hashlib.sha256(z.read(n)).hexdigest() ==
+           hashlib.sha256((SRC / n.rsplit("/", 1)[-1]).read_bytes()).hexdigest() for n in imgs)
+print("55/55 逐字节一致")
+PY
+```
+
+**待补的素材**（尚未做，会连带改基线，需单独一轮）：在 `make_sample.py` 里加一组「同地点 3 连拍、间隔 800ms」，
+把这条盲区变成可自动回归的用例。

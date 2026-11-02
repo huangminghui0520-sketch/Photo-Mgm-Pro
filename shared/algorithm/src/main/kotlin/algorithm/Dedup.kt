@@ -152,17 +152,39 @@ internal fun isDerivedName(name: String): Boolean = DerivedNames.isDerived(name)
 internal fun derivedScore(name: String): Int = DerivedNames.score(name)
 
 /**
- * 内容判重分组（仅标记、不删除）：全量照片按「时间容差 + GPS 距离阈值」两两合并为重复组。
+ * 内容判重分组（仅标记、不删除）：把「同一张照片的多个版本」归为一组。
  * @return 代表 id -> 组内其他照片（代表 = 组内 derivedScore 最小，即带水印主图优先）；
  *         单份照片不进入结果。
  *
- * ★ 2026-10-24 修复（真实数据验证发现）：禁止链式传递合并。
- *   并查集强制等价传递（A≈B、B≈C ⇒ A、B、C 同组）会把"相邻两个瞬间各自的双份"误并成 4 张一组，
- *   导致仅保留带水印时误删另一瞬间的真实照片（15:37 过车涵洞实测被并组）。
- *   改为「新照片须与组内**每一张**都满足判重才入组」——1s 容差下同一瞬间的 2 张双份可合并，
- *   相邻瞬间（间隔 >1s）不会跨组合并。
+ * ★ 2026-11-02 重写为「锚点 + 派生就近附着」（真实素材实测发现丢照片）。
  *
- * 复杂度 O(n²·组大小)（106 张约万次级距离计算，毫秒级），规模大时再换空间索引。
+ * 旧实现（两两 isSame + 禁止链式）的两个失败模式，都在真实数据上触发过：
+ *
+ * ① 链式传递误并（2026-10-24 已修）：A≈B、B≈C 时并查集会把三张并一组。
+ *    当时改成"新照片须与组内**每一张**都满足判重"。
+ * ② **直接相邻误并（本次修复）**：这道防线挡不住"A 与 C 本身就满足判重"的情形。
+ *    10月24日 K152+200M 过车涵洞连拍 4 张，A(…153741122) 与 C(…153742079)
+ *    相距 **957ms / 2.74m**，双双在 1s / 10m 容差内 → C 被并进 A 组 →
+ *    retain 选 A → C 被当作"副本"丢弃，**这张真实照片从导出结果里消失**（且不可恢复）。
+ *
+ * 根因：`isSame` 只有时间与 GPS，两者都是"场景相同"的证据，不是"同一张照片"的证据。
+ *   同一个人站在同一地点连拍，1 秒内拍两张，时间与 GPS 必然都近乎相同。
+ *   能区分"同一张的两个版本"与"两张不同照片"的可靠信号只有**派生后缀**：
+ *   水印相机的双份一定是「IMG_xxx.jpg + IMG_xxx_original.jpg」。
+ *
+ * 新模型（结构性约束，不依赖阈值调参）：
+ *   - **锚点** = 不带派生后缀的照片（带水印主图）。锚点之间**永不合并** ——
+ *     两张都有水印，就一定是两次独立的拍摄或两次独立的保存。
+ *   - **派生** = 带 `_original`/`_compressed` 等后缀的照片。每个派生挂到
+ *     「满足 isSame 且文件名序号差最小」的锚点上（水印相机双份序号差 1~2ms，
+ *     相邻瞬间的主图序号差 ≈ 数百 ms，选最近即选对）。
+ *
+ * 代价（有意为之，均属"宁可漏并不可误删"）：
+ *   - 两张都不带后缀的**真正重复**照片（如用户手动复制的副本）不再合并 —— 多留一张；
+ *   - 序号差超过 [DedupConfig.seqTolerance] 的派生不附着 —— 多留一张。
+ *   两者都只会让导出结果多一张，而不是少一张。
+ *
+ * 复杂度 O(锚点 × 派生)，全分辨率下仍为毫秒级。
  */
 fun PhotoIngest.groupDupContent(
     photos: List<Photo>,
@@ -170,26 +192,31 @@ fun PhotoIngest.groupDupContent(
     strategy: PhotoDedupStrategy = ExifContentDedupStrategy(config.timeToleranceMs, config.gpsToleranceM, config.seqTolerance),
 ): Map<Long, List<Photo>> {
     if (photos.size < 2) return emptyMap()
-    // 聚类：新照片只并入"与组内每张都重复"的组（防止 1s 容差链式传递）
-    val groups = ArrayList<MutableList<Photo>>()
-    for (p in photos) {
-        var placed = false
-        for (g in groups) {
-            if (g.all { strategy.isSame(it, p) }) {
-                g.add(p)
-                placed = true
-                break
+
+    val anchors = photos.filter { !isDerivedName(it.displayName) }
+    val derived = photos.filter { isDerivedName(it.displayName) }
+    // 没有派生 = 不存在"同一张的多个版本"；没有锚点 = 无从挂靠（保守，不合并）
+    if (anchors.isEmpty() || derived.isEmpty()) return emptyMap()
+
+    val attached = LinkedHashMap<Long, MutableList<Photo>>()
+    for (d in derived) {
+        val seqD = lastNumberBlock(d.displayName)
+        var best: Photo? = null
+        var bestDiff = Long.MAX_VALUE
+        for (a in anchors) {
+            if (!strategy.isSame(a, d)) continue
+            val seqA = lastNumberBlock(a.displayName)
+            // 序号不可用（文件名无数字）时退回"第一个满足判重的锚点"，保持旧行为
+            val diff = if (seqA != null && seqD != null) abs(seqA - seqD) else 0L
+            if (diff > config.seqTolerance) continue
+            if (diff < bestDiff) {
+                bestDiff = diff
+                best = a
             }
         }
-        if (!placed) groups.add(mutableListOf(p))
+        if (best != null) attached.getOrPut(best.id) { mutableListOf() }.add(d)
     }
-    val out = LinkedHashMap<Long, List<Photo>>()
-    for (members in groups) {
-        if (members.size < 2) continue
-        val rep = strategy.retain(members)
-        out[rep.id] = members.filter { it.id != rep.id }
-    }
-    return out
+    return attached
 }
 
 /**
