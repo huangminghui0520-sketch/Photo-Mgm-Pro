@@ -42,3 +42,6 @@ keystore/
 ui-design-runs/
 style.json
 .workbuddy/
+
+# P-2 真机/模拟器测试的中间产物（导出物、截图、临时 prefs 不入库）
+.p2work/

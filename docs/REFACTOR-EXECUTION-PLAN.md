@@ -104,7 +104,7 @@
 | 改动 | 新增 `scripts/golden/`：`make_sample.py`（生成/校验素材，Pillow 写 EXIF）、`run_desktop.sh`（无头导出+拍照，每次全新 data 目录）、`snapshot_xlsx.py`（纯 `zipfile`+XML：单元格文本/样式号/行高/列宽/嵌图字节/锚点）、`snapshot_zip.py`（ZIP 条目+每条哈希）、`compare.py`（逐路径 diff）；基线 `docs/golden/desktop-baseline.json` + `docs/golden/README.md` |
 | 实测产出 | 素材 **66 张照片**（8 组重复、6 个派生、8 张短横 EXIF、2 张无 EXIF、4 张未匹配、2 张跨日期、4 个误筛文件）+ **416 行日志**；台账快照 72 行 / 504 单元格 / 44 张嵌图 / 44 个锚点 |
 | 验证 | ① 同版本连跑两次 → **0 差异**（基线不自抖）；② 反向实验：改 1 格 + 列宽改 19.86 + 行高改 64.8 + 删 1 图 → 准确报 **4 处**并指到 `rows[2].ht: 81 → 64.8`；③ 换最终脚本重跑 → 与入库基线全等 |
-| 遗留 | **Android 侧基线（P-2）**：工具链与方案已就绪（`docs/ANDROID-EMULATOR-BASELINE.md`），本机因 AEHD 驱动拒绝访问无法启动 x86_64 模拟器，首跑待加速修复后补 `docs/golden/android-baseline.json` |
+| 遗留 | **Android 侧基线（P-2）✅ 已完成（真机）**：`docs/golden/android-baseline.json` + `android-ledger-baseline.json` + 三张截图；V1/V2/V3 全通过，报告见 `docs/ANDROID-REAL-DEVICE-P2-REPORT.md`。**遗留 P0 缺陷**：缺 `ACCESS_MEDIA_LOCATION` 导致 GPS 全剥离，须在 T11 前修复 |
 | 回滚 | 纯新增文件 |
 
 ### T02 · shared/ 骨架 + algorithm 迁移　→ **M1**
@@ -398,7 +398,8 @@ cd "$REPO/desktop" && ./gradlew :ui:createDistributable   # 出 app-image（MSI 
 | # | 前提 | 现状 | 我的默认假设 | 影响 |
 | --- | --- | --- | --- | --- |
 | **P-1** | **回归素材** | ✅ 已落地（合成 66 张 + 416 行日志，见 `scripts/golden/`） | 已完成：素材入库、可 `--verify` 自校验、`make_sample.py` 记录了三处踩坑 | 原"唯一阻塞项"已解除；**真实素材仍需在 M3 前补一轮**（合成覆盖不到厂商 HEIC/RAW 与真实微信日志边角） |
-| **P-2** | Android 侧基线（模拟器） | 方案与脚本已就绪（`docs/ANDROID-EMULATOR-BASELINE.md`）；**本机加速不可用**：`emulator -accel-check` 报 `Unable to open AEHD device: ERROR_ACCESS_DENIED`，x86_64 镜像拒绝启动 | 以**管理员**运行 `sdk/extras/google/Android_Emulator_Hypervisor_Driver/silent_install.bat`，或启用 WHPX 后重启；通过后 `scripts/golden/run_android.sh` 一条命令出基线 | 不修通则 M3/M4 的安卓侧只有单测兜底，T11/T12 的产物等价性无法证明 |
+| **P-2** | Android 侧基线 | ✅ **已解决**：改走**真机**（vivo V2232A / Android 16 / API 36），绕过 AEHD 限制。`scripts/golden/run_android_real.sh` 一条命令出基线，V1/V2/V3 全通过 | 已完成，无需再修 AEHD；模拟器路线保留但非必需 | 真机测出 P0 缺陷（GPS 被系统剥离），见 P-2b |
+| **P-2b** | **P0：`ACCESS_MEDIA_LOCATION` 缺失** | manifest 只声明 `READ_MEDIA_IMAGES`；Android 10+ 无该权限时系统剥离位置 → `Photo.latitude/longitude` 恒 null、导出照片 GPS 清零、去重退化为仅按时间 1s | **T11 之前**单独提交修复：manifest 加权限 + 运行时一并申请 + 未授权时明确提示降级口径 | 不修则去重会在「GPS 恒 null」的错误假设上被重构 |
 | **P-3** | D2 的 Android UI 入口 | `copyPhotos` 同步后安卓无入口，能力不可达 | **先只上移能力（T12），UI 入口不在本计划内**；若要现在加，需破 §2.2（改 UI 交互），我会单独立项并给交互稿 | 影响 T12 验收口径（"不可达 = 黄金样本无差异"） |
 | **P-4** | 是否允许 2 处行为变更 | D5（角标判定变严格）、D9（多认 `-` 分隔时间） | **允许**，写入 CHANGELOG「已知行为变更」 | 若要求零变更 → D5 改判 B（保留两份口径），R1 降级但技术债留存 |
 | **P-5** | 推送与 CI | 本机 `~/.gitconfig` 代理 `127.0.0.1:7890` 未启动，`git push` 仍不通（`desktop-v2.0.0` 标签也尚未推送） | **每任务本地提交，M2/M4 各推一次**；若需中途靠 CI 验证，请先恢复网络 | 影响 R4/R7 的"自动探测"能否生效 |

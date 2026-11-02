@@ -90,17 +90,29 @@ U1.9 修过一次「照片行高在 125% 缩放下被压成 0.8 倍（81pt→64.
 `make_sample.py` 刻意**不删除**目录：重建走同名覆盖，多余文件只在末尾 `[WARN]` 列出，由人决定。
 （第一版用了 `shutil.rmtree`，被执行环境拦下 —— 拦得对，素材是资产，不该被脚本删。）
 
-## 7. Android 侧基线（P-2：方案与脚本就绪，首跑待加速修复）
+## 7. Android 侧基线（P-2：已完成，真机 vivo V2232A）
 
-工具链已齐（`run_android.sh` + `make_android_prefs.py` + `find_node.py` + `snapshot_zip.py`），
-完整方案见 **`docs/ANDROID-EMULATOR-BASELINE.md`**（环境配置 / 前提条件 / 步骤 / 判定 / 14 条常见问题）。
+基线已入库，走**真机**路线（模拟器卡在 AEHD 驱动拒绝访问，真机不需要硬件加速）：
 
-当前唯一阻塞项：本机 **AEHD 驱动打不开**（`Unable to open AEHD device: ERROR_ACCESS_DENIED`），
-x86_64 模拟器无法启动。修好后一条命令即可出基线：
+| 产物 | 内容 |
+| --- | --- |
+| `docs/golden/android-baseline.json` | ZIP 结构：57 条目 / 26 目录 / 每张照片 sha256 |
+| `docs/golden/android-ledger-baseline.json` | 台账：72 行 / 504 非空单元格 / 50 嵌图 / 50 锚点 |
+| `docs/golden/screenshots/` | 启动 / 解析完成 / 导出完成三张证据截图 |
+
+复现（约 3 分钟/轮）：
 
 ```bash
-scripts/golden/run_android.sh /tmp/p2-a
+scripts/golden/run_android_real.sh .p2work/run-a
+SKIP_INSTALL=1 KEEP_PHOTOS=1 scripts/golden/run_android_real.sh .p2work/run-b
+python scripts/golden/compare.py \
+  --base .p2work/run-a/snap-struct.json --after .p2work/run-b/snap-struct.json
 ```
+
+两个脚本的分工：`run_android.sh` 是**模拟器**版（含 accel-check / AVD 创建 / `-no-window` 启动），
+`run_android_real.sh` 是**真机**版（含 `MSYS_NO_PATHCONV`、独立素材目录、`pm clear` 后重新授权等真机坑）。
+完整方案与问题清单见 `docs/ANDROID-EMULATOR-BASELINE.md`（模拟器）
+与 **`docs/ANDROID-REAL-DEVICE-P2-REPORT.md`**（真机，含 P0 缺陷记录）。
 
 Android 基线与桌面端的判定口径不同，这点必须记住：
 
@@ -111,3 +123,15 @@ Android 基线与桌面端的判定口径不同，这点必须记住：
 
 **跨端不要求零差异**：两端当前在派生判定（D5）、EXIF 时间格式（D9）上本就有分叉。
 P-2 的产出是一张差异表，作为 T04/T07/T12 的验收目标——改造后差异只能减少，不能新增。
+
+实测结论（真机，2026-11-02）：
+
+| 项 | 结果 |
+| --- | --- |
+| 台账单元格文本 | **0 差异**（71 条数据行完全一致） |
+| 照片归属 | 3 个事件 / 8 张照片不同，全部是 `yyyy-MM-dd` 短横 EXIF —— 安卓正确、PC 漏识别 |
+| 台账嵌图 | 44 vs 50 张（随上述归属）；**字节不可比**（Java ImageIO vs `Bitmap.compress`） |
+
+> ⚠️ **嵌图字节跨端永远不可能相等**。两端常量都是 400×300 / 质量 50，但编码器不同，
+> 同样"质量 50"在两套实现下的量化表与色度下采样不同，实测差约 30%。
+> 跨端比嵌图只比 **尺寸 + 数量**，不比字节——否则会把正常差异当回归来追。
