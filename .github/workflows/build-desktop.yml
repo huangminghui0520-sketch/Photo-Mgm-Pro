@@ -44,18 +44,16 @@ jobs:
         with:
           gradle-version: 8.10.2
 
-      # 桌面工程自带 wrapper；用 bash 调 ./gradlew，避免 pwsh 下找不到 gradlew(.bat) 的歧义
+      # ★ 不用 ./gradlew：两端 wrapper 的 distributionUrl 都指向腾讯云镜像（国内快、海外不稳），
+      #   美国 runner 上拉分发包容易超时。改用 setup-gradle 装好的 Gradle 8.10.2 + `-p desktop`，
+      #   与 ci.yml / build-apk.yml 保持一致。
       - name: Unit tests (core / cli / ui)
-        shell: bash
-        working-directory: desktop
-        run: ./gradlew :core:test :cli:test :ui:test --console=plain
+        run: gradle -p desktop :core:test :cli:test :ui:test --console=plain
 
       # :algorithm 由 desktop/settings.gradle.kts 以 ../algorithm 挂载，产物落在
       # desktop/build/external/algorithm —— 与 Android 构建的 algorithm/build 分离，互不踩。
       - name: Package app-image (createDistributable)
-        shell: bash
-        working-directory: desktop
-        run: ./gradlew :ui:createDistributable --console=plain
+        run: gradle -p desktop :ui:createDistributable --console=plain
 
       - name: Compress portable zip
         shell: pwsh

@@ -122,14 +122,27 @@ gradle -p android :app:assembleRelease                      # build-apk.yml
 
 `:algorithm` 仍能在同一次调用里跑，因为它是 android 工程的挂载子项目。
 
-### 2.6 新增桌面端打包流水线
+### 2.6 CI 新增"结构约束"断言
+
+`ci.yml` 的 `static-guards` 里加了一步 bash 断言，把"共用核心只有一份"变成机械可验的规则：
+
+```bash
+[ ! -e android/algorithm ]              # 核心不许被复制/移动进 android/
+[ ! -e settings.gradle.kts ]            # 仓库根不许再有 settings（否则"根目录 gradle"又会看起来能跑）
+grep -q 'projectDir = file("../algorithm")' android/settings.gradle.kts
+grep -q 'projectDir = file("../algorithm")' desktop/settings.gradle.kts
+```
+
+这两类错误都是"几秒钟能查、靠人 review 必漏"的，所以放在门禁而不是文档里。
+
+### 2.7 新增桌面端打包流水线
 
 `build-desktop.yml`：`windows-latest` + `desktop/./gradlew`，只在 `desktop-v*` 标签与手动派发时跑，
 产出 `PhotoMgm-<ver>-portable.zip`（app-image 压缩）。**刻意不出 MSI** —— `jpackage --type msi`
 依赖 WiX，GitHub 的 Windows 镜像不保证常驻，而 MSI 是主交付物，不能容忍 CI 上时好时坏；
 MSI 继续在打包机上产出。
 
-### 2.7 明确"未改动"清单
+### 2.8 明确"未改动"清单
 
 - `desktop/` 全部文件（源码、构建脚本、打包脚本、文档）：**零改动**；
 - `algorithm/`：**零改动**（仍被两端同时编译）；
@@ -200,7 +213,7 @@ git tag -a desktop-v2.0.0 -m "Windows 桌面版 2.0.0" && git push origin deskto
 
 CI 上的判定标准：
 
-- `ci.yml` 绿 = 门禁 + Android 单测通过（`-p android` 生效）；
+- `ci.yml` 绿 = 结构约束（§2.6）+ 三个门禁 + Android 单测通过（`-p android` 生效）；
 - `build-apk.yml` 绿 = 出 `Photo-Mgm-release-apk` artifact（`v*` 标签则发 Release）；
 - `build-desktop.yml` 绿（仅 `desktop-v*` / 手动）= 出 `PhotoMgm-desktop-portable` artifact。
 
