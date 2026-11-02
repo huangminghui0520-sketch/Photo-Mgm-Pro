@@ -433,17 +433,18 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | 任务 | 状态 |
 | --- | --- |
 | **T01 黄金样本基线** | ✅ **已完成**（PC 侧；Android 侧推迟到 M3，见 T01 遗留） |
-| T02~T14 | 待开工 |
+| **T02 shared 骨架 + 迁移** | ✅ **已完成 → 抵达 M1**（42 文件纯 rename，两端编译/测试/门禁/黄金样本全绿） |
+| T03~T14 | 待开工 |
 
-**T01 实际交付**：`scripts/golden/`（5 个文件）+ `docs/golden/desktop-baseline.json` + `docs/golden/README.md`；
-验证结论：双跑 0 差异、反向实验准确报 4 处、最终脚本重跑与基线全等、三道既有门禁全绿。
+**M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
+CI 结构断言扩到"三模块两端都必须挂 + 禁 `android/shared`/`desktop/shared`"；`REPO-LAYOUT.md` 升 v2。
 
-**下一步（T02，预计一个工作段）**：
+**下一步（T03，纯函数上移 A）**：
 
-1. `git mv algorithm shared/algorithm`（内容零改动），两端 `settings.gradle.kts` 改挂载，`buildDir` 重定向扩到 `:shared:*`；
-2. 新建 `shared/domain`、`shared/app` 空模块并两端挂载；
-3. CI 结构断言 + 3 个 gate 脚本路径同步（**与 T02 同提交**，否则门禁会静默变成"扫 0 文件也通过"）；
-4. 全量验证：L1 门禁 + L2 59 个测试 + `:app:assembleDebug` + `:ui:compileKotlin` + L3 黄金样本全等；
-5. **M1 停下来给你看**：目录树 + `git log --stat -1`（证明 algorithm 只是 rename）+ 测试报告。
+1. `shared/domain/exif/ExifTime.kt`：合并两端实现，**取并集**（冒号与短横都认）；
+2. `shared/domain/hash/Sha256.kt`：合并 `PcFileHasher` 与 Android `FileHasher`；
+3. `shared/domain/spec/ImageExtensions.kt`：扩展名集合单点化；
+4. 两端改为委派 + 删除本地副本（Android 的 `ExifTimeParser.kt`、`FileHasher.kt`）；
+5. 全量验证：L2 测试 + L3 黄金样本 **必须全等**（D9 是"多认一种格式"，合成素材里已放 8 张短横 EXIF）。
 
-M1 之前**不碰任何业务逻辑**。
+M2 之前仍然只做纯函数，不碰编排。
