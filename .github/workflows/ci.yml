@@ -3,7 +3,7 @@ name: CI
 # 与 Build APK（build-apk.yml，只出包）分开的两类检查：
 #   1. static-guards：纯 python3，几秒钟出结果，在编译之前拦住三类"人肉 review 靠不住"的问题
 #      ——吞掉协程取消信号、被跳过的测试不可溯源、隐式依赖设备默认时区；
-#   2. unit-test：algorithm（纯 JVM）+ app（Robolectric）单元测试。
+#   2. unit-test：shared:algorithm（纯 JVM）+ app（Robolectric）单元测试。
 # ★ 必须监听 pull_request：否则分支上的检查只有推送到 main 才跑，PR 里永远是空的。
 on:
   push:
@@ -47,28 +47,33 @@ jobs:
           python3 scripts/check-ignore-policy.py --selftest
           python3 scripts/check-timezone.py --selftest
 
-      # ★ 结构约束（2026-11-02 目录重组后加）：核心只允许存在一份。
-      #   最可能被误做的两件事：① 把 algorithm 复制/移动到 android/ 下（两份实现必然漂移）；
-      #   ② 在仓库根再放一个 settings.gradle.kts（会让"根目录 gradle"又看起来能跑，CI 与本地命令分叉）。
-      #   这两条都是几秒能查、但靠人 review 会漏的，直接在这里断言。
-      - name: 结构约束（共用核心只有一份）
+      # ★ 结构约束（2026-11-02 目录重组后加，跨端重构 T02 扩展）：共享层只允许存在一份。
+      #   最可能被误做的三件事：① 把 shared/ 复制进 android/ 或 desktop/ 下（两份实现必然漂移）；
+      #   ② 在仓库根再放一个 settings.gradle.kts（会让"根目录 gradle"又看起来能跑，CI 与本地命令分叉）；
+      #   ③ 三个共享模块只在其中一端挂载（另一端会悄悄用旧副本/build 产物）。
+      #   这几条都是几秒能查、但靠人 review 会漏的，直接在这里断言。
+      - name: 结构约束（共享层只有一份，两端都要挂）
         run: |
-          if [ -e android/algorithm ]; then
-            echo "✗ android/algorithm 不应存在：核心必须由 settings.gradle.kts 挂载 ../algorithm"; exit 1
-          fi
+          for d in android/algorithm android/shared desktop/shared; do
+            if [ -e "$d" ]; then
+              echo "✗ $d 不应存在：共享代码只能在仓库根的 shared/ 下，两端以 ../shared/* 挂载"; exit 1
+            fi
+          done
           if [ -e settings.gradle.kts ]; then
             echo "✗ 仓库根不应有 settings.gradle.kts：Android 工程根是 android/"; exit 1
           fi
-          grep -q 'projectDir = file("../algorithm")' android/settings.gradle.kts \
-            || { echo "✗ android/settings.gradle.kts 未挂载 ../algorithm"; exit 1; }
-          grep -q 'projectDir = file("../algorithm")' desktop/settings.gradle.kts \
-            || { echo "✗ desktop/settings.gradle.kts 未挂载 ../algorithm"; exit 1; }
-          echo "✓ 两端均以 ../algorithm 挂载同一份核心，仓库内无副本"
+          for mod in algorithm domain app; do
+            grep -q "projectDir = file(\"../shared/$mod\")" android/settings.gradle.kts \
+              || { echo "✗ android/settings.gradle.kts 未挂载 ../shared/$mod"; exit 1; }
+            grep -q "projectDir = file(\"../shared/$mod\")" desktop/settings.gradle.kts \
+              || { echo "✗ desktop/settings.gradle.kts 未挂载 ../shared/$mod"; exit 1; }
+          done
+          echo "✓ 两端均以 ../shared/{algorithm,domain,app} 挂载同一份共享层，仓库内无副本"
 
       - name: 扫描 Kotlin 源码
         run: |
-          python3 scripts/check-cancellation.py android/app algorithm android/data
-          python3 scripts/check-ignore-policy.py android/app algorithm android/data
+          python3 scripts/check-cancellation.py android/app shared android/data
+          python3 scripts/check-ignore-policy.py android/app shared android/data
           python3 scripts/check-timezone.py
 
   unit-test:
@@ -103,10 +108,10 @@ jobs:
       #   而不是"假装跑过"。慢用例（导出重入，本机 ~7.8s）同属这一类。
       # ★ 2026-11-02 目录重组：Android 端成为独立 Gradle 工程（android/settings.gradle.kts），
       #   仓库根不再有 settings —— 必须用 -p android 指定根目录，否则 gradle 在根目录直接报
-      #   "Directory does not contain a Gradle build"。:algorithm 由 android 工程以
-      #   ../algorithm 挂载，所以仍能在同一次调用里跑它的测试。
+      #   "Directory does not contain a Gradle build"。:shared:algorithm 由 android 工程以
+      #   ../shared/algorithm 挂载，所以仍能在同一次调用里跑它的测试。
       - name: Run unit tests
-        run: gradle -p android :algorithm:test :app:testDebugUnitTest --no-daemon
+        run: gradle -p android :shared:algorithm:test :app:testDebugUnitTest --no-daemon
 
       - name: Upload test reports
         if: always()
@@ -114,6 +119,6 @@ jobs:
         with:
           name: test-reports
           path: |
-            algorithm/build/reports/tests/test
+            shared/algorithm/build/reports/tests/test
             android/app/build/reports/tests/testDebugUnitTest
           if-no-files-found: warn

@@ -1,5 +1,5 @@
 // :data Android 数据接入层（§4.4）
-// 职责：MediaStore 查候选 + 目录白名单 + EXIF 精读 + 内存缓存；仅做平台实现，算法逻辑全在 :algorithm
+// 职责：MediaStore 查候选 + 目录白名单 + EXIF 精读 + 内存缓存；仅做平台实现，算法逻辑全在 :shared:algorithm
 plugins {
     id("com.android.library")
     kotlin("android")
@@ -25,7 +25,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":algorithm"))
+    implementation(project(":shared:algorithm"))
     // EXIF 精读（§4.3）：androidx ExifInterface（国内镜像 maven.aliyun.com/repository/google）
     implementation("androidx.exifinterface:exifinterface:1.3.7")
 

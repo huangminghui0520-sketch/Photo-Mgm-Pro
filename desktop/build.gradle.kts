@@ -14,12 +14,15 @@ plugins {
 }
 
 // ── 把外部挂载模块的构建产物收回到本工程内 ──────────────────────────────────
-// :algorithm 的 projectDir 指向 ../algorithm（原 Android 工程）。如果不改 buildDir，
-// Gradle 会把产物写进原工程的 algorithm/build —— 与 Android 构建共享同一目录，
-// 两个构建的 Kotlin 版本/插件/缓存会互相踩，且会在原仓库里留下新目录。
-// 这里只改"产物放哪"，不改原工程的任何源码与构建脚本。
+// :shared:* 的 projectDir 指向 ../shared/*。如果不改 buildDir，
+// Gradle 会把产物写进原工程的 shared/*/build —— 与 Android 构建共享同一目录，
+// 两个构建的 Kotlin 版本/插件/缓存会互相踩，且会在 shared/ 里留下新目录。
+// 这里只改"产物放哪"，不改共享层的任何源码与构建脚本。
 subprojects {
-    if (path == ":algorithm") {
-        layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("external/algorithm"))
+    if (path.startsWith(":shared:")) {
+        // 用冒号换成短横，落 desktop/build/external/shared-algorithm 这类目录，
+        // 避免嵌套路径把 external/ 越铺越深
+        val flat = path.removePrefix(":").replace(':', '-')
+        layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("external/$flat"))
     }
 }

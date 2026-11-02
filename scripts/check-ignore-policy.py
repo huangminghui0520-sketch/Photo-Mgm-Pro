@@ -377,7 +377,7 @@ def selftest() -> int:
 
 
 def main() -> int:
-    roots = sys.argv[1:] or ['android/app', 'algorithm', 'android/data']
+    roots = sys.argv[1:] or ['android/app', 'shared', 'android/data']
     files: list[Path] = []
     for r in roots:
         p = Path(r)

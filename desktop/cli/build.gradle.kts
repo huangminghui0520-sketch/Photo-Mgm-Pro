@@ -5,7 +5,7 @@
 //   2. 它是「核心门面 PhotoMgmCore」的第一个消费者，能反向验证接口是否够用（UI 接不进来时先在这里暴露）；
 //   3. 未来要接 Compose Desktop 时，本模块可以原样保留作为批处理/排障工具，不冲突。
 //
-// 依赖方向严格单向：cli → core → platform → :algorithm，cli 不反向被引。
+// 依赖方向严格单向：cli → core → platform → :shared:algorithm，cli 不反向被引。
 plugins {
     kotlin("jvm")
     application
@@ -13,7 +13,7 @@ plugins {
 
 dependencies {
     implementation(project(":core"))
-    implementation(project(":algorithm"))
+    implementation(project(":shared:algorithm"))
 }
 
 kotlin {

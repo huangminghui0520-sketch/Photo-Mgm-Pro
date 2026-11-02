@@ -50,8 +50,8 @@ jobs:
       - name: Unit tests (core / cli / ui)
         run: gradle -p desktop :core:test :cli:test :ui:test --console=plain
 
-      # :algorithm 由 desktop/settings.gradle.kts 以 ../algorithm 挂载，产物落在
-      # desktop/build/external/algorithm —— 与 Android 构建的 algorithm/build 分离，互不踩。
+      # :shared:algorithm 由 desktop/settings.gradle.kts 以 ../shared/algorithm 挂载，产物落在
+      # desktop/build/external/shared-algorithm —— 与 Android 构建的 shared/algorithm/build 分离，互不踩。
       - name: Package app-image (createDistributable)
         run: gradle -p desktop :ui:createDistributable --console=plain
 

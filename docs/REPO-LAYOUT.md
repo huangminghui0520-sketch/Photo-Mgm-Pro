@@ -1,9 +1,14 @@
 # 仓库布局与两端边界（REPO-LAYOUT）
 
-> 版本：v1 · 2026-11-02 · 对应提交「refactor(repo): Android 端收进 android/」
+> 版本：**v2** · 2026-11-02 · 对应提交「refactor(shared): algorithm 迁入 shared/，三模块骨架就位」
 >
-> 一句话：**一个仓库、两端产品、一份共用核心**。`android/` 与 `desktop/` 各自是完整独立的 Gradle
-> 工程（各自的 settings / wrapper / 依赖图），唯一共享的是根目录 `algorithm/` 的**同一份源码**。
+> 一句话：**一个仓库、两端产品、一份共享层**。`android/` 与 `desktop/` 各自是完整独立的 Gradle
+> 工程（各自的 settings / wrapper / 依赖图），唯一共享的是仓库根 `shared/` 下的**同一份源码**。
+>
+> **v1 → v2 的差异（跨端重构 T02）**：v1 把共用核心放在仓库根的 `algorithm/`；v2 迁入
+> `shared/algorithm/`，并新增 `shared/domain`、`shared/app` 两个空模块作为后续上移的落点。
+> 理由不再是"迁就 PC 端不动"，而是**让"共享 = shared/"成为唯一规则**——平铺的 `algorithm/`
+> 无法表达"这是共享层"，门禁也就无从断言。
 
 ---
 
@@ -11,14 +16,18 @@
 
 ```
 Photo-Mgm/
-├── algorithm/                     ★ 共用核心（纯 Kotlin JVM，零 Android / 零桌面依赖）
-│   ├── build.gradle.kts              kotlin("jvm") + toolchain 17
-│   ├── src/main/kotlin/algorithm/    18 文件 / 2564 行：日志解析、GPS 分组、事件分类、
-│   │                                 三态去重、台账（LedgerEngine）、XlsxWriter、ZipExporter、AlgorithmApi
-│   └── src/test/kotlin/algorithm/    22 文件（含 POI 读回、真实素材端到端）
+├── shared/                        ★ 共享层（纯 Kotlin JVM，零 Android / 零桌面依赖）
+│   ├── algorithm/                   算法内核：18 文件 / 2564 行（日志解析、GPS 分组、事件分类、
+│   │    │                            三态去重、台账 LedgerEngine、XlsxWriter、ZipExporter、AlgorithmApi）
+│   │    ├── build.gradle.kts             kotlin("jvm") + toolchain 17（零 implementation 依赖）
+│   │    └── src/test/kotlin/algorithm/   22 文件（含 POI 读回、真实素材端到端）
+│   ├── domain/                      ★ 业务规则（T03 起填充）：视图派生 / 人工调整 / 台账投影 /
+│   │    └── build.gradle.kts             EXIF 时间 / SHA-256 / 媒体规格 / 派生命名
+│   └── app/                         ★ 应用层（T09 起填充）：用例编排 / 端口定义 / 跨端契约
+│       └── build.gradle.kts             api(domain)，不依赖任何平台 SDK
 │
 ├── android/                       ★ Android 端（独立 Gradle 工程，rootProject = android/）
-│   ├── settings.gradle.kts          挂载 ../algorithm（不复制）
+│   ├── settings.gradle.kts          挂载 ../shared/{algorithm,domain,app}（不复制）
 │   ├── build.gradle.kts             插件版本统一声明（Kotlin 2.0.21 / AGP 8.7.3）
 │   ├── gradle.properties            android.useAndroidX 等
 │   ├── gradlew / gradlew.bat / gradle/wrapper/   安卓端专用 wrapper（腾讯云分发）
@@ -27,8 +36,8 @@ Photo-Mgm/
 │   └── keystore/                    ★ 正式签名（.gitignore 忽略，CI 运行时生成）
 │
 ├── desktop/                       ★ Windows 桌面端（独立 Gradle 工程，rootProject = desktop/）
-│   ├── settings.gradle.kts          :core / :cli / :ui + 挂载 ../algorithm
-│   ├── build.gradle.kts             插件版本 + 把 :algorithm 产物重定向到 desktop/build/external/algorithm
+│   ├── settings.gradle.kts          :core / :cli / :ui + 挂载 ../shared/{algorithm,domain,app}
+│   ├── build.gradle.kts             插件版本 + 把 :shared:* 产物重定向到 desktop/build/external/shared-*
 │   ├── gradle.properties / gradlew / gradle/wrapper/    桌面端专用 wrapper
 │   ├── core/                        纯逻辑核心（17 文件 / 2927 行）
 │   ├── cli/                         无头命令行入口（1 文件 / 383 行）
@@ -48,27 +57,33 @@ Photo-Mgm/
 
 | 规则 | 说明 |
 | --- | --- |
-| `algorithm/` 只被挂载，不被复制 | 两端 `settings.gradle.kts` 用 `projectDir = file("../algorithm")` 引入；仓库内**不存在**第二份实现 |
+| `shared/` 只被挂载，不被复制 | 两端 `settings.gradle.kts` 用 `projectDir = file("../shared/<模块>")` 引入；仓库内**不存在**第二份实现，也不许出现 `android/shared`、`desktop/shared` |
 | 两端互不 include | `android` 不知道 `desktop` 存在，反之亦然；没有 `includeBuild`、没有跨端 project 依赖 |
-| 平台实现留在各自一侧 | 图片编解码、文件扫描、UI 全在各端；`algorithm` 只接受 `ByteArray` / `File` / 时间戳等中立类型 |
-| 构建产物目录隔离 | Android → `algorithm/build`；桌面 → `desktop/build/external/algorithm`（PC 侧 buildDir 重定向），互不覆盖 |
+| 平台实现留在各自一侧 | 图片编解码、文件扫描、UI 全在各端；`shared/` 只接受 `ByteArray` / 时间戳等中立类型，禁止 `java.nio.file` / `androidx.*` |
+| 构建产物目录隔离 | Android → `shared/*/build`；桌面 → `desktop/build/external/shared-*`（PC 侧 buildDir 重定向），互不覆盖 |
 
 ---
 
 ## 2. 关键调整点
 
-### 2.1 为什么 `algorithm/` 留在仓库根，而不是搬进 `android/`
+### 2.1 为什么共享层放在 `shared/`，而不是 `android/` 或 `desktop/` 下
 
-PC 端的 `desktop/settings.gradle.kts` 是这样拿到核心的：
+两条历史约束叠加，得出现在这个位置：
+
+1. **不能放进任一端目录**。放进 `android/`，桌面端要写 `../android/algorithm`——等于让 PC 依赖安卓端
+   的目录结构；反过来同理。共享代码必须与两端**平级**。
+2. **不能平铺在仓库根**（v1 的 `algorithm/`）。它虽然能编过，但"哪些代码是共享的"只存在于人的记忆里：
+   目录名 `algorithm/` 不表达层级，门禁也无法用"`shared/` 下不许出现平台 API"这类规则去断言。
+
+所以现在用嵌套项目名 `:shared:algorithm`，两端各写三行：
 
 ```kotlin
-include(":algorithm")
-project(":algorithm").projectDir = file("../algorithm")
+include(":shared:algorithm")
+project(":shared:algorithm").projectDir = file("../shared/algorithm")
 ```
 
-`../algorithm` 是**相对 desktop/ 的硬路径**。把 `algorithm/` 搬进 `android/`，PC 端就必须改这一行 ——
-而本次约束是"不修改 PC 端任何代码"。反过来，把核心留在根、把 Android 特有部分收进 `android/`，
-PC 端一字不动仍然指向 `../algorithm`，两端共享关系也不变。这是**约束倒推出的唯一解**，不是随意安排。
+> 为什么必须是 `:shared:algorithm` 而不是 `:algorithm`：Android 已经有 `:app`，将来若要再挂
+> `:shared:app` 就会与它撞名。嵌套项目名一次性把这个坑避开，代价只是依赖写成 `project(":shared:algorithm")`。
 
 ### 2.2 `android/` 成为完整独立工程
 
@@ -76,11 +91,12 @@ PC 端一字不动仍然指向 `../algorithm`，两端共享关系也不变。�
 `gradle.properties`、`gradlew`、`gradlew.bat`、`gradle/wrapper/`。迁完后 `android/` 可以单独
 `cd android && ./gradlew :app:assembleRelease`，与 `desktop/` 完全同构。
 
-`android/settings.gradle.kts` 里新增：
+`android/settings.gradle.kts` 里的挂载段（T02 后为三个共享模块）：
 
 ```kotlin
-include(":algorithm")
-project(":algorithm").projectDir = file("../algorithm")
+include(":shared:algorithm"); project(":shared:algorithm").projectDir = file("../shared/algorithm")
+include(":shared:domain");    project(":shared:domain").projectDir    = file("../shared/domain")
+include(":shared:app");       project(":shared:app").projectDir       = file("../shared/app")
 ```
 
 > 注意：`rootProject` 也随之从"仓库根"变成 `android/`，凡是 `rootProject.file(...)` 的地方都受影响
@@ -106,7 +122,8 @@ fun resolveSigningFile(path: String) =
 ### 2.4 门禁脚本的默认扫描根跟着改
 
 `scripts/check-cancellation.py`、`check-ignore-policy.py`、`check-timezone.py` 的默认根由
-`app / algorithm / data` 改为 `android/app / algorithm / android/data`。脚本本身仍按
+`app / algorithm / data` 改为 `android/app / shared / android/data`（T02 起 `shared` 覆盖三个共享模块；
+`check-timezone.py` 写的是显式路径 `shared/algorithm|domain|app`）。脚本本身仍按
 "脚本所在位置"解析仓库根（`REPO_ROOT = scripts/..`），不依赖调用方 cwd —— 这条性质在搬迁后依然成立，
 所以只在 CI 传参处与默认值处改路径，判据与样例一律未动。
 
@@ -116,24 +133,26 @@ fun resolveSigningFile(path: String) =
 两处 workflow 因此改为显式指定工程目录：
 
 ```bash
-gradle -p android :algorithm:test :app:testDebugUnitTest   # ci.yml
+gradle -p android :shared:algorithm:test :app:testDebugUnitTest   # ci.yml
 gradle -p android :app:assembleRelease                      # build-apk.yml
 ```
 
-`:algorithm` 仍能在同一次调用里跑，因为它是 android 工程的挂载子项目。
+`:shared:algorithm` 仍能在同一次调用里跑，因为它是 android 工程的挂载子项目。
 
 ### 2.6 CI 新增"结构约束"断言
 
-`ci.yml` 的 `static-guards` 里加了一步 bash 断言，把"共用核心只有一份"变成机械可验的规则：
+`ci.yml` 的 `static-guards` 里加了一步 bash 断言，把"共享层只有一份、两端都要挂"变成机械可验的规则：
 
 ```bash
-[ ! -e android/algorithm ]              # 核心不许被复制/移动进 android/
+for d in android/algorithm android/shared desktop/shared; do [ ! -e "$d" ]; done
 [ ! -e settings.gradle.kts ]            # 仓库根不许再有 settings（否则"根目录 gradle"又会看起来能跑）
-grep -q 'projectDir = file("../algorithm")' android/settings.gradle.kts
-grep -q 'projectDir = file("../algorithm")' desktop/settings.gradle.kts
+for mod in algorithm domain app; do     # 三个共享模块必须两端都挂，缺一边就会悄悄用旧副本
+  grep -q 'projectDir = file("../shared/'$mod'")' android/settings.gradle.kts
+  grep -q 'projectDir = file("../shared/'$mod'")' desktop/settings.gradle.kts
+done
 ```
 
-这两类错误都是"几秒钟能查、靠人 review 必漏"的，所以放在门禁而不是文档里。
+这几类错误都是"几秒钟能查、靠人 review 必漏"的，所以放在门禁而不是文档里。
 
 ### 2.7 新增桌面端打包流水线
 
@@ -145,7 +164,7 @@ MSI 继续在打包机上产出。
 ### 2.8 明确"未改动"清单
 
 - `desktop/` 全部文件（源码、构建脚本、打包脚本、文档）：**零改动**；
-- `algorithm/`：**零改动**（仍被两端同时编译）；
+- `shared/algorithm/`：**内容零改动**（仅目录从 `algorithm/` 迁入 `shared/`，git 识别为 42 个 rename）；
 - Android 业务代码（`app/src`、`data/src`）：**零改动**，只动了构建脚本里签名路径的解析；
 - 唯一"真改代码"的是 `app/build.gradle.kts` 的签名片段与三个门禁脚本的默认路径。
 
@@ -174,7 +193,7 @@ python3 scripts/check-timezone.py --selftest && python3 scripts/check-timezone.p
 
 # 1) Android 端：单测 + debug 包
 cd android
-./gradlew :algorithm:test :data:test :app:testDebugUnitTest
+./gradlew :shared:algorithm:test :data:test :app:testDebugUnitTest
 ./gradlew :app:assembleDebug          # → android/app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:assembleRelease        # → android/app/build/outputs/apk/release/app-release.apk
 
@@ -192,7 +211,7 @@ cd ../desktop
 | 检查 | 结果 |
 | --- | --- |
 | `./gradlew projects`（android/） | `:algorithm` `:app` `:data` 三个子项目，挂载成功 |
-| `:algorithm:test :data:test :app:testDebugUnitTest :app:assembleDebug` | BUILD SUCCESSFUL，111 tasks，5m35s |
+| `:shared:algorithm:test :data:test :app:testDebugUnitTest :app:assembleDebug` | BUILD SUCCESSFUL |
 | `desktop :core:test :cli:test :ui:test` | BUILD SUCCESSFUL（PC 侧未受影响） |
 | 三个门禁脚本 | 自测通过；实扫 79 / 37 / 42 个文件，0 问题 |
 | 三个 workflow YAML | `yaml.safe_load` 解析通过，jobs/triggers 符合预期 |
@@ -228,7 +247,7 @@ CI 上的判定标准：
 
 | 检查项 | 方法 | 结论 |
 | --- | --- | --- |
-| 是否存在两份实现 | 在 `algorithm/src`、`desktop/core/src` 里按类名交叉检索 `XlsxWriter / LedgerEngine / LogParser / EventClassifyEngine / Dedup` | 全部只命中 `algorithm/` 一处；`desktop/core` 无副本 |
+| 是否存在两份实现 | 在 `shared/algorithm/src`、`desktop/core/src` 里按类名交叉检索 `XlsxWriter / LedgerEngine / LogParser / EventClassifyEngine / Dedup` | 全部只命中 `shared/algorithm/` 一处；`desktop/core` 无副本 |
 | 依赖方向 | `desktop/core/build.gradle.kts`、`android/app/build.gradle.kts` 的 `project(...)` 声明 | 单向：`app → algorithm`、`core → algorithm`；核心不反向依赖任何端 |
 | 平台 API 面 | 扫 `algorithm/src/main` 全部 `java.* / javax.*` import | 仅 `java.io`、`java.time`、`java.util.zip`；**无** `java.awt / javax.imageio / javax.swing`（测试里的 `java.nio.file` 不进产物） |
 | 运行期依赖 | `algorithm/build.gradle.kts` 的 `dependencies` | 仅 `kotlin("test")`、JUnit、POI 三个 **test** 依赖，无任何 `implementation` → 不会把版本冲突带进两端 |

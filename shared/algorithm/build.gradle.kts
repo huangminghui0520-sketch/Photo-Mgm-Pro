@@ -1,4 +1,4 @@
-// :algorithm 核心算法模块 —— 纯 Kotlin JVM（零 Android 依赖），可移植 PC / 飞牛OS
+// :shared:algorithm 核心算法模块 —— 纯 Kotlin JVM（零 Android 依赖），可移植 PC / 飞牛OS
 plugins {
     kotlin("jvm")
 }
@@ -27,7 +27,7 @@ tasks.test {
     }
 }
 
-// 日志解析诊断入口：gradle :algorithm:runLogParser
+// 日志解析诊断入口：gradle :shared:algorithm:runLogParser
 // 验证自己的日志：--args="--file=D:/path/log.txt"
 tasks.register<JavaExec>("runLogParser") {
     group = "verification"

@@ -33,7 +33,7 @@
 
 用法
 ----
-    python3 scripts/check-timezone.py [路径 ...]     # 默认扫 app algorithm data 的 src/main
+    python3 scripts/check-timezone.py [路径 ...]     # 默认扫 app / shared（algorithm+domain+app）/ data 的 src/main
     python3 scripts/check-timezone.py --selftest
     退出码 0=通过  1=发现违规
 """
@@ -329,7 +329,8 @@ def main(argv: list) -> int:
         return selftest()
 
     roots = [a for a in argv[1:] if not a.startswith('-')] or [
-        'android/app/src/main', 'algorithm/src/main', 'android/data/src/main',
+        'android/app/src/main', 'shared/algorithm/src/main', 'shared/domain/src/main',
+        'shared/app/src/main', 'android/data/src/main',
     ]
     files = collect(roots)
     if not files:

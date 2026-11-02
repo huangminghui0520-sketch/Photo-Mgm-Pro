@@ -1,7 +1,7 @@
 // :core —— Windows 桌面版逻辑核心（无 UI）
 //
 // 依赖策略（与方案 §3.2 一致，本阶段只保留逻辑核心真正需要的）：
-//   :algorithm            原工程算法核心（外部目录挂载，零改动）
+//   :shared:algorithm     核心算法（外部目录挂载，零改动）
 //   kotlinx-coroutines    仅用 StateFlow 作为「逻辑 → UI」的状态通道（不引入任何 UI 框架）
 //   metadata-extractor    读 EXIF（拍摄时间 + GPS）；Apache-2.0，~350KB
 //   测试：JUnit5 + kotlin-test + POI（把导出的台账读回来做语义断言）
@@ -18,7 +18,7 @@ java {
 }
 
 dependencies {
-    api(project(":algorithm"))
+    api(project(":shared:algorithm"))
 
     // ★ api 而非 implementation：PhotoMgmCore.state 的类型是 StateFlow，
     //   任何消费者（未来的 UI、:cli）在编译期都要能解析该类型，否则调用方被迫自己声明版本。

@@ -81,7 +81,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":algorithm"))
+    implementation(project(":shared:algorithm"))
     implementation(project(":data"))
 
     // ★ 2026-10-01 升级 BOM 2024.02 → 2024.04（material3 1.1.2 → 1.2.0）：

@@ -44,13 +44,22 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "PhotoMgmAndroid"
-// :algorithm = 核心算法模块（纯 Kotlin JVM，零 Android 依赖，可移植 PC）
-// ★ 只挂载、不复制、不改动。产物落点：Android 构建写 algorithm/build；
-//   桌面构建经 desktop/build.gradle.kts 的 buildDir 重定向写 desktop/build/external/algorithm，
+// :shared:algorithm = 核心算法模块（纯 Kotlin JVM，零 Android 依赖，可移植 PC）
+// ★ 只挂载、不复制、不改动；且必须用**嵌套项目名** :shared:algorithm ——
+//   平铺成 :algorithm 也能编过，但"共享代码都在 shared/ 下"这条规则就没有结构表达了。
+// ★ 路径是 ../shared/algorithm（跨端重构 T02 从仓库根的 algorithm/ 迁入 shared/）。
+//   产物落点：Android 构建写 shared/algorithm/build；
+//   桌面构建经 desktop/build.gradle.kts 的 buildDir 重定向写 desktop/build/external/，
 //   两边不共用产物目录（这也是"互不影响"的一部分）。
-include(":algorithm")
-project(":algorithm").projectDir = file("../algorithm")
-// :data = Android 数据接入层（MediaStore / SAF / ExifInterface；依赖 :algorithm，仅做平台实现）
+include(":shared:algorithm")
+project(":shared:algorithm").projectDir = file("../shared/algorithm")
+// :shared:domain = 业务规则（视图派生 / 人工调整 / 台账投影 / EXIF 时间 / 哈希 / 媒体规格），零平台依赖
+include(":shared:domain")
+project(":shared:domain").projectDir = file("../shared/domain")
+// :shared:app = 应用层（用例编排 + 端口定义 + 跨端契约），依赖 domain，不依赖任何平台 SDK
+include(":shared:app")
+project(":shared:app").projectDir = file("../shared/app")
+// :data = Android 数据接入层（MediaStore / SAF / ExifInterface；依赖 :shared:algorithm，仅做平台实现）
 include(":data")
 // :app = Android UI（Compose 三段式；仅经 AlgorithmApi 单向调用核心）
 include(":app")

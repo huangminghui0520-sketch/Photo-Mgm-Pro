@@ -43,6 +43,15 @@ include(":cli")
 // :ui = Compose Multiplatform 桌面界面（只依赖 :core 的 api 包，禁止越层）
 include(":ui")
 
-// :algorithm = 直接挂载原工程算法模块（不改动其任何文件）
-include(":algorithm")
-project(":algorithm").projectDir = file("../algorithm")
+// :shared:algorithm / :shared:domain / :shared:app = 跨端共享层（纯 Kotlin JVM，零平台 SDK）
+// ★ 以「外部目录挂载」引入（不复制、不移动其内部文件），单一事实来源 → 桌面端与 Android 端行为不会漂移。
+// ★ 必须用嵌套项目名 :shared:algorithm：平铺成 :algorithm 也能编过，
+//   但会丢掉"共享代码只在 shared/ 下"这条结构约束，门禁也就无从断言。
+include(":shared:algorithm")
+project(":shared:algorithm").projectDir = file("../shared/algorithm")
+
+include(":shared:domain")
+project(":shared:domain").projectDir = file("../shared/domain")
+
+include(":shared:app")
+project(":shared:app").projectDir = file("../shared/app")
