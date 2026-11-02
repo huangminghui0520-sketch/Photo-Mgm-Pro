@@ -6,6 +6,12 @@
 #   都通过，但这是**结果**，不该依赖运气）。
 #   强制 LF，任何平台 checkout 出来的字节都一样。
 scripts/*.py text eol=lf
+# ★ 子目录脚本同理：黄金样本工具链在 scripts/golden/ 下，上面的 scripts/*.py 匹配不到它
+#   （glob 的 * 不跨目录），漏掉的后果是子目录脚本在 Windows 检出成 CRLF。
+scripts/**/*.py text eol=lf
+# ★ shell 脚本必须是 LF：CRLF 会让 bash 把 \r 当成参数的一部分直接报错
+#   （典型的 "cannot execute: required file not found" 或 "invalid option"）。
+scripts/**/*.sh text eol=lf
 
 # 工作流同理：GitHub Actions 容忍 CRLF，但一旦换行不一致，
 # 每次改动都会变成整文件重写，diff 完全失去可读性。

@@ -1,0 +1,797 @@
+{
+  "patrolDate": "2026-08-14",
+  "logFile": "patrol-log-20260814.txt",
+  "logLines": 416,
+  "photoCount": 66,
+  "photos": [
+    {
+      "name": "IMG_20260814_080000.jpg",
+      "time": "2026-08-14 08:00:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "8141bbce837858934e2a7f88c3b04dc1cc3c08030ab3613359a45e43aacbedd5",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_081000.jpg",
+      "time": "2026-08-14 08:10:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "3ca34f27c9900defd20ed5ae003ff264ef0d2d48b5fe9b744f6f4cf398f107cd",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_082500.jpg",
+      "time": "2026-08-14 08:25:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "183270badf94131795ff5751ea87adf8357f07243bfdb177685db96e1bc81a16",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_082530.jpg",
+      "time": "2026-08-14 08:25:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "0dae4e5e845ec777aedcd8bfddd1a6731d408d718411e273e314f2da5fb00457",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_084000.jpg",
+      "time": "2026-08-14 08:40:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "fb6699443c7b8e5e526c58d7039748b4f0f6c89274b887a3e112e1544418dbdd",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_084030.jpg",
+      "time": "2026-08-14 08:40:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "4c7b15bb75d626d98293226de70fc8ba76e9c97d64d5282abe7e7d8b4ad7f53d",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_084000_original.jpg",
+      "time": "2026-08-14 08:40:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "6717e97f030014804837575d7bb03eb41bbf39b9f937dbde8bbfea5ff065fb36",
+      "dup_of": "IMG_20260814_084000.jpg",
+      "note": "dup-group"
+    },
+    {
+      "name": "IMG_20260814_084015_original.jpg",
+      "time": "2026-08-14 08:40:15",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "26e05a55ed92e443c748d8e46d2f371da9a3f8bd4195606bce3d972ee4e6472e",
+      "dup_of": "IMG_20260814_084000.jpg",
+      "note": "derived:_original"
+    },
+    {
+      "name": "IMG_20260814_085500.jpg",
+      "time": "2026-08-14 08:55:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "70610ba274f6dad7f7f816e6ece8efcc64222772d50f922c00cf0a1232440b79",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_085530.jpg",
+      "time": "2026-08-14 08:55:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "9f817759d4a9fc442796216f3ad79164be2bc20ee393fc19559ba6123d723f7d",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_091000.jpg",
+      "time": "2026-08-14 09:10:00",
+      "exif": "dash",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "311b583fc96de477b56d0eaf9220c6ff7ec8bf49ea99fd57bf5eac6320c9b2d5",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_091030.jpg",
+      "time": "2026-08-14 09:10:30",
+      "exif": "dash",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "83bde3e239339c9391e5996e41faf5866e30b4659759a4dd21e9c5f041095188",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_093000.jpg",
+      "time": "2026-08-14 09:30:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "eb66444f40453cfa2c6ed3cbc1f67819cd1b0ab2863eef50d9d6c9129441b4db",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_094200.jpg",
+      "time": "2026-08-14 09:42:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "552e90f60508eca60f672f312c1e6a7f2bcfd67133d58437f91c23979abaa88b",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_094230.jpg",
+      "time": "2026-08-14 09:42:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "095bd7119298ac74e7cb2c358031a18932420f4faacea6289ee009a4d7ef5924",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_094300.jpg",
+      "time": "2026-08-14 09:43:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "75c2d1a06253a601d63c67141814ff986289659fd2c512ba187047468b699257",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_094200_original.jpg",
+      "time": "2026-08-14 09:42:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "5444e93895cc31e20afd9ac0a1840c9d88bfbff9414820042f779ef1cf10a503",
+      "dup_of": "IMG_20260814_094200.jpg",
+      "note": "dup-group"
+    },
+    {
+      "name": "IMG_20260814_100500.jpg",
+      "time": "2026-08-14 10:05:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "a6e7cba26d0d5da49ecb7af24c2a6aa950b5ad255b01a16d55c4373b694dae3c",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_100530.jpg",
+      "time": "2026-08-14 10:05:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "191e1b02d9331fa78d40588fc8c3f13247e26dab16a70fde29dbf44b337d1dbc",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_102000.jpg",
+      "time": "2026-08-14 10:20:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "aadd4675c12f9a1f2985e05995c0d5fd101e04d58789f5ae1643582532288173",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_103500.jpg",
+      "time": "2026-08-14 10:35:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "ef0d4e64cc68bc4c5e9df673da1c38e1d1fd7a9f1d48f111dc8c5e9dba0ce140",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_103530.jpg",
+      "time": "2026-08-14 10:35:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "073f7ab53d0181b765ba79c8f7c857b797f810ef7e9b6ad656915da370346be6",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_103515_original.jpg",
+      "time": "2026-08-14 10:35:15",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "8b5746d8b0bde5435141994ee7728f2d5573b699eb754e94f08d3707630e492e",
+      "dup_of": "IMG_20260814_103500.jpg",
+      "note": "derived:_original"
+    },
+    {
+      "name": "IMG_20260814_105000.jpg",
+      "time": "2026-08-14 10:50:00",
+      "exif": "dash",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "499a7758791fd85281594bf1b55a73117c47e4376f815640bc286bc0d798266f",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_105030.jpg",
+      "time": "2026-08-14 10:50:30",
+      "exif": "dash",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "f16758426f6ec94b25e4cd96c39f1ff0a885895bac11a247a8ac96f9d4ec2cd9",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_105000_original.jpg",
+      "time": "2026-08-14 10:50:00",
+      "exif": "dash",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "16fefb320a28765c014ff6dc081669aab13b6f14904864a4fcae0a7b39b67d06",
+      "dup_of": "IMG_20260814_105000.jpg",
+      "note": "dup-group"
+    },
+    {
+      "name": "IMG_20260814_110500.jpg",
+      "time": "2026-08-14 11:05:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "6077bc80b36264b080d17200463f39ab232b6d1f9f6fc471f51b537c59e0da51",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_112000.jpg",
+      "time": "2026-08-14 11:20:00",
+      "exif": "colon",
+      "gps": null,
+      "sha256": "89ceee496285c760ce8471d5da9a8daf1f2122dc7bbcf4be5f653877cd11c136",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_112030.jpg",
+      "time": "2026-08-14 11:20:30",
+      "exif": "colon",
+      "gps": null,
+      "sha256": "69ebf5c8cbd13c9d74fda20c5b805cc3a3e293797c1602e6a2a524cab160ca06",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_112000_original.jpg",
+      "time": "2026-08-14 11:20:00",
+      "exif": "colon",
+      "gps": null,
+      "sha256": "386067ebc2f4e5f2da36f910f60c0bdc3c21f888c6511d6e3845f3135fe1244a",
+      "dup_of": "IMG_20260814_112000.jpg",
+      "note": "dup-group"
+    },
+    {
+      "name": "IMG_20260814_114000.jpg",
+      "time": "2026-08-14 11:40:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "fe8ef79f5b5d06b0f9145e33d303fce1a36e9463d2d8a56706f0935e94fb0f1b",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_120000.jpg",
+      "time": "2026-08-14 12:00:00",
+      "exif": "none",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "ae0fecdca09fd76384e172200507f523d68271729f03d9b1e2d9d412c5712978",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_130000.jpg",
+      "time": "2026-08-14 13:00:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "c902854819f84247ea1524e0a3792dda6ad9db7782b90c1115087c6aab12fa63",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_131500.jpg",
+      "time": "2026-08-14 13:15:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "a060033051604d6ac600b969d4d0c50516a07e83bd23602421119254e67bb6e4",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_131530.jpg",
+      "time": "2026-08-14 13:15:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "ca7a8cdeb7d63f6228e061d1b25f42da8780c7b413ce0ad2416ea68753a32292",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_131600.jpg",
+      "time": "2026-08-14 13:16:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "fe1d48d8ff8f46781c5ae17ebc5e409f70fb245c237e40bc4da9ee5d0a32f0ec",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_131500_original.jpg",
+      "time": "2026-08-14 13:15:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "bbf5ef3a261ee6afde3f540e9556f3b072263eabb5e43d5dd8de053eb136f9b7",
+      "dup_of": "IMG_20260814_131500.jpg",
+      "note": "dup-group"
+    },
+    {
+      "name": "IMG_20260814_131515_compressed.jpg",
+      "time": "2026-08-14 13:15:15",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "51ceeb4e2315eab10a08bceb55d085bc2dd0706e011579432d2719c63328054b",
+      "dup_of": "IMG_20260814_131500.jpg",
+      "note": "derived:_compressed"
+    },
+    {
+      "name": "IMG_20260814_134000.jpg",
+      "time": "2026-08-14 13:40:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "ae3d0ecbabac53dd8d3df116b4c6124512355c3eb8b6d5fac8a8d0d8f69ecb76",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_134030.jpg",
+      "time": "2026-08-14 13:40:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "9ca3b30f7ed4e2c819ca5aac2b8df4f4190046f2276260bb162003d514df7b41",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_134015_optimized.jpg",
+      "time": "2026-08-14 13:40:15",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "4663355779092f28e6b35d6bfcad0f06755c76274284867e9d3c2dbb1ac3a518",
+      "dup_of": "IMG_20260814_134000.jpg",
+      "note": "derived:_optimized"
+    },
+    {
+      "name": "IMG_20260814_140000.jpg",
+      "time": "2026-08-14 14:00:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "ec2b22b10fb827babbf59e0c8ce967cb3de31470481a37e0394c3417f59e77bf",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_140030.jpg",
+      "time": "2026-08-14 14:00:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "a342e7d642b7ee2d27d8ee08f8680579abfd685aef39fa2c18a41ea0c8ab25e7",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_140000_original.jpg",
+      "time": "2026-08-14 14:00:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "1adb61252f0ab9d9ffceb25582543d2064ede4400cc1477a65c380da9e3c1378",
+      "dup_of": "IMG_20260814_140000.jpg",
+      "note": "dup-group"
+    },
+    {
+      "name": "IMG_20260814_142000.jpg",
+      "time": "2026-08-14 14:20:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "3ed7a3e522a9870bab7f146dc194f1315d366298538c9dfb56c8b26a223e819b",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_142030.jpg",
+      "time": "2026-08-14 14:20:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "d863efe5036456307b33b6514969d2bd4fe4e67af45c3e8424c137ac7c8d4e4b",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_144500.jpg",
+      "time": "2026-08-14 14:45:00",
+      "exif": "dash",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "6564bf6ce583de659f106908f2f1024865af959c8df484efc63c66b49e184c76",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_144530.jpg",
+      "time": "2026-08-14 14:45:30",
+      "exif": "dash",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "b2999f062fb04981b2f6287662e05c6fba8fdbcec702a647cc4e5335543b0eee",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_144500_original.jpg",
+      "time": "2026-08-14 14:45:00",
+      "exif": "dash",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "af5a1c3f78938c1781f00a1728870bb8139295db8bedea8f021ea403a92eb6fa",
+      "dup_of": "IMG_20260814_144500.jpg",
+      "note": "dup-group"
+    },
+    {
+      "name": "IMG_20260814_151000.jpg",
+      "time": "2026-08-14 15:10:00",
+      "exif": "none",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "d6b676a26a4dad0a3a17d17a25a908e2a01dc70e42e7387283104b493a2398ab",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_153000.jpg",
+      "time": "2026-08-14 15:30:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "78263742ab5c75e45873b3f6d114149402f47c74e8621e742dfd5af77cfb2a17",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_155000.jpg",
+      "time": "2026-08-14 15:50:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "eb0c4e84bfcf9e7f22ee5cc0234b3601528b08b9084040202cc2a5ed00398bb3",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_155030.jpg",
+      "time": "2026-08-14 15:50:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "45acc7296b0e8cea5d2602a5b1da59a7f4a4f4b659c603a103f90339d11aa976",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_155000_original.jpg",
+      "time": "2026-08-14 15:50:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "8893acad5fa08e0c755f73d8464d3c6ad322db0ffdd3a4059d27b7b55cc749a1",
+      "dup_of": "IMG_20260814_155000.jpg",
+      "note": "dup-group"
+    },
+    {
+      "name": "IMG_20260814_155015_缩略.jpg",
+      "time": "2026-08-14 15:50:15",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "e44521f43dfe032c6a088c628b812db932274f6889d7d2059885809175957f70",
+      "dup_of": "IMG_20260814_155000.jpg",
+      "note": "derived:_缩略"
+    },
+    {
+      "name": "IMG_20260814_161000.jpg",
+      "time": "2026-08-14 16:10:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "7cdb1c2b97f844c0579a6ff6da5eb350f96fb1c266946ab1bc38e56d729c42f3",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_161030.jpg",
+      "time": "2026-08-14 16:10:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "599ef542fd6540160bf0937f27446ace6fa5d744097906b714ab22d7456d1cba",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_161015_resized.jpg",
+      "time": "2026-08-14 16:10:15",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "5653bd27502c881379d8b59b7a53ebee660609d49e1fd708aae2d24129288335",
+      "dup_of": "IMG_20260814_161000.jpg",
+      "note": "derived:_resized"
+    },
+    {
+      "name": "IMG_20260814_163500.jpg",
+      "time": "2026-08-14 16:35:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "275bc250f345c3e910e0dff3c7ef316d303e26d7309b6362af12f753b605b849",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_165000.jpg",
+      "time": "2026-08-14 16:50:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "21d583a1194793c3d8b76ac5e79cd7ba22ce9fa70eb7dcacd64a46129005836e",
+      "dup_of": null,
+      "note": ""
+    },
+    {
+      "name": "IMG_20260814_073000.jpg",
+      "time": "2026-08-14 07:30:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "734730450b0cbb9bbdaabb5a93d335b78953f2af13231411b2de7513bd79382d",
+      "dup_of": null,
+      "note": "unmatched"
+    },
+    {
+      "name": "IMG_20260814_122000.jpg",
+      "time": "2026-08-14 12:20:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "e2a5f2c5dc4cfa8cd0662809c1c7e26c77ab764dd5a83b9ea8045976014afe19",
+      "dup_of": null,
+      "note": "unmatched"
+    },
+    {
+      "name": "IMG_20260814_124700.jpg",
+      "time": "2026-08-14 12:47:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "b97ee62ec822182e504dce0a4cf8eb2df6324fd598f870a4e0ef41accd6d53c1",
+      "dup_of": null,
+      "note": "unmatched"
+    },
+    {
+      "name": "IMG_20260814_174000.jpg",
+      "time": "2026-08-14 17:40:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "5212ad1b5a95c7ff128936e6bd085a18fee9d0dd956e255784b3fa75cf541930",
+      "dup_of": null,
+      "note": "unmatched"
+    },
+    {
+      "name": "IMG_20260813_091500.jpg",
+      "time": "2026-08-13 09:15:00",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "c7e7ba8019622ce6191a83a31a49187bae107f5b36e78f50e09d37d4fa4365da",
+      "dup_of": null,
+      "note": "off-date"
+    },
+    {
+      "name": "IMG_20260813_091530.jpg",
+      "time": "2026-08-13 09:15:30",
+      "exif": "colon",
+      "gps": [
+        30.2512,
+        120.1683
+      ],
+      "sha256": "a6d59ccfb9f1a29013f949d6c76bc9dabc3eeb7a2abfc79e7653e046944676ad",
+      "dup_of": null,
+      "note": "off-date"
+    }
+  ],
+  "noise": [
+    "Screenshot_20260814-101500.png",
+    "mmexport1755000000000.jpg",
+    "records.txt",
+    "IMG_20260814_1030.heic"
+  ]
+}

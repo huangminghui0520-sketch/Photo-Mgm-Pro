@@ -28,6 +28,12 @@ shots/
 *.py
 # ★ 例外：scripts/ 下的 CI 检查脚本必须入库（上面 *.py 是忽略本地临时脚本用的）
 !scripts/*.py
+# ★ 同理：黄金样本工具链在子目录，白名单必须跟到子层，否则脚本被静默忽略
+!scripts/golden/*.py
+
+# 黄金样本：素材与小工具入库（可复现），但导出产物不入库（体积大、每次都能重跑出来）
+scripts/golden/baseline/*/*/
+scripts/golden/.tmp-data/
 
 # 签名密钥（本地，绝不入库）
 keystore/
