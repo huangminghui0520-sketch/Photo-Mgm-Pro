@@ -484,7 +484,7 @@ def main() -> int:
     if args and args[0] in ('--selftest', '-t', 'selftest'):
         return selftest()
 
-    roots = args or ['app', 'algorithm', 'data']
+    roots = args or ['android/app', 'algorithm', 'android/data']
     files = collect(roots)
     if not files:
         print('check-cancellation: 未找到任何 Kotlin 源文件（roots=%s）' % ' '.join(roots))

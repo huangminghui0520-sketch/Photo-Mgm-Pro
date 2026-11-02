@@ -7,11 +7,19 @@ plugins {
 }
 
 // 读取本地签名配置（keystore/keystore.properties，不入库；缺失时 release 回退 debug 签名，保证任何环境可构建）
+// ★ 2026-11-02 目录重组：rootProject 由仓库根变为 android/，签名默认放 android/keystore/；
+//   为兼容重组前沿用仓库根 keystore/ 的开发机，两处都探测（android/keystore 优先），
+//   storeFile 同理按"先 android/ 再仓库根"解析。两处都没有 → 静默回退 debug 签名，不阻断构建。
 import java.util.Properties
+val keystorePropFile = listOf(
+    rootProject.file("keystore/keystore.properties"),
+    rootProject.file("../keystore/keystore.properties"),
+).firstOrNull { it.exists() }
 val keystoreProps = Properties().apply {
-    val f = rootProject.file("keystore/keystore.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
+    if (keystorePropFile != null) keystorePropFile.inputStream().use { load(it) }
 }
+fun resolveSigningFile(path: String) =
+    rootProject.file(path).takeIf { it.exists() } ?: rootProject.file("../$path")
 
 android {
     namespace = "com.photomgm.app"
@@ -28,7 +36,7 @@ android {
     signingConfigs {
         if (!keystoreProps.isEmpty()) {
             create("release") {
-                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storeFile = resolveSigningFile(keystoreProps.getProperty("storeFile"))
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")

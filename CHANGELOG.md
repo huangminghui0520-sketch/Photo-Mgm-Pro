@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 工程
+- 仓库布局重组：Android 端收进 `android/`（独立 Gradle 工程，`:app` + `:data`），Windows 端保持 `desktop/` 不变，共用核心 `algorithm/` 留在根目录供两端以 `../algorithm` 挂载 —— 一份源码、无副本（详见 `docs/REPO-LAYOUT.md`）
+- 仓库根不再有 `settings.gradle.kts`：Android 构建须 `cd android`（或 CI 用 `gradle -p android`）；桌面端构建方式不变，**PC 侧代码零改动**
+- 签名目录随工程根迁到 `android/keystore/`，并保留对旧位置（仓库根 `keystore/`）的兼容探测，老开发机无需搬文件
+- 三个静态门禁脚本默认扫描根改为 `android/app`、`algorithm`、`android/data`
+- 新增 `build-desktop.yml`：`desktop-v*` 标签/手动派发时在 windows-latest 出便携包（MSI 仍因依赖 WiX 留在打包机产出）
+
 ## [desktop-v2.0.0] - 2026-11-02
 
 Windows 桌面版（Compose Multiplatform）首发。与 Android 1.3.2 为**独立版本线**，共用 `algorithm` 台账/分类逻辑。

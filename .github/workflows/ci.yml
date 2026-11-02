@@ -49,8 +49,8 @@ jobs:
 
       - name: 扫描 Kotlin 源码
         run: |
-          python3 scripts/check-cancellation.py app algorithm data
-          python3 scripts/check-ignore-policy.py app algorithm data
+          python3 scripts/check-cancellation.py android/app algorithm android/data
+          python3 scripts/check-ignore-policy.py android/app algorithm android/data
           python3 scripts/check-timezone.py
 
   unit-test:
@@ -83,8 +83,12 @@ jobs:
       # ★ 用例自己会兜底：依赖真实照片的 VM 用例（AppViewModelTest / ExifMergedReaderTest 等）
       #   在拿不到源照片时用 assumeTrue 跳过，因此本 job 在无照片的 runner 上是绿的，
       #   而不是"假装跑过"。慢用例（导出重入，本机 ~7.8s）同属这一类。
+      # ★ 2026-11-02 目录重组：Android 端成为独立 Gradle 工程（android/settings.gradle.kts），
+      #   仓库根不再有 settings —— 必须用 -p android 指定根目录，否则 gradle 在根目录直接报
+      #   "Directory does not contain a Gradle build"。:algorithm 由 android 工程以
+      #   ../algorithm 挂载，所以仍能在同一次调用里跑它的测试。
       - name: Run unit tests
-        run: gradle :algorithm:test :app:testDebugUnitTest --no-daemon
+        run: gradle -p android :algorithm:test :app:testDebugUnitTest --no-daemon
 
       - name: Upload test reports
         if: always()
@@ -93,5 +97,5 @@ jobs:
           name: test-reports
           path: |
             algorithm/build/reports/tests/test
-            app/build/reports/tests/testDebugUnitTest
+            android/app/build/reports/tests/testDebugUnitTest
           if-no-files-found: warn

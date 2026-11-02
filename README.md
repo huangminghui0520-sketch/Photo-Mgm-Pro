@@ -4,13 +4,18 @@
 
 ## 模块结构
 
+仓库同时承载两端：**Android App**（`android/`）与 **Windows 桌面版**（`desktop/`），共用根目录的
+`:algorithm` 核心（同一份源码，无副本）。两端各自是独立 Gradle 工程，互不引用、互不影响。
 
+| 模块 / 目录        | 职责                                                     | 依赖                    |
+| -------------- | ------------------------------------------------------ | --------------------- |
+| `algorithm/`   | 核心算法（纯 Kotlin JVM，零 Android 依赖，被两端以源码挂载）              | 无                     |
+| `android/`     | Android 工程（独立构建：`:data` + `:app`）                       | `:algorithm`          |
+| `android/:data` | Android 数据接入层（MediaStore / SAF / ExifInterface）        | `:algorithm`          |
+| `android/:app`  | Android UI（Compose Material3，仅经 `AlgorithmApi` 单向调用核心） | `:algorithm`, `:data` |
+| `desktop/`     | Windows 桌面版（独立构建：`:core` + `:cli` + `:ui`，含 jpackage 打包） | `:algorithm`（`../algorithm` 挂载） |
 
-| 模块           | 职责                                                     | 依赖                    |
-| ------------ | ------------------------------------------------------ | --------------------- |
-| `:algorithm` | 核心算法（纯 Kotlin JVM，零 Android 依赖，可移植 PC / 飞牛 OS）         | 无                     |
-| `:data`      | Android 数据接入层（MediaStore / SAF / ExifInterface）        | `:algorithm`          |
-| `:app`       | Android UI（Compose Material3，仅经 `AlgorithmApi` 单向调用核心） | `:algorithm`, `:data` |
+目录边界、构建隔离方式与"共用核心的影响面"见 [docs/REPO-LAYOUT.md](docs/REPO-LAYOUT.md)。
 
 ## 核心算法能力（:algorithm）
 
@@ -70,21 +75,26 @@
 
 
 ```
-# 单元测试（algorithm 290 用例）
-gradle :algorithm:test
+# ── Android 端（仓库根不再有 settings.gradle，命令一律进 android/ 执行）──
+cd android
+./gradlew :algorithm:test          # 核心算法用例
+./gradlew :data:test               # 平台接入层用例
+./gradlew :app:testDebugUnitTest   # UI/编排用例（Robolectric）
+./gradlew :app:assembleDebug       # debug APK（release 已启用 R8 混淆与资源裁剪）
+./gradlew :app:assembleRelease
 
-# 构建 APK（debug / release 均已启用 R8 混淆与资源裁剪）
-gradle :app:assembleDebug
-gradle :app:assembleRelease
+# ── Windows 桌面端（独立工程，互不干扰）──
+cd desktop
+./gradlew :core:test :cli:test :ui:test
+./gradlew :ui:createDistributable  # 便携版 app-image
+./gradlew :ui:packageMsi           # MSI（需 WiX，Windows 上执行）
 ```
 
-产物：`app/build/outputs/apk/debug/app-debug.apk` 或 `app/build/outputs/apk/release/app-release.apk`
+产物：`android/app/build/outputs/apk/debug/app-debug.apk`（release 同目录 `.../release/app-release.apk`）；
+桌面端在 `desktop/ui/build/compose/binaries/main/` 下的 `app/PhotoMgm/` 与 `msi/*.msi`。
 
-> 正式签名：release 构建会读取本地 
->
-> `keystore/keystore.properties`
->
-> （不入库）；缺失时回退 debug 签名，保证任何环境可构建。
+> 正式签名：release 构建会读取本地 `android/keystore/keystore.properties`（不入库；同时兼容旧的仓库根
+> `keystore/keystore.properties`）；缺失时回退 debug 签名，保证任何环境可构建。
 
 ## 使用
 
@@ -100,9 +110,11 @@ gradle :app:assembleRelease
 
 
 
-* 推送 `main` 自动构建 release APK，并发布预发布版（`auto-*` 标签）
+* `ci.yml`：静态门禁（协程取消 / `@Ignore` 可溯源 / 隐式时区）+ 单元测试，`push`/`pull_request`/手动均触发
 
-* 推送 `v*` 标签（如 `v1.0.0`）自动构建并发布正式版
+* `build-apk.yml`（Android）：推 `main` 出 APK 并发布预发布版（`auto-*` 标签）；推 `v*` 标签发布正式版
+
+* `build-desktop.yml`（Windows）：仅 `desktop-v*` 标签与手动派发出便携包（MSI 因依赖 WiX，仍在打包机产出）
 
 * 同一分支只保留最新构建，自动取消旧的运行中任务
 

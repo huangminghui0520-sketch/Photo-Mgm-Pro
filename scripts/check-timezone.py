@@ -329,7 +329,7 @@ def main(argv: list) -> int:
         return selftest()
 
     roots = [a for a in argv[1:] if not a.startswith('-')] or [
-        'app/src/main', 'algorithm/src/main', 'data/src/main',
+        'android/app/src/main', 'algorithm/src/main', 'android/data/src/main',
     ]
     files = collect(roots)
     if not files:

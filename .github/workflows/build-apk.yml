@@ -59,19 +59,22 @@ jobs:
         shell: bash
         run: |
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            mkdir -p keystore
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore/photomgm-release.jks
+            # ★ 2026-11-02 目录重组：Android 工程根为 android/，签名目录随之改为 android/keystore/
+            #   （app/build.gradle.kts 里 rootProject.file("keystore/...") 解析到 android/keystore/，
+            #   同时保留对仓库根 keystore/ 的兼容探测，老开发机不用搬文件）。
+            mkdir -p android/keystore
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/keystore/photomgm-release.jks
             printf 'storeFile=keystore/photomgm-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
               "${{ secrets.KEYSTORE_STORE_PASSWORD }}" \
               "${{ secrets.KEYSTORE_KEY_ALIAS }}" \
-              "${{ secrets.KEYSTORE_KEY_PASSWORD }}" > keystore/keystore.properties
+              "${{ secrets.KEYSTORE_KEY_PASSWORD }}" > android/keystore/keystore.properties
             echo "正式签名已注入（keystore.properties 已生成）"
           else
             echo "未配置 KEYSTORE_BASE64 → release 将回退 debug 签名（功能完整可安装）"
           fi
 
       - name: Build release APK
-        run: gradle :app:assembleRelease --no-daemon
+        run: gradle -p android :app:assembleRelease --no-daemon
 
       # AGP 8.7.3 公共 API 不支持配置 APK 输出名，构建产物为 app-release.apk；
       # 上传前重命名为 Photo-Mgm-release.apk
@@ -79,7 +82,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk dist/Photo-Mgm-release.apk
+          cp android/app/build/outputs/apk/release/app-release.apk dist/Photo-Mgm-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v5

@@ -1,0 +1,95 @@
+name: Build Windows Desktop
+
+# Windows 桌面版（desktop/ 独立 Gradle 工程）的打包流水线。
+#
+# ★ 触发面刻意收窄：只在 desktop-v* 标签与手动派发时跑。
+#   理由：桌面构建要拉 Compose Multiplatform 全套依赖（~10 分钟），放进每次 PR 会拖慢反馈；
+#   而它的正确性由本地 `desktop/packaging/*.sh` + 安装冒烟保证，CI 只负责"标签一到就有可下载产物"。
+#
+# ★ 这里**只出便携包**（app-image + zip），不出 MSI：
+#   jpackage --type msi 依赖 WiX Toolset，GitHub 的 windows runner 镜像并不保证常驻 WiX，
+#   而 MSI 是我们的**主交付物**，不能容忍"CI 上时好时坏"。MSI 仍在打包机上用
+#   desktop/scripts 与 `:ui:packageMsi` 产出，CI 产物作为便携版旁路。
+on:
+  push:
+    tags: [ 'desktop-v*' ]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 与 desktop/ui/build.gradle.kts 的 packageVersion 保持一致（改版本时两处同改）
+  DESKTOP_VERSION: 2.0.0
+
+jobs:
+  build:
+    name: Build portable zip
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: 8.10.2
+
+      # 桌面工程自带 wrapper；用 bash 调 ./gradlew，避免 pwsh 下找不到 gradlew(.bat) 的歧义
+      - name: Unit tests (core / cli / ui)
+        shell: bash
+        working-directory: desktop
+        run: ./gradlew :core:test :cli:test :ui:test --console=plain
+
+      # :algorithm 由 desktop/settings.gradle.kts 以 ../algorithm 挂载，产物落在
+      # desktop/build/external/algorithm —— 与 Android 构建的 algorithm/build 分离，互不踩。
+      - name: Package app-image (createDistributable)
+        shell: bash
+        working-directory: desktop
+        run: ./gradlew :ui:createDistributable --console=plain
+
+      - name: Compress portable zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = "desktop/ui/build/compose/binaries/main/app/PhotoMgm"
+          if (-not (Test-Path $src)) { throw "app-image 不存在：$src" }
+          New-Item -ItemType Directory -Force -Path desktop/dist | Out-Null
+          $zip = "desktop/dist/PhotoMgm-$env:DESKTOP_VERSION-portable.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $src -DestinationPath $zip -CompressionLevel Optimal
+          "portable zip: {0:N1} MB" -f ((Get-Item $zip).Length / 1MB)
+
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v5
+        with:
+          name: PhotoMgm-desktop-portable
+          path: desktop/dist/PhotoMgm-${{ env.DESKTOP_VERSION }}-portable.zip
+          if-no-files-found: error
+
+      # 仅 desktop-v* 标签发布 Release；workflow_dispatch 手动跑只出 artifact
+      - name: Publish GitHub Release (desktop-v* tag)
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: PhotoMgm Desktop ${{ github.ref_name }}
+          body: |
+            ## PhotoMgm Windows 桌面版 ${{ github.ref_name }}
+            便携版（免安装，解压即用）。
+            - Commit：`${{ github.sha }}`
+            - MSI 安装包需 WiX，在打包机上用 `desktop/gradlew :ui:packageMsi` 产出，不走本流水线
+          files: desktop/dist/PhotoMgm-${{ env.DESKTOP_VERSION }}-portable.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
