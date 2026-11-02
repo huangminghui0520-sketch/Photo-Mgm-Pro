@@ -168,7 +168,7 @@ $ADB -s $S shell "content query --uri content://media/external/images/media --pr
   --where \"_data LIKE '%pmgolden-real%'\" | grep -c _data="   # 期望 110
 ```
 
-两个坑（都踩过）：
+三个坑（都踩过）：
 
 1. **`adb.exe` 不认 MSYS 路径**：`/c/Users/...` 会报 `cannot stat`。必须 `cd` 到目录用相对名，或 `cygpath -m` 转成 `C:/Users/...`。
 2. **`adb push f1 f2 … fN` 没有目标参数**：多源推送时倒数第一个参数被当成目标，于是报 "target 'xxx.jpg' is not a directory"。每批必须显式写出 `"$DST/"`。
