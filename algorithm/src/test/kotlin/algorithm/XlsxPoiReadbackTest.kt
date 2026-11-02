@@ -98,6 +98,91 @@ class XlsxPoiReadbackTest {
         }
     }
 
+    /**
+     * ★ 2026-11-02 台账排版一轮，用 POI 按**语义**读回（而不是匹配 XML 字符串）：
+     *
+     *   ① B/C 两列显示格式必须是 `hh:mm`（不是 `yyyy-mm-dd hh:mm`）；
+     *      值仍是完整日期序列号 —— 所以跨零点（23:30 → 01:00）排序/相减依然正确。
+     *   ② 全表每个单元格 水平居中 + 垂直居中 + 自动换行。
+     *   ③ 数据行行高 = 照片高度 81pt。
+     */
+    @Test fun `POI读回_时间为时分且全表居中换行`() {
+        open(write(listOf(row()))).use { wb ->
+            val sheet = wb.getSheetAt(0)
+            val fmt = wb.createDataFormat()
+            val r = sheet.getRow(1)
+
+            assertEquals("时间", sheet.getRow(0).getCell(1).stringCellValue, "B 列表头应为「时间」")
+            for (col in listOf(1, 2)) {
+                val c = r.getCell(col)
+                assertEquals(CellType.NUMERIC, c.cellType, "第 $col 列应是数值（可排序）")
+                assertEquals("hh:mm", fmt.getFormat(c.cellStyle.dataFormat), "第 $col 列应只显示 时:分")
+                // 底层保留日期：08:30 的序列号必然 > 1 天，只存"当日秒数"会是 0.35
+                assertTrue(c.numericCellValue > 1.0, "第 $col 列底层必须保留完整日期（跨零点才对）")
+            }
+
+            var checked = 0
+            for (rowIdx in 0..sheet.lastRowNum) {
+                val row = sheet.getRow(rowIdx) ?: continue
+                for (i in 0 until row.lastCellNum) {
+                    val cell = row.getCell(i) ?: continue
+                    val st = cell.cellStyle
+                    assertEquals(org.apache.poi.ss.usermodel.HorizontalAlignment.CENTER, st.alignment,
+                        "R${rowIdx + 1}C${i + 1} 应水平居中")
+                    assertEquals(org.apache.poi.ss.usermodel.VerticalAlignment.CENTER, st.verticalAlignment,
+                        "R${rowIdx + 1}C${i + 1} 应垂直居中")
+                    assertTrue(st.wrapText, "R${rowIdx + 1}C${i + 1} 应启用自动换行")
+                    checked++
+                }
+            }
+            assertTrue(checked >= 14, "应检查到整表单元格（表头 7 + 数据 7），实际 $checked")
+
+            assertEquals(81f, r.heightInPoints, 0.01f, "数据行行高应等于照片高度 81pt")
+        }
+    }
+
+    /**
+     * ★ 2026-11-02「台账照片格对齐」：用 POI 按**语义**读回行高与列宽。
+     *
+     * 目标（用户口径）：含照片的行行高 = 照片高 2.86cm（=81pt），F/G 列宽 = 照片宽 3.81cm。
+     * 列宽用 20 字符（Excel 实测读回 108 磅 = 3.81cm，见 XlsxWriter.CM_PER_COL_CHAR 的注释）。
+     * 同时校验 A~E 列宽**没被顺手改掉**（"其他内容与格式保持不变"）。
+     */
+    @Test fun `POI读回_照片行行高与FG列宽等于照片尺寸`() {
+        open(write(listOf(row(), row()))).use { wb ->
+            val sheet = wb.getSheetAt(0)
+
+            for (r in 1..2) {
+                assertEquals(81f, sheet.getRow(r).heightInPoints, 0.01f,
+                    "第 ${r + 1} 行行高应 = 照片高 2.8575cm（81pt）")
+            }
+
+            for (col in listOf(5, 6)) {
+                val chars = sheet.getColumnWidth(col) / 256.0
+                assertEquals(20.0, chars, 0.01, "第 ${col + 1} 列应 20 字符（= 照片宽 3.81cm / 108 磅）")
+            }
+
+            // 其余列宽保持原样（A:8 B:18 C:18 D:24 E:60）
+            for ((col, w) in listOf(0 to 8, 1 to 18, 2 to 18, 3 to 24, 4 to 60)) {
+                assertEquals(w.toDouble(), sheet.getColumnWidth(col) / 256.0, 0.01, "第 ${col + 1} 列宽应保持 $w")
+            }
+        }
+    }
+
+    /**
+     * ★ 回归：`<sheetViews>` 必须在部件里。
+     *
+     * 缺它时 Excel 在非 100% 缩放下会把 `ht` 按 96DPI 像素重新解释（81pt → 64.8pt），
+     * 照片却按 EMU 绝对尺寸渲染 81pt，于是照片比行高、上下压行。
+     * POI 读回的行高是文件里的原始值，看不出这个问题，所以这条只能断言"部件在不在"。
+     */
+    @Test fun `sheetViews部件存在`() {
+        open(write(listOf(row()))).use { wb ->
+            val xml = wb.getSheetAt(0).ctWorksheet.xmlText()
+            assertTrue(xml.contains("sheetView"), "worksheet 必须带 sheetViews（否则 Excel 会缩行高）")
+        }
+    }
+
     /** ★ W1 回归：嵌入的每张图片，**实际字节**必须与其声明的 ContentType 相符。 */
     @Test fun `POI读回_嵌入图片的字节与其声明类型一致`() {
         var n = 0

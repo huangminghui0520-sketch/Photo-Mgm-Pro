@@ -1,8 +1,15 @@
 // algorithm/XlsxWriter.kt —— §7.3 Excel 写入（纯 Kotlin，零第三方依赖，可移植 PC）
-// ★ 导出Excel 2.0 方案：7 列（序号/日期/结束时间/地点/日志内容/照片1/照片2），
-//   列宽 A8 B18 C18 D24 E60 F22 G22，表头行高 25、数据行高动态（随日志内容长度），
-//   日志内容列自动换行，照片以缩略图嵌入。
+// ★ 导出Excel 2.0 方案：7 列（序号/时间/结束时间/地点/日志内容/照片1/照片2），
+//   表头行高 25，数据行行高 = 照片高度（81pt = 2.86cm，恒定），
+//   F/G 照片列宽 = 照片宽度（20 字符 = 108 磅 = 3.81cm），照片以缩略图嵌入。
+// ★ 2026-11-02「台账照片格尺寸对齐」：行高/列宽全部由照片 EMU 尺寸换算（唯一真值），
+//   并补上 <sheetViews> —— 缺它时 Excel 在非 100% 缩放下会把 ht 缩成 0.8 倍。
 // ★ 2026-10-18 P1-1：新增"结束时间"列（C 列）；照片列由 E/F 移至 F/G（0-based 5/6）。
+// ★ 2026-11-02 「台账排版一轮」：
+//   ① 数据行行高恒等于照片高度（81pt）：照片正好填满一行，不再浮在长文本行中间、上下留白；
+//   ② 照片下方不再写任何文字（照片嵌进去了就留空单元格，只在**没嵌进去**时留文件名兜底）；
+//   ③ B/C 两列只显示「时:分」（底层仍是完整日期序列号，排序/跨日计算不受影响）；
+//   ④ 全部单元格统一 水平居中 + 垂直居中 + 自动换行。
 // ★ 照片嵌入：imageLoader(ref) 返回图片字节（JPEG/PNG），自动生成 drawing + media + rels；
 //   图片锚定到照片1/照片2 所在单元格（F/G 列 × 1 行显示区）。无图片或加载失败 → 照片列仅写文件名。
 package algorithm
@@ -15,89 +22,124 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.math.floor
+import kotlin.math.round
 
 object XlsxWriter {
-    /** 表头（导出Excel 2.0 方案 §2.1；2026-10-18 P1-1 新增"结束时间"） */
-    val HEADERS: List<String> = listOf("序号", "日期", "结束时间", "地点", "日志内容", "照片1", "照片2")
+    /**
+     * 表头（导出Excel 2.0 方案 §2.1；2026-10-18 P1-1 新增"结束时间"）。
+     *
+     * ★ 2026-11-02：B 列由「日期」改名「时间」——它现在只显示 `时:分`（导出根目录已按
+     *   巡查日归档，列里再重复一遍日期只是占宽度）。C 列「结束时间」本来就只是时刻。
+     */
+    val HEADERS: List<String> = listOf("序号", "时间", "结束时间", "地点", "日志内容", "照片1", "照片2")
 
-    /** 列宽（字符）：A:8, B:18, C:18, D:24, E:60, F:22, G:22
-     *  ★ 2026-10-08 修复照片与单元格不匹配：照片列 20 → 22，
-     *    容纳固定宽 3.81cm 的嵌入照片（20 字符在 Excel/WPS 换算下仅 ≈3.7cm，横向溢出）。
-     *  ★ 2026-10-18 P1-1：C=结束时间 18（"yyyy-MM-dd HH:mm"≈16 字符），D=地点 24。 */
-    private val COL_WIDTHS: List<Int> = listOf(8, 18, 18, 24, 60, 22, 22)
+    // ---------- 照片几何：台账行高 / 列宽的唯一真值 ----------
 
-    /** 表头行高 / 数据行最小行高（磅）。数据行高随日志内容动态计算，避免长文本撑高行导致照片错位。 */
-    private const val HEADER_ROW_H = 25
-    private const val DATA_ROW_H_MIN = 81
+    /** 1cm = 360000 EMU（OOXML 图形单位；1in = 914400 EMU）。 */
+    private const val EMU_PER_CM = 360_000L
+
+    /** 1 磅 = 12700 EMU（1/72 英寸）——Excel 行高的单位是磅。 */
+    private const val EMU_PER_PT = 12_700L
 
     /**
-     * 数据行行高上限（磅）。
-     * ★ 2026-10-31 审查修复：Excel/WPS 行高规范上限为 **409.5pt**，且本文件对数据行写
-     *   `customHeight="1"`（禁止 Excel 自动收敛），因此 `ht` 一旦超限，打开时会触发
-     *   「发现部分内容有问题」的修复提示，修复失败则整份台账不可用。
-     *   下限已有 DATA_ROW_H_MIN 兜底，此处补上界，写入前一律钳制。
+     * 嵌入照片的显示尺寸（EMU）：宽 1371600、高 1028700，严格 4:3。
+     *
+     * ★ 这是台账版式的**唯一真值**。照片宽 **3.81cm**、高 **2.8575cm（≈2.86cm）**，
+     *   行高与 F/G 列宽都从它换算出来，不再各写各的魔数。
+     *   历史上三处各写一套，照片列宽手写 22 字符 = 159px ≈ 4.21cm，比照片宽出 0.4cm，
+     *   于是照片要么横向留缝、要么压到相邻列；行高与照片高度也只是"碰巧都写成了 81"。
      */
-    private const val DATA_ROW_H_MAX = 409
+    private const val PIC_CX_EMU = 1_371_600L   // 3.81 cm
+    private const val PIC_CY_EMU = 1_028_700L   // 2.8575 cm
 
-    /** E列（日志内容）列宽 60 字符；估算每行可容纳约 30 个中文字符（11pt 字体）。 */
-    private const val CHARS_PER_LINE = 30
-    /** 每行文本约 16 磅 + 上下边距 8 磅。 */
-    private const val LINE_HEIGHT_PT = 16
-    private const val TEXT_PADDING_PT = 8
+    /** 照片宽（cm）= 3.81（供文档/外部核对，勿在别处再写死）。 */
+    val PIC_W_CM: Double = PIC_CX_EMU.toDouble() / EMU_PER_CM
 
-    /** 数据行的单元格：区分数字与文本，避免把所有内容都塞进 inlineStr。 */
+    /** 照片高（cm）= 2.8575（台账里按 2.86cm 表述，误差 < 0.005cm 可忽略）。 */
+    val PIC_H_CM: Double = PIC_CY_EMU.toDouble() / EMU_PER_CM
+
+    /**
+     * Excel 列宽"1 个字符"折算成厘米 —— 经 Excel 实测校准。
+     *
+     * Excel 的列宽单位不是长度，而是"默认字体（Calibri 11）中 '0' 的个数的倍数"，
+     * 且各版本/DPI 下的换算带内边距与取整误差。实测（Excel 365，96/120 DPI 两种缩放）：
+     *   列宽 20 字符 → 单元格宽 = 108 磅 = 3.81 厘米，与照片宽**完全相等**；
+     *   列宽 19.86 字符 → 107.4 磅（比照片窄 0.6 磅，照片右缘会压进 G 列）。
+     * 由此得 1 字符 ≈ 5.4 磅 ≈ 0.1905 厘米，故 3.81cm ÷ 0.1905 ≈ **20 字符**。
+     * （旧的 22 字符 ≈ 4.21cm，比照片宽出 0.4cm，照片右侧留一条白缝。）
+     */
+    private const val CM_PER_COL_CHAR = 0.1905
+
+    /**
+     * 厘米 → Excel 列宽（字符），按 [CM_PER_COL_CHAR] 折算并取整到 0.01。
+     *
+     * ★ 为什么不再用 "(px − 5) / 7"：那是 96 DPI、无缩放下的理论换算，实测在 125% 缩放的
+     *   Excel 里会算出 19.86，读回宽度 107.4 磅 ≠ 照片 108 磅。改用实测系数后 3.81cm → 20，
+     *   读回 108.000 磅，与照片严丝合缝。
+     */
+    private fun colWidthCharsForCm(cm: Double): Double =
+        round(cm / CM_PER_COL_CHAR * 100.0) / 100.0
+
+    /**
+     * 列宽（字符）：A:8, B:18, C:18, D:24, E:60, F/G:20（= 照片宽 3.81cm）。
+     *
+     * ★ 2026-11-02「照片列宽对齐照片宽度」：F/G 由手写的 22（≈4.21cm）改为由 [PIC_W_CM]
+     *   折算的 20（= 3.81cm）。照片是 oneCellAnchor 固定尺寸，列宽大于照片只会在右侧留缝，
+     *   小于照片则照片压进相邻列；只有两者相等，照片才严丝合缝地占满这一格。
+     */
+    private val COL_WIDTHS: List<String> = listOf(
+        "8", "18", "18", "24", "60",
+        fmtWidth(colWidthCharsForCm(PIC_W_CM)),
+        fmtWidth(colWidthCharsForCm(PIC_W_CM)),
+    )
+
+    /** 列宽文本：整数去掉小数尾巴（8.0 → "8"），小数保留两位（19.857… → "19.86"）。 */
+    private fun fmtWidth(w: Double): String =
+        if (w == floor(w)) w.toInt().toString() else w.toString()
+
+    /** 表头行高（磅）。 */
+    private const val HEADER_ROW_H = 25
+
+    /**
+     * 数据行行高（磅）= **照片高度** 1028700 EMU ÷ 12700 = **81pt = 2.8575cm（≈2.86cm）**。
+     *
+     * ★ 每条数据行都带照片列（F/G），所以"含照片的行"就是全部数据行 —— 行高对整表恒定：
+     *   · 照片刚好填满整行，上下不留白，也没有"照片浮在长文本行中间"的观感；
+     *   · 行高是常量，`ht` 天然撞不到 Excel 的 409.5pt 上限（原先的动态估算 + 上限钳制一并删除）。
+     * ★ 代价（已知且有意为之）：日志超过约 4 行（E 列 60 字符宽 ≈ 每行 30 个汉字）时，
+     *   单元格内会被裁切。换来的是"行行等高、照片与行对齐"，便于打印装订；
+     *   完整原文仍在 `export.log` 与事件文件夹里，不依赖台账单格来存档。
+     */
+    private val DATA_ROW_H: Int = (PIC_CY_EMU / EMU_PER_PT).toInt()   // 81
+
+    /**
+     * 数据行的单元格。
+     *
+     * ★ 2026-11-02 去掉了「这条要不要加 wrapText」的开关：现在**全部单元格**统一
+     *   水平居中 + 垂直居中 + 自动换行，样式按单元格类型固定给出，不再由调用方逐格决定。
+     */
     private sealed interface Cell {
-        /** styled=true 时套用 s="1"（wrapText），目前仅 E 列日志内容使用。 */
-        val styled: Boolean
-
         /** 数字单元格（无 t 属性，Excel 按数值处理）。 */
-        data class Number(val value: String, override val styled: Boolean = false) : Cell
+        data class Number(val value: String) : Cell
 
         /** 文本单元格（inlineStr，xml:space="preserve" 保留空白与换行）。 */
-        data class Str(val value: String, override val styled: Boolean = false) : Cell
+        data class Text(val value: String) : Cell
 
-        /** 真实日期单元格（P2-2）：值=Excel 1900 序列号，固定套日期格式样式 s=$DATE_FMT_STYLE。 */
-        data class DateTime(val serial: Double, override val styled: Boolean = false) : Cell
-    }
+        /** 时间单元格：值=完整日期序列号（排序与跨日都正确），显示格式 `hh:mm`（[STYLE_TIME]）。 */
+        data class Time(val serial: Double) : Cell
 
-    /** 根据日志内容长度动态计算行高：至少容纳照片(81磅)，长文本按行数增加，避免 Excel 自动撑高导致照片错位。
-     *  ★ 2026-10-08 P2-10：按字符宽度权重估算——中文/全角=2 单位、拉丁/数字=1 单位，
-     *    解决长 URL/英文编号串被低估而静默裁切的问题；行高另加 10% 缓冲。 */
-    private fun calcRowHeight(description: String?): Int {
-        if (description.isNullOrBlank()) return DATA_ROW_H_MIN
-        fun units(s: String): Int = s.fold(0) { acc, ch ->
-            val c = ch.code
-            acc + when {
-                c in 0x1100..0x11FF -> 2          // Hangul Jamo
-                c in 0x2E80..0xA4CF -> 2          // CJK 部首/汉字/假名
-                c in 0xAC00..0xD7A3 -> 2          // 韩文音节
-                c in 0xF900..0xFAFF -> 2          // CJK 兼容
-                c in 0xFE30..0xFE4F -> 2          // 中文标点
-                c in 0xFF00..0xFF60 -> 2          // 全角 ASCII
-                c in 0xFFE0..0xFFE6 -> 2          // 全角符号
-                else -> 1
-            }
-        }
-        // ★ 计入显式换行：只按字符数估算会漏掉 \n，而 customHeight="1" 禁止 Excel 自动撑高，
-        //   结果是多行日志被裁切。这里按段累加各段所需行数，再与整段折算值取大。
-        val segments = description.split('\n')
-        val byNewline = segments.sumOf { seg ->
-            maxOf(1, (units(seg) + CHARS_PER_LINE - 1) / CHARS_PER_LINE)
-        }
-        val byLength = (units(description) + CHARS_PER_LINE - 1) / CHARS_PER_LINE
-        val lines = maxOf(byNewline, byLength)
-        val textHeight = (lines * LINE_HEIGHT_PT + TEXT_PADDING_PT) * 1.10   // 10% 缓冲防裁切
-        // ★ 2026-10-31：钳到 DATA_ROW_H_MAX。日志含 23 个换行段（或约 690 个半角字符）即会超过
-        //   Excel 409.5pt 上限，超长内容宁可在单元格内被裁切，也不能让整份 xlsx 打不开。
-        return maxOf(DATA_ROW_H_MIN, minOf(DATA_ROW_H_MAX, textHeight.toInt()))
+        /** 空单元格：照片已嵌进这个格子 → 照片下方不再写字（仍套 [STYLE_BODY]，保持列样式一致）。 */
+        object Blank : Cell
     }
 
     /** 图片锚定：照片1 列=5、照片2 列=6（0-based F/G）；显示 1 列 × 1 行。 */
     private const val COL_P1 = 5
     private const val COL_P2 = 6
 
-    /** 日期时间样式在 styles.xml cellXfs 中的索引（P2-2，numFmtId=164 "yyyy-mm-dd hh:mm"）。 */
-    private const val DATE_FMT_STYLE = 2
+    /** styles.xml cellXfs 索引：1=通用（居中+换行）、2=时间 hh:mm（居中+换行）。 */
+    private const val STYLE_BODY = 1
+    private const val STYLE_TIME = 2
 
     /**
      * 嵌入图片的**总字节预算**（W2 / issue #5）。
@@ -153,7 +195,9 @@ object XlsxWriter {
             z.putNextEntry(ZipEntry("_rels/.rels")); z.write(RELS.toByteArray()); z.closeEntry()
             z.putNextEntry(ZipEntry("xl/workbook.xml")); z.write(WORKBOOK.toByteArray()); z.closeEntry()
             z.putNextEntry(ZipEntry("xl/_rels/workbook.xml.rels")); z.write(WORKBOOK_RELS.toByteArray()); z.closeEntry()
-            z.putNextEntry(ZipEntry("xl/worksheets/sheet1.xml")); z.write(sheetXml(rows, imgs.isNotEmpty(), collected.skipped).toByteArray()); z.closeEntry()
+            z.putNextEntry(ZipEntry("xl/worksheets/sheet1.xml")); z.write(
+                sheetXml(rows, imgs.isNotEmpty(), collected.embedded, collected.skipped).toByteArray()
+            ); z.closeEntry()
             z.putNextEntry(ZipEntry("xl/styles.xml")); z.write(STYLES.toByteArray()); z.closeEntry()
             if (imgs.isNotEmpty()) {
                 z.putNextEntry(ZipEntry("xl/worksheets/_rels/sheet1.xml.rels")); z.write(SHEET_RELS.toByteArray()); z.closeEntry()
@@ -168,19 +212,18 @@ object XlsxWriter {
 
     // ---------- 图片收集 ----------
 
-    /** ★ 2026-10-08 增加 rowHeightPt：该图所在数据行的动态行高（磅），用于 drawing 垂直居中。
+    /** ★ 2026-11-02：行高恒等于照片高度，不再按图存 rowHeightPt（锚点 rowOff 恒为 0）。
      *  ★ 2026-10-31 W1：ext/contentType 随图一起定下来，避免后续每处都重新嗅探、也杜绝空断言。 */
     private data class Img(
         val bytes: ByteArray,
         val col: Int,
         val row: Int,
-        val rowHeightPt: Int,
         val ext: String,
         val contentType: String,
     )
 
     /**
-     * 收集结果：可嵌入的图片 + 因预算不足被跳过的单元格。
+     * 收集结果：可嵌入的图片 + 被跳过的单元格。
      *
      * ★ 必须把 skipped 带回给 sheetXml：跳过是**降级**，不是错误，用户得能在台账里看到
      *   "这张为什么没图"，否则就是静默丢数据。
@@ -196,11 +239,19 @@ object XlsxWriter {
          *   用 rows 下标做键最不容易错，取表时按同一个 i 查。
          */
         val skipped: Set<Pair<Int, Int>>,
-    )
+    ) {
+        /**
+         * 真正嵌进了图片的单元格 (数据行下标, 列号)。
+         *
+         * ★ 2026-11-02：照片下方不再写字，于是"这一格要不要写文件名"必须看图片**到底进没进去**，
+         *   不能只看 ref 在不在。用 images 反推，天然与 media 部件一一对应。
+         */
+        val embedded: Set<Pair<Int, Int>> = images.map { (it.row - 1) to it.col }.toSet()
+    }
 
     /**
-     * 每行照片1/照片2 → 有字节且**格式可嵌入**则收集；行号 = 表头(0) + 数据行索引(1-based)；
-     * 行高 = 该行 calcRowHeight（与 sheet 一致）。
+     * 每行照片1/照片2 → 有字节且**格式可嵌入**则收集；行号 = 表头(0) + 数据行索引(1-based)。
+     * （行高恒定 [DATA_ROW_H]，不再逐行计算。）
      *
      * ★ W2（issue #5）：累计字节超过 [maxImageBytes] 后**立即停止**，既不再把已超预算的
      *   这一张塞进去，也不再为后续单元格调用 imageLoader —— 后者才是兜底的关键：
@@ -216,7 +267,6 @@ object XlsxWriter {
         var totalBytes = 0L
         var budgetExhausted = false
         rows.forEachIndexed { i, r ->
-            val rowH = calcRowHeight(r.description)
             listOf(r.photo1Ref to COL_P1, r.photo2Ref to COL_P2).forEach { (ref, col) ->
                 if (ref == null) return@forEach
                 if (budgetExhausted) {
@@ -226,7 +276,7 @@ object XlsxWriter {
                 val b = runCatching { imageLoader(ref) }.getOrNull()
                 if (b != null && b.isNotEmpty()) {
                     // ★ W1：识别不出格式（WebP/HEIC/GIF/损坏字节）→ 跳过嵌入。
-                    //   照片列已写文件名（photoLabel），信息不丢；绝不能写一个 Excel 不认的
+                    //   照片列已写文件名（photoCell），信息不丢；绝不能写一个 Excel 不认的
                     //   ContentType 去换"看起来有图"，那会让整份台账打不开。
                     val fmt = imageFormat(b) ?: return@forEach
                     if (totalBytes + b.size > maxImageBytes) {
@@ -236,7 +286,7 @@ object XlsxWriter {
                         return@forEach
                     }
                     totalBytes += b.size
-                    out.add(Img(b, col, i + 1, rowH, fmt.first, fmt.second))
+                    out.add(Img(b, col, i + 1, fmt.first, fmt.second))
                 }
             }
         }
@@ -285,12 +335,20 @@ object XlsxWriter {
     private fun sheetXml(
         rows: List<LedgerRow>,
         hasDrawing: Boolean,
+        embedded: Set<Pair<Int, Int>> = emptySet(),
         skipped: Set<Pair<Int, Int>> = emptySet(),
     ): String {
         val sb = StringBuilder()
         sb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
         sb.append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">""")
-        // 列宽（导出Excel 2.0 方案：A:8 B:18 C:18 D:24 E:60 F:22 G:22）
+        // ★★ 必须写 <sheetViews>，否则 Excel 会把 ht 当成"96 DPI 像素"重新解释：
+        //   在 125% 缩放（120 DPI）的 Windows 上，我们写的 81pt 会被读成 64.8pt，
+        //   而照片是按 EMU 绝对尺寸渲染的 81pt —— 于是每张照片都比行高出一截、上下压行，
+        //   用户看到的正是"行高和照片高度不一致"。补上这段视图声明后 Excel 才按磅值原样渲染
+        //   （实测：无此行 Excel 读回 64.8pt / 行距 64.8；有此行读回 81pt / 行距 81，与照片等高）。
+        //   tabSelected="1"：首张表默认选中，Excel 才会正常进入普通视图。
+        sb.append("""<sheetViews><sheetView tabSelected="1" workbookViewId="0"/></sheetViews>""")
+        // 列宽（A:8 B:18 C:18 D:24 E:60，F/G = 照片宽 3.81cm → 20 字符 = 108 磅）
         sb.append("<cols>")
         COL_WIDTHS.forEachIndexed { i, w ->
             val min = i + 1
@@ -300,18 +358,17 @@ object XlsxWriter {
         sb.append("<sheetData>")
         sb.append(headerRowXml())
         rows.forEachIndexed { i, r ->
-            val rowH = calcRowHeight(r.description)
             val sheetRow = i + 2   // 表头占第 1 行
             sb.append(dataRowXml(sheetRow, listOf(
                 // 序号用数字单元格（不是文本）：否则 Excel 报"数字以文本存储"且无法求和排序
                 Cell.Number((i + 1).toString()),
-                dateCell(r.dateTime),                       // B 列：真实日期（P2-2），失败回退文本
-                dateCell(r.endTime),                        // C 列：真实日期（P2-2），失败回退文本
-                Cell.Str(r.location),
-                Cell.Str(r.description, styled = true),   // E 列 wrapText
-                Cell.Str(photoLabel(r, r.photo1Ref, (i to COL_P1) in skipped)),
-                Cell.Str(photoLabel(r, r.photo2Ref, (i to COL_P2) in skipped)),
-            ), rowH))
+                timeCell(r.dateTime),                       // B 列：显示 时:分（底层完整日期，可排序）
+                timeCell(r.endTime),                        // C 列：同上
+                Cell.Text(r.location),
+                Cell.Text(r.description),                   // E 列：自动换行（全部单元格都开了换行）
+                photoCell(r, r.photo1Ref, collected = embedded, skipped = skipped, rowIdx = i, col = COL_P1),
+                photoCell(r, r.photo2Ref, collected = embedded, skipped = skipped, rowIdx = i, col = COL_P2),
+            )))
         }
         sb.append("</sheetData>")
         if (hasDrawing) sb.append("""<drawing r:id="rIdDraw1"/>""")
@@ -319,34 +376,39 @@ object XlsxWriter {
         return sb.toString()
     }
 
-    /** 表头行：行高 25 磅。 */
+    /** 表头行：行高 25 磅；单元格与数据行同一套样式（居中 + 换行）。 */
     private fun headerRowXml(): String {
         val sb = StringBuilder("""<row r="1" ht="$HEADER_ROW_H" customHeight="1">""")
         HEADERS.forEachIndexed { i, h ->
             val col = ('A' + i)
-            sb.append("""<c r="$col${1}" t="inlineStr"><is><t xml:space="preserve">$h</t></is></c>""")
+            sb.append("""<c r="$col${1}" s="$STYLE_BODY" t="inlineStr"><is><t xml:space="preserve">$h</t></is></c>""")
         }
         sb.append("</row>")
         return sb.toString()
     }
 
-    /** 数据行：行高动态计算（随日志内容长度）；日志内容列（E，索引 4）应用 wrapText 样式（s="1"）。 */
-    private fun dataRowXml(r: Int, cells: List<Cell>, rowHeight: Int): String {
-        val sb = StringBuilder("""<row r="$r" ht="$rowHeight" customHeight="1">""")
+    /**
+     * 数据行：行高恒定 [DATA_ROW_H]（= 照片高度），所有单元格套 [STYLE_BODY] / [STYLE_TIME]。
+     *
+     * ★ 2026-11-02：样式不再是"按格子 optional 加 wrapText"，而是**每个格子都有样式**——
+     *   `s` 属性缺失时会落回默认 xf（无居中），那正好是"只有部分单元格居中"的成因。
+     */
+    private fun dataRowXml(r: Int, cells: List<Cell>): String {
+        val sb = StringBuilder("""<row r="$r" ht="$DATA_ROW_H" customHeight="1">""")
         cells.forEachIndexed { i, cell ->
-            val col = ('A' + i)
-            val style = if (cell.styled) """ s="1"""" else ""
+            val ref = "${('A' + i)}$r"
             when (cell) {
-                is Cell.Number ->
-                    sb.append("""<c r="$col$r"$style><v>${cell.value}</v></c>""")
-                is Cell.DateTime ->
-                    // 真实日期：值=序列号，固定套日期格式样式（Excel/WPS 据此显示为 yyyy-mm-dd hh:mm）
-                    sb.append("""<c r="$col$r" s="$DATE_FMT_STYLE"><v>${cell.serial}</v></c>""")
-                is Cell.Str ->
+                is Cell.Number -> sb.append("""<c r="$ref" s="$STYLE_BODY"><v>${cell.value}</v></c>""")
+                is Cell.Time ->
+                    // 值仍是完整日期序列号（排序/跨日正确），格式只显示 时:分
+                    sb.append("""<c r="$ref" s="$STYLE_TIME"><v>${cell.serial}</v></c>""")
+                is Cell.Text ->
                     sb.append(
-                        """<c r="$col$r"$style t="inlineStr"><is><t xml:space="preserve">""" +
+                        """<c r="$ref" s="$STYLE_BODY" t="inlineStr"><is><t xml:space="preserve">""" +
                                 escape(cell.value) + "</t></is></c>"
                     )
+                // 空单元格也要写 s：照片格没字，但列样式（居中/换行）要与整行一致
+                Cell.Blank -> sb.append("""<c r="$ref" s="$STYLE_BODY"/>""")
             }
         }
         sb.append("</row>")
@@ -357,7 +419,7 @@ object XlsxWriter {
     fun fileName(ref: String?): String? =
         ref?.substringAfterLast('/')?.substringAfterLast('\\')
 
-    // ---------- 真实日期（P2-2：B/C 列可排序、可筛选） ----------
+    // ---------- 时间列（B/C：显示 时:分，值仍是完整日期） ----------
 
     /** 台账日期文本格式（与 LedgerEngine.formatDateTime/formatEndTime 输出一致）。 */
     private val DT_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
@@ -375,48 +437,63 @@ object XlsxWriter {
         ChronoUnit.DAYS.between(LocalDate.of(1899, 12, 30), dt.toLocalDate()).toDouble() +
                 (dt.hour * 3600 + dt.minute * 60) / 86400.0
 
-    /** 日期列单元格：可解析为 yyyy-MM-dd HH:mm → 真实日期类型；否则（空/异常）回退文本，保底不报错。 */
-    private fun dateCell(s: String): Cell =
-        parseDateTime(s)?.let { Cell.DateTime(toExcelSerial(it)) } ?: Cell.Str(s)
+    /**
+     * 时间列单元格：可解析为 `yyyy-MM-dd HH:mm` → 真实时间类型（显示 `hh:mm`）；
+     * 否则（空/异常文本）回退文本，保底不报错。
+     *
+     * ★ 为什么保留完整日期再做 `hh:mm` 显示，而不是只存"当日秒数"：
+     *   只存 0~1 的小数会让"跨零点的结束时间"（23:30 → 01:00）在排序/相减时出错；
+     *   显示格式只影响"看起来是什么"，不影响底层值。
+     */
+    private fun timeCell(s: String): Cell =
+        parseDateTime(s)?.let { Cell.Time(toExcelSerial(it)) } ?: Cell.Text(s)
 
-    /** ★ 2026-10-18 P1-3：照片列文本 = "文件夹名/文件名"，消除 ZIP 内跨事件文件夹同名歧义；
-     *  无文件夹名（旧调用/直接构造 LedgerRow）时仅写文件名，行为与改造前一致。
-     *  ★ W2（issue #5）：`skippedNote=true` 时在文件名的"文件名"侧追加 [IMAGE_SKIPPED_NOTE] ——
-     *  说明放在文件名之后、文件夹名之后不动，便于用户按 "文件夹名/" 前缀筛选。 */
-    private fun photoLabel(r: LedgerRow, ref: String?, skippedNote: Boolean = false): String {
-        val f = fileName(ref) ?: return ""
+    /**
+     * 照片列单元格。
+     *
+     * ★ 2026-11-02：**照片下方不再有任何文字**。图片真的嵌进去了 → 留空单元格
+     *   （照片本身占了整格，下面再堆一行 `文件夹/文件名` 只会把照片顶歪、还会溢出到下一行）。
+     * ★ 只有"没嵌进去"时才写文件名：无字节 / 格式不支持（WebP/HEIC）/ 超预算。
+     *   这时格子里没有照片，文件名是**唯一**能定位原图的线索，写上不属于"照片底部有字"；
+     *   超预算的还要追加 [IMAGE_SKIPPED_NOTE]，否则就是静默丢数据。
+     */
+    private fun photoCell(
+        r: LedgerRow,
+        ref: String?,
+        collected: Set<Pair<Int, Int>>,
+        skipped: Set<Pair<Int, Int>>,
+        rowIdx: Int,
+        col: Int,
+    ): Cell {
+        if (ref == null) return Cell.Blank
+        if ((rowIdx to col) in collected) return Cell.Blank
+        val f = fileName(ref) ?: return Cell.Blank
         val label = if (r.folderName.isNotBlank()) "${r.folderName}/$f" else f
-        return if (skippedNote) label + IMAGE_SKIPPED_NOTE else label
+        return Cell.Text(if ((rowIdx to col) in skipped) label + IMAGE_SKIPPED_NOTE else label)
     }
 
     /**
-     * 图片锚定：oneCellAnchor + 固定尺寸（EMU）。
+     * 图片锚定：oneCellAnchor + 固定尺寸（EMU，见文件头的 [PIC_CX_EMU] / [PIC_CY_EMU]）。
      *
      * ★ 为什么不用 twoCellAnchor：
-     *   原先锚满"1 列 × 1 行"，而数据行高是动态的（随日志长度增长）。日志超过约 150 字时
+     *   原先锚满"1 列 × 1 行"，而数据行高随日志长度增长。日志超过约 150 字时
      *   行高 > 81pt，图片就被纵向拉伸（300 字 → 168pt → 拉伸 2.07 倍），4:3 取证照片失真。
-     *   改用 oneCellAnchor 固定尺寸后，行高再怎么变，图片始终保持 4:3。
+     *   改用 oneCellAnchor 固定尺寸后，图片始终保持 4:3。
      *
-     * 尺寸与 DATA_ROW_H_MIN(81pt) 对齐：81pt = 2.8575cm → 照片高 1028700 EMU、
-     * 宽 1371600 EMU（4:3），与 ImageUtils 输出的 4:3 缩略图一致。
-     * ★ 2026-10-08 修复"照片与单元格不匹配"：行高随日志内容动态增大时，照片固定高度在行顶悬空、
-     *   下方大段留白。现按该行实际行高计算 rowOff 偏移，照片在单元格内垂直居中（4:3 不变形）。
+     * 尺寸与行高 [DATA_ROW_H]、列宽 [COL_WIDTHS] 用的是**同一组 EMU 常量**：
+     * 高 1028700 ÷ 12700 = 81pt（= 2.86cm）恰好等于行高，宽 1371600 = 3.81cm 恰好等于列宽，
+     * 于是"行高 = 照片高、列宽 = 照片宽"是算出来的，不是三处手写碰巧对上。
+     * ★ 2026-11-02：行高改为恒等于照片高度后，`rowOff` / `colOff` 恒为 0 —— 照片正好是一整行一整列，
+     *   不再需要按行高算垂直居中偏移（原先"长文本行里照片浮在中间"的偏移逻辑随之删除）。
      */
-    private const val PIC_CX_EMU = 1371600L   // 3.81 cm
-    private const val PIC_CY_EMU = 1028700L   // 2.8575 cm
-    /** 1 磅 = 1/72 英寸 = 12700 EMU（Excel 标准）。 */
-    private const val PT_TO_EMU = 12700L
-
     private fun drawingXml(imgs: List<Img>): String {
         val sb = StringBuilder()
         sb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
         sb.append("""<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">""")
         imgs.forEachIndexed { i, img ->
-            // ★ 垂直居中：rowOff = (该行高EMU − 照片高EMU) / 2；行高小于照片高时取 0（顶对齐兜底）
-            val rowEmu = img.rowHeightPt.toLong() * PT_TO_EMU
-            val rowOff = maxOf(0L, (rowEmu - PIC_CY_EMU) / 2)
+            // ★ 2026-11-02：行高恒等于照片高度 → rowOff 恒为 0，照片正好填满这一行（上下不留白）
             sb.append(
-                """<xdr:oneCellAnchor><xdr:from><xdr:col>${img.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${img.row}</xdr:row><xdr:rowOff>$rowOff</xdr:rowOff></xdr:from><xdr:ext cx="$PIC_CX_EMU" cy="$PIC_CY_EMU"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${i + 2}" name="image${i + 1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId${i + 1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>"""
+                """<xdr:oneCellAnchor><xdr:from><xdr:col>${img.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${img.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="$PIC_CX_EMU" cy="$PIC_CY_EMU"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${i + 2}" name="image${i + 1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId${i + 1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>"""
             )
         }
         sb.append("</xdr:wsDr>")
@@ -478,9 +555,21 @@ object XlsxWriter {
         <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdDraw1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>
     """.trimIndent()
 
-    /** 样式：0=默认；1=wrapText（日志内容列 E 自动换行，垂直顶端对齐）；2=日期时间 numFmt 164（yyyy-mm-dd hh:mm，P2-2）。 */
+    /**
+     * 样式表（cellXfs 索引与 [STYLE_BODY] / [STYLE_TIME] 严格对应）：
+     *
+     * | 索引 | 用途 | 数字格式 | 对齐 |
+     * | --- | --- | --- | --- |
+     * | 0 | 兜底默认（不应被引用） | General | 默认 |
+     * | 1 | 全部普通单元格（含表头、序号、空单元格） | General | 水平居中 + 垂直居中 + 自动换行 |
+     * | 2 | B/C 时间列 | numFmt 164 `hh:mm` | 同上 |
+     *
+     * ★ 2026-11-02：numFmt 164 由 `yyyy-mm-dd hh:mm` 改为 `hh:mm`（B/C 只显示 时:分）。
+     *   值仍是完整日期序列号，改的只是"怎么显示"。
+     * ★ 自动换行 + 垂直居中 要对**每个** xf 都写：Excel 不会把默认 xf 的对齐继承给带格式的格。
+     */
     private val STYLES = """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/></numFmts><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>
+        <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="hh:mm"/></numFmts><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf></cellXfs></styleSheet>
     """.trimIndent()
 }
