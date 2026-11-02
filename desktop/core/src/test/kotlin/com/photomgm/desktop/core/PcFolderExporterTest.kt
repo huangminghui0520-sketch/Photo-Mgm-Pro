@@ -94,8 +94,11 @@ class PcFolderExporterTest {
         val out = tmp.resolve("out")
         val r = exporter.export(input(out, events, mapOf(1 to listOf(1L, 2L), 2 to listOf(3L)), photos))
 
-        assertTrue(r.exportDir.name.startsWith(PcFolderExporter.EXPORT_DIR_PREFIX))
-        assertTrue(Regex("""PhotoMgm_export_\d{8}_\d{6}""").matches(r.exportDir.name), "目录名时间戳不含冒号")
+        // 2026-11-02：目录名由 PhotoMgm_export_yyyyMMdd_HHmmss 改为 月日_时分秒（如 1101_203200）
+        assertTrue(PcFolderExporter.isExportDirName(r.exportDir.name), "目录名应为 月日_时分秒：${r.exportDir.name}")
+        assertTrue(Regex("""\d{4}_\d{6}""").matches(r.exportDir.name), "目录名应只含 月日_时分秒：${r.exportDir.name}")
+        assertTrue(!r.exportDir.name.startsWith("PhotoMgm_export_"), "不应再带旧前缀")
+        assertTrue(!r.exportDir.name.contains(":"), "目录名时间戳不含冒号")
         assertTrue(Files.isRegularFile(r.exportDir.resolve("ledger.xlsx")))
         assertTrue(Files.isRegularFile(r.exportDir.resolve("export.log")))
         assertTrue(Files.isRegularFile(r.exportDir.resolve("export-manifest.json")))
@@ -271,7 +274,7 @@ class PcFolderExporterTest {
     // ── 台账一致性 ────────────────────────────────────────────────────────
 
     @Test
-    fun `台账照片列前缀等于实际文件夹名且嵌入真实图片`() {
+    fun `台账照片列在嵌入成功时留空且照片落在对应文件夹`() {
         val p1 = jpeg("IMG_1.jpg", 800, 600)
         val p2 = jpeg("IMG_2.jpg", 800, 600)
         val photos = mapOf(1L to Fixtures.photo(1, p1, captureTimeMs = Fixtures.at(10, 5)),
@@ -284,17 +287,17 @@ class PcFolderExporterTest {
         XSSFWorkbook(Files.newInputStream(ledger)).use { wb ->
             val sheet = wb.getSheetAt(0)
             val row = assertNotNull(sheet.getRow(1))
-            val p1Label = row.getCell(5)?.stringCellValue ?: ""
-            val p2Label = row.getCell(6)?.stringCellValue ?: ""
-            val folder = "01_护栏损坏"
-            assertTrue(p1Label.startsWith("$folder/"), "照片1 前缀应为实际文件夹名，实际=$p1Label")
-            assertTrue(p2Label.startsWith("$folder/"), "照片2 前缀应为实际文件夹名，实际=$p2Label")
-            // 前缀指向的文件夹必须真实存在，且其中的文件名与列内文件名一致
-            val fileInFolder = p1Label.removePrefix("$folder/")
-            assertTrue(Files.isRegularFile(r.exportDir.resolve(folder).resolve(fileInFolder)),
-                "台账里的 $p1Label 在磁盘上不存在")
             assertTrue(wb.allPictures.isNotEmpty(), "台账应嵌入图片（imageLoader 应被真正调用）")
+            // ★ 2026-11-02：照片已嵌进格子 → 照片下方不再写任何文字（原先写 "01_护栏损坏/IMG_1.jpg"）
+            assertEquals("", row.getCell(5)?.stringCellValue ?: "", "照片1 嵌入后单元格应留空")
+            assertEquals("", row.getCell(6)?.stringCellValue ?: "", "照片2 嵌入后单元格应留空")
         }
+        // 台账不再写文件夹名，那么"照片落在哪个文件夹"这件事必须靠磁盘结构本身对得上
+        val folder = "01_护栏损坏"
+        val inFolder = Files.list(r.exportDir.resolve(folder)).use { s ->
+            s.filter { Files.isRegularFile(it) }.map { it.fileName.toString() }.sorted().toList()
+        }
+        assertEquals(listOf("IMG_1.jpg", "IMG_2.jpg"), inFolder, "事件文件夹里应正好是这两张原图")
     }
 
     @Test

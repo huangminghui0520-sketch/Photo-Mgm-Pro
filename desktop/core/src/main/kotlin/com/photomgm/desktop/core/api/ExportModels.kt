@@ -6,7 +6,7 @@ import java.nio.file.Path
 /**
  * 导出请求。
  *
- * @param outputDir 输出父目录：导出根 `<outputDir>/PhotoMgm_export_yyyyMMdd_HHmmss/` 建在其下
+ * @param outputDir 输出父目录：导出根 `<outputDir>/MMdd_HHmmss/`（如 `1101_203200/`）建在其下
  * @param includeLedger 是否生成 ledger.xlsx（关掉仅用于排障/快速复制照片）
  * @param verifyMode 断点续传的物理校验强度（见 [ResumeVerifyMode]）
  */

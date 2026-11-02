@@ -7,7 +7,7 @@
 // 不共用就会出现"台账说在 01_护栏损坏，磁盘上是 02_标志牌倾斜"的漂移。
 //
 // 本类逐条实现契约：
-//   ① 产物结构：PhotoMgm_export_yyyyMMdd_HHmmss/{ledger.xlsx, export.log, export-manifest.json, NN_事件/, 99_未分类/}
+//   ① 产物结构：MMdd_HHmmss/{ledger.xlsx, export.log, export-manifest.json, NN_事件/, 99_未分类/}
 //   ② 同一照片被多个事件引用 → 各文件夹各存一份（禁止全导出只存一份）
 //   ③ 重名唯一性范围 = 同一文件夹内；后缀插在扩展名前，无扩展名不拼尾随点
 //   ④ export.log 为 JSON Lines（见 ExportLogWriter）
@@ -345,7 +345,7 @@ internal class PcFolderExporter(
         val candidates = runCatching {
             Files.list(parent).use { stream ->
                 stream.filter { Files.isDirectory(it) }
-                    .filter { it.fileName.toString().startsWith(EXPORT_DIR_PREFIX) }
+                    .filter { isExportDirName(it.fileName.toString()) }
                     .sorted(Comparator.reverseOrder<Path>())
                     .toList()
             }
@@ -404,10 +404,10 @@ internal class PcFolderExporter(
     private fun createExportDir(parent: Path, warnings: MutableList<String>): Path {
         Files.createDirectories(parent)
         val ts = TIMESTAMP.withZone(zone).format(Instant.now(clock))
-        var dir = parent.resolve("$EXPORT_DIR_PREFIX$ts")
+        var dir = parent.resolve(ts)
         var i = 2
         while (Files.exists(dir)) {
-            dir = parent.resolve("${EXPORT_DIR_PREFIX}${ts}_$i")
+            dir = parent.resolve("${ts}_$i")
             warnings += "同一秒内重复导出，目录加序号 _${i} 避免覆盖"
             i++
         }
@@ -427,11 +427,29 @@ internal class PcFolderExporter(
     }
 
     companion object {
-        /** 导出根名前缀（固定，UI/脚本据此识别）。 */
-        const val EXPORT_DIR_PREFIX = "PhotoMgm_export_"
+        /**
+         * 导出根名：`月日_时分秒`（如 `1101_203200`），同秒重复导出加 `_2`/`_3`。
+         *
+         * ★ 2026-11-02 按要求去掉 `PhotoMgm_export_` 前缀：现场是**按日期目录归档**的，
+         *   父目录已经说明了这是什么，前缀只是把每行都撑长一截（在资源管理器里还会被截断）。
+         *   识别一个目录是不是导出根，改为看名字**是否符合时间戳形状**（[isExportDirName]）。
+         */
+        const val EXPORT_DIR_EXAMPLE = "1101_203200"
 
-        /** 导出根名长度模板（用于长路径预算，`yyyyMMdd_HHmmss` 定长 15）。 */
-        private const val EXPORT_DIR_NAME = "PhotoMgm_export_00000000_000000"
+        /** 导出根名模板（定长 11，用于长路径预算；`MMdd_HHmmss`）。 */
+        private const val EXPORT_DIR_NAME = "0000_000000"
+
+        /**
+         * 导出根名正则：`MMdd_HHmmss` + 可选的 `_N` 去重后缀。
+         *
+         * ★ 为什么要正则而不是 `startsWith(前缀)`：新命名没有固定前缀，
+         *   `startsWith("")` 会把父目录下**任何**子目录都当成导出根，
+         *   续传时就会去读别人目录里的 manifest（读不到只是慢，读到错的才是事故）。
+         */
+        private val EXPORT_DIR_REGEX = Regex("""\d{4}_\d{6}(_\d+)?""")
+
+        /** 该目录名是否形如导出根（`1101_203200` / `1101_203200_2`）。 */
+        fun isExportDirName(name: String): Boolean = EXPORT_DIR_REGEX.matches(name)
 
         const val LEDGER_NAME = "ledger.xlsx"
         const val LOG_NAME = "export.log"
@@ -449,7 +467,7 @@ internal class PcFolderExporter(
 
         private const val BUFFER_BYTES = 32 * 1024
 
-        private val TIMESTAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+        private val TIMESTAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("MMdd_HHmmss")
         private val ISO_OFFSET: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
         private val HEX = "0123456789abcdef".toCharArray()
     }
