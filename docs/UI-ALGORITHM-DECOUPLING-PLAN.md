@@ -1,6 +1,7 @@
-# UI 层 algorithm.* 依赖清理方案（暂缓执行 · 只出方案）
+# UI 层 algorithm.* 依赖清理方案（已执行 · 2026-11-03 落地）
 
-> 状态：**方案**（不改代码）。触发执行的前提见 §5。
+> 状态：**已执行**（§3 第 3.1 / 3.2 步均完成，P5 棘轮 4→2）。提交 `b362e39`（LogEvent→EventSnapshot）、
+>   `bd46f61`（Photo→PhotoInfo）。
 > 关联：`REFACTOR-EXECUTION-PLAN.md` §21.7「UI 层 4 处 `algorithm.*` 依赖的真正清理」。
 > 日期：2026-11-03
 
@@ -189,16 +190,16 @@ UI 层用 `AppZone.ID` 做 `Instant.atZone(...)` 格式化（`EventViewer` / `Ph
 
 ---
 
-## 5. 触发执行的前提（什么时候回来做）
+## 5. 执行结果（2026-11-03 落地后）
 
-1. **第 3.1 步**（LogEvent→EventSnapshot）：随时可做，风险低，可作为独立小提交先行。
-2. **第 3.2 步**（Photo→PhotoInfo）：需先落地 §3.2 的方案 A（`PhotoSession` 同步维护
-   `PhotoInfo` 视图、投影逻辑单点下沉），并确认 `ThumbnailRefreshTest` **不改断言**仍绿。
-   经复查，时序护栏**不会破**（两条链在 `store.withLock` 内同步），真正的成本是「引用相等
-   优化」的保留。建议等当前 `UiState` 形状稳定一轮再动（与 T15 的「一个版本周期」同节奏）。
-3. **T15（`:ui` 模块拆分）**：触发条件 `PhotoUiState` / `PhotoActions` 稳定运行一个版本周期，
-   而这两个类型**当前代码中不存在**（是计划设想的未来契约）。因此 T15 仍**不排期**，
-   见下节。
+1. **第 3.1 步**（LogEvent→EventSnapshot）：✅ 已执行，提交 `b362e39`。P5 棘轮 4→3。
+2. **第 3.2 步**（Photo→PhotoInfo）：✅ 已执行，提交 `bd46f61`，采用 §8.2 方案 A'
+   （`PhotoSession` 加 `photosInfo` 缓存字段 + 投影逻辑留在 `ViewPublisher`）。P5 棘轮 3→2。
+   `ThumbnailRefreshTest` 时序断言**不改仍绿**（两条链在 `store.withLock` 内同步，已证）。
+3. **T15（`:ui` 模块拆分）**：仍不排期（触发条件 `PhotoUiState`/`PhotoActions` 未满足），见下节。
+
+**剩余（不在本方案）**：`DedupKeepMode` / `AppZone` 两个枚举是 `app.api` 契约主动暴露的，
+P5 棘轮锁定在 2，不消（见 §4）。
 
 ---
 
@@ -220,8 +221,8 @@ T15 的目标是「把 `android/app/ui` 提成 `:ui` 模块，用 Gradle 依赖�
 
 | 事项 | 结论 | 依据 |
 | --- | --- | --- |
-| 第 3.1 步 LogEvent→EventSnapshot | 可做，低风险 | 字段超集对齐，仅拆 `parsed` 双职责 |
-| 第 3.2 步 Photo→PhotoInfo | 可做，中低风险 | 时序已证同步；核心是引用相等优化，用方案 A 保住 |
+| 第 3.1 步 LogEvent→EventSnapshot | ✅ 已执行 | 字段超集对齐，仅拆 `parsed` 双职责 |
+| 第 3.2 步 Photo→PhotoInfo | ✅ 已执行（方案 A'） | 时序已证同步；引用相等优化由 photosInfo 缓存保住 |
 | DedupKeepMode/AppZone | 不消 | 是 `app.api` 契约暴露，非越层 |
 | T15 `:ui` 拆分 | 跳过 | 触发条件未满足，计划不排期 |
 

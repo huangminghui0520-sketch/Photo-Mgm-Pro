@@ -1588,9 +1588,11 @@ ZIP 写入在 `AndroidZipExportExecutor`，ViewModel 只剩「原子门禁 + 协
   **★ 2026-11-03 已收口**：提交 `89a9bff`，删除两处死代码 + 7 个 unused import。
 - UI 层 4 处 `algorithm.*` 依赖（P5 棘轮锁定的）的真正清理，属「UI 目录重排」之后的收尾，
   需要先把 UI 层改成读 `app.api` 投影类型，比 T13 范围大。
-  **★ 2026-11-03 已出方案、暂缓执行**：见 `docs/UI-ALGORITHM-DECOUPLING-PLAN.md`。
-  结论——`LogEvent`→`EventSnapshot` 可先行（低风险）；`Photo`→`PhotoInfo` 需先解
-  `ThumbnailRefreshTest` 的时序护栏（T11 刻意回避的投影层时序难题），暂缓；
-  `DedupKeepMode`/`AppZone` 是 `app.api` 契约暴露类型，不消。
+  **★ 2026-11-03 已执行收口**：见 `docs/UI-ALGORITHM-DECOUPLING-PLAN.md`。
+  - `LogEvent`→`EventSnapshot`（提交 `b362e39`，P5 4→3）；
+  - `Photo`→`PhotoInfo`（提交 `bd46f61`，方案 A'：`PhotoSession` 加 `photosInfo` 缓存、
+    投影逻辑留 `ViewPublisher`，P5 3→2）；
+  - `ThumbnailRefreshTest` 时序断言**不改仍绿**（两条链在 `store.withLock` 内同步，已证）；
+  - `DedupKeepMode`/`AppZone` 是 `app.api` 契约暴露类型，不消，P5 锁定在 2。
 - T15（`:ui` 模块拆分）：触发条件 `PhotoUiState`/`PhotoActions` 稳定一个版本周期，当前
   代码中不存在这两个类型，计划「不排期」→ **跳过**（见方案文档 §6）。
