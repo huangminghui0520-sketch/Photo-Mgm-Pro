@@ -95,7 +95,7 @@ fun UnifiedScreen(vm: AppViewModel) {
     LaunchedEffect(Unit) { vm.ensurePipeline() }
 
     // 解析完成 → 自动收起输入区并滚动到事件列表
-    val parsedEventCount = state.parsed?.events?.size
+    val parsedEventCount = state.events.size
     LaunchedEffect(parsedEventCount) {
         if (state.parsed != null) {
             logInputCollapsed = true
@@ -222,7 +222,7 @@ fun UnifiedScreen(vm: AppViewModel) {
         val parsed = state.parsed
         val classify = state.classify
         if (parsed != null && classify != null) {
-            val event = parsed.events.find { it.id == eventId }
+            val event = state.events.find { it.id == eventId }
             // ★ 2026-10-24 B1：事件照片弹窗用三态展开后的列表（与导出一致），切换三态即时生效
             val effective = vm.previewEventMap(classify)
             val photoIds = effective[eventId] ?: emptyList()
@@ -233,14 +233,14 @@ fun UnifiedScreen(vm: AppViewModel) {
                     eventTitle = event.eventType,
                     photos = photos,
                     marked = state.marked[eventId],
-                    events = parsed.events,
+                    events = state.events,
                     onMove = { ids, target -> vm.movePhotos(ids, target) },
                     onRemoveFromEvent = { ids -> vm.removePhotosFromEvent(ids) },
                     onMark = { photoId, slot -> vm.markLedgerPhoto(eventId, slot, photoId) },
                     onClearMark = { slot -> vm.markLedgerPhoto(eventId, slot, null) },
                     onNotify = { msg -> vm.notify(msg) },
                     onDismiss = { openSheetEventId = null },
-                    eventLocation = event.location ?: "",
+                    eventLocation = event.location,
                     eventTime = fmtEventRange(event.startTimeMs, event.endTimeMs),
                     anomalies = anomalies,
                     readOnly = state.exportProgress != null,
@@ -258,7 +258,7 @@ fun UnifiedScreen(vm: AppViewModel) {
             val photos = unmatched.mapNotNull { pid -> state.photos.find { it.id == pid } }
             UnmatchedPhotosSheet(
                 photos = photos,
-                events = parsed.events,
+                events = state.events,
                 onMove = { ids, target -> vm.movePhotos(ids, target) },
                 onDismiss = { openUnmatchedSheet = false },
             )

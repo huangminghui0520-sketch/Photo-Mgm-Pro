@@ -36,8 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import algorithm.model.LogEvent
 import algorithm.model.Photo
+import app.api.EventSnapshot
 import com.photomgm.app.ui.EventViewer
 import com.photomgm.app.ui.PhotoAnomaly
 import com.photomgm.app.ui.component.PhotoGrid
@@ -53,7 +53,7 @@ internal fun EventPhotosSheet(
     eventTitle: String,
     photos: List<Photo>,
     marked: Pair<Long?, Long?>?,
-    events: List<LogEvent>,
+    events: List<EventSnapshot>,
     onMove: (List<Long>, Int) -> Unit,
     onRemoveFromEvent: (List<Long>) -> Unit,
     onMark: (Long, Int) -> Unit,
@@ -243,7 +243,7 @@ internal fun EventPhotosSheet(
 @Composable
 internal fun UnmatchedPhotosSheet(
     photos: List<Photo>,
-    events: List<LogEvent>,
+    events: List<EventSnapshot>,
     onMove: (List<Long>, Int) -> Unit,
     onDismiss: () -> Unit,
 ) {

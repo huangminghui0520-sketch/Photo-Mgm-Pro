@@ -42,7 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import algorithm.model.LogEvent
+import app.api.EventSnapshot
 import com.photomgm.app.ui.model.fmtRange
 import kotlinx.coroutines.delay
 
@@ -140,7 +140,7 @@ internal fun MarkLedgerDialog(
 @Composable
 internal fun MoveTargetDialogWithSearch(
     title: String,
-    events: List<LogEvent>,
+    events: List<EventSnapshot>,
     onConfirm: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -158,8 +158,8 @@ internal fun MoveTargetDialogWithSearch(
         else events.filter { e ->
             e.eventType.contains(q, ignoreCase = true) ||
             e.id.toString() == q ||
-            e.location?.contains(q, ignoreCase = true) == true ||
-            e.description?.contains(q, ignoreCase = true) == true
+            e.location.contains(q, ignoreCase = true) ||
+            e.description.contains(q, ignoreCase = true)
         }
     }
     val screenMaxH = (LocalConfiguration.current.screenHeightDp * 0.8f).dp

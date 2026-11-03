@@ -108,7 +108,8 @@ CONTRACT_LITERALS = [
 P5_FORBIDDEN = ('app.usecase', 'app.state', 'app.port', 'app.export', 'app.infra', 'domain')
 # 棘轮：UI 层直接 import algorithm.* 的**去重类型数**上限（实测值，只减不增）。
 # ★ 2026-11-03 T13 修正：从「import 语句条数(9)」改为「去重 FQCN 数(4)」——见 check_ui_layer 注释。
-MAX_UI_ALGORITHM_IMPORTS = 4
+# ★ 2026-11-03 第 3.1 步：LogEvent→EventSnapshot 替换后降到 3 种，棘轮随之下调锁定新基线。
+MAX_UI_ALGORITHM_IMPORTS = 3
 
 UI_ROOTS = [
     'android/app/src/main/java/com/photomgm/app/ui',

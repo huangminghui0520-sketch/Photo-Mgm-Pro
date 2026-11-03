@@ -28,6 +28,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.api.LedgerRowInfo
+import app.api.EventSnapshot
 import app.api.ExportBlockedException
 import app.api.ExportListener
 import app.api.ExportProgress
@@ -79,6 +80,8 @@ data class UiState(
     val coarseCount: Int? = null,          // 粗筛「已筛出 N 张」
     val logsText: String = "",
     val parsed: ParsedLog? = null,
+    /** ★ 事件快照（`AppState.events` 投影，供 UI 渲染事件卡片/弹窗；替代读 `parsed.events` 的算法层对象）。 */
+    val events: List<EventSnapshot> = emptyList(),
     val photos: List<Photo> = emptyList(),
     val classify: ClassifyResult? = null,
     val ledger: List<LedgerRowInfo>? = null,

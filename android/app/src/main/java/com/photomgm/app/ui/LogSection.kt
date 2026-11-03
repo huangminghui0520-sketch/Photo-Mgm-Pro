@@ -76,7 +76,7 @@ fun LogSection(
                         else MaterialTheme.colorScheme.primary,
                     )
                     Text(
-                        " 解析出 ${parsed.events.size} 条事件" +
+                        " 解析出 ${state.events.size} 条事件" +
                                 if (hasSkip) " · 未识别 ${parsed.skippedLines.size} 行" else "",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.SemiBold
@@ -144,8 +144,8 @@ fun LogSection(
             }
             val effectiveUnmatched = remember(classify, state.overrideMap) { vm.effectiveUnmatched(classify) }
             val photosById = remember(state.photos) { state.photos.associateBy { it.id } }
-            val pendingEvents = parsed.events.filter { it.id in classify.pendingEventIds }
-            val normalEvents = parsed.events.filter { it.id !in classify.pendingEventIds }
+            val pendingEvents = state.events.filter { it.id in classify.pendingEventIds }
+            val normalEvents = state.events.filter { it.id !in classify.pendingEventIds }
 
             // 筛选条
             Row(
@@ -155,7 +155,7 @@ fun LogSection(
                 FilterChip(
                     selected = filterMode == FilterMode.ALL,
                     onClick = { filterMode = FilterMode.ALL },
-                    label = { Text("全部 ${parsed.events.size}") },
+                    label = { Text("全部 ${state.events.size}") },
                 )
                 FilterChip(
                     selected = filterMode == FilterMode.NORMAL,
@@ -192,8 +192,8 @@ fun LogSection(
                             eventId = e.id,
                             title = e.eventType,
                             time = fmtRange(e.startTimeMs, e.endTimeMs),
-                            location = e.location ?: "",
-                            description = e.description ?: "",
+                            location = e.location,
+                            description = e.description,
                             photoCount = photoIds.size,
                             marked = state.marked[e.id],
                             onOpenSheet = { onOpenEventSheet(e.id) },

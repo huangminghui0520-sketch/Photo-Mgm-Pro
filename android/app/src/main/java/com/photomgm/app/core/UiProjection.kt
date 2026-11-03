@@ -93,6 +93,7 @@ internal fun projectUiState(
     coarseCount = app.analysis?.candidateCount,
     logsText = app.logText,
     parsed = projectParsed(app.logText, session.parsed),
+    events = app.events,
     photos = session.photos,
     classify = session.classify,
     ledger = app.ledger,
