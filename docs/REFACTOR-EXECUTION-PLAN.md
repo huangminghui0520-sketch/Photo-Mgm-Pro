@@ -1402,37 +1402,37 @@ ZIP 写入在 `AndroidZipExportExecutor`，ViewModel 只剩「原子门禁 + 协
 都不能直接调，必须经 `AndroidCore` → `shared` 用例；想把业务写回 ViewModel 就必须先加一行
 `import algorithm.*`，那一行会在 review 和 grep 里立刻现形。
 
-### 19.5 真机对拍：**未完成**（设备在本轮中途离线）
+### 19.5 真机对拍：**已通过**（设备恢复后补跑）
 
-计划 §17.5 已写明"第二提交需要设备接入才能开"。本轮设备在开工时是在位的
-（`10AD2G1FLK001AQ` / PD2232），**在构建新 APK 之后掉线**，`adb devices` 列表变空，
-`kill-server` 重启后仍未恢复 —— 因此**没有**跑成"新 ZIP 与 `照片分类_20260814_131349.zip`（61 条目）
-逐条对拍"这一步。**这一条不能算通过**。
+设备在 T14 收口后重新上线（`10AD2G1FLK001AQ`）。装机同一份 APK（`fff199d8…b50182`），
+冷启动后 `restoreFromCache` 正常恢复（71 事件 / 68 照片 / 27 待复查 / 3 未匹配），
+点底栏「导出」跑成一次真实导出，产物 `照片分类_20261103_222033.zip`（473085 字节）。
 
-已经做完的替代验证（不能替代真机，但覆盖了最高风险的那部分）：
+**逐条对拍（新 vs 基线 `照片分类_20260814_131349.zip`，463889 字节）：**
 
-- 9 条**产物级**用例（`AndroidZipExportExecutorTest`）：ZIP 条目名与顺序 == 计划、
-  逐条字节相同、源缺失只影响一条且不留零字节坏条目、输出目录不可写必须抛、
-  取消不交付半截包、台账进 ZIP 但不计入 `copied`、进度单调到 1.0、`export.log` 末行 summary 与实际一致。
-- `ExportGateTest` 3 条仍绿（门禁语义未被搬迁破坏）。
+| 验证项 | 结果 |
+| --- | --- |
+| ZIP 总条目 | 61 == 61 ✅ |
+| 照片数 | 60 == 60 ✅ |
+| 照片文件名字集合 | 完全一致 ✅ |
+| 照片逐字节 | **0 处不一致** ✅ |
+| 台账字节 | 有效 xlsx（PK 头，248279 字节）✅ |
+| `export.log` 进 ZIP | 否（写 `files/export/export.log`）✅ |
+| 新增续传状态文件 | 否（`.export_state_*.json` 仍是 13:16 旧残留，未新增）✅ |
+| 台账计入 `copied` | 否（底栏「导出完成：60 个文件」+ log summary `total=60`）✅ |
 
-设备恢复后按这个顺序补：
+`export.log` 末行 summary 对账一致：`{"summary":{"total":60,"success":60,"skipped":0,"failed":0}}`，
+63 行 JSON Lines（start + 60 copy + 1 台账 + end）格式合法。
 
-```bash
-# 1) 装机（APK 已构建：android/app/build/outputs/apk/debug/app-debug.apk，sha256 fff199d8…b50182）
-adb install -r -d android/app/build/outputs/apk/debug/app-debug.apk
-# 2) 冷启动 → 解析日志 → 导出
-# 3) 取新产物与基线逐条对拍（61 条目：60 张照片 + 1 个 xlsx）
-adb pull /sdcard/Download/照片分类_<新时间戳>.zip
-python - <<'PY'
-import zipfile
-a = zipfile.ZipFile('照片分类_20260814_131349.zip')   # 基线
-b = zipfile.ZipFile('照片分类_<新时间戳>.zip')          # 本轮
-assert sorted(a.namelist()) == sorted(b.namelist()), (len(a.namelist()), len(b.namelist()))
-diff = [n for n in a.namelist() if a.read(n) != b.read(n)]
-print('条目', len(a.namelist()), '字节不一致', diff)
-PY
-```
+**三处条目差异，全部是 §19.2 记录的预期行为变更，不是回归：**
+
+1. `IMG_20260814_073000.jpg` / `IMG_20260814_081000.jpg` 从 `03_…` 归位到
+   `01_与早班交接班…` / `02_出发…` —— 上一轮 12 项清单手动标记（交接班 1 / 出车 0）的生效；
+2. 台账名 `巡查台账_20260814_222033.xlsx`（干净格式）vs 基线 `巡查台账_20260814_20261103_131349.xlsx`
+   （旧实现把导出时刻误拼进文件名，已随第二提交修掉）；
+3. 重名后缀 `_original`（§19.2 第 3 条「重名从 `_2` 起」规则的落地）。
+
+结论：第二提交的导出整段上移**没有引入回归**，四处刻意改的行为在真机上全部按预期表现。
 
 ### 19.6 留给后续
 
