@@ -24,12 +24,21 @@ import app.state.AppStateStore
 import app.state.PhotoSession
 import app.infra.DebouncedTextStore
 
-/** 设置与日志文本用例。 */
+/**
+ * 设置与日志文本用例。
+ *
+ * @param logs 日志防抖落盘器的**取值函数**，不是实例本身。
+ *   ★ T11 修正：安卓端的防抖器挂在 ViewModel 上，会被单元测试整体替换
+ *   （`SetLogsTextWiringTest` 注入计数型 `LogsTextStore` 来证明"接线"）。
+ *   构造时写死实例，替换后本用例仍指向旧的那个 → 测试注入的写入永远收不到，
+ *   而生产里则表现为"设置了新防抖器却依然写旧通道"（静默失效、无任何报错）。
+ *   与 T10 的 `verifyMode`（取值函数而非值）是同一个教训：**可变依赖不要冻结在构造期**。
+ */
 class SettingsUseCase(
     private val store: AppStateStore,
     private val session: PhotoSession,
     private val storage: SettingsStorage,
-    private val logs: DebouncedTextStore,
+    private val logs: () -> DebouncedTextStore,
 ) {
 
     /**
@@ -65,7 +74,7 @@ class SettingsUseCase(
     /** 日志文本变化：内存态立即生效，落盘交给防抖。 */
     fun setLogText(text: String) {
         store.withLock {
-            logs.onChanged(text)
+            logs().onChanged(text)
             store.publish { it.copy(logText = text) }
         }
     }
@@ -90,7 +99,7 @@ class SettingsUseCase(
     }
 
     /** 立即落盘日志（关闭前、开始分析前）。幂等。 */
-    fun flushLogs() = logs.flush()
+    fun flushLogs() = logs().flush()
 
     /**
      * 三态切换的口径提示（文案两端必须一致：它是用户理解"照片去哪了"的唯一解释）。

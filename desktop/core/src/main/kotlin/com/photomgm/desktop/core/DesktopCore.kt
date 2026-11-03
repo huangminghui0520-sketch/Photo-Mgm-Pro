@@ -135,7 +135,8 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
         photoIds = photoIds,
     )
     private val adjust = AdjustUseCase(store, session)
-    private val settingsUseCase = SettingsUseCase(store, session, settingsStorage, logs)
+    // ★ logs 传的是取值函数（T11 同步修正）：安卓端会把防抖器整体替换，冻结构造期的实例会静默失效。
+    private val settingsUseCase = SettingsUseCase(store, session, settingsStorage) { logs }
     private val exportUseCase = ExportUseCase(store, session, exportExecutor)
 
     private val closed = AtomicBoolean(false)

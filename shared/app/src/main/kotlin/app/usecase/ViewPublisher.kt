@@ -31,8 +31,16 @@ import app.state.AppStateStore
 import app.state.PhotoSession
 import domain.ledger.LedgerProjection
 
-/** 派生视图的组装与发布（内部工具，不对外暴露）。 */
-internal object ViewPublisher {
+/**
+ * 派生视图的组装与发布。
+ *
+ * ★ T11 起由 `internal` 改为公开：安卓端「打开 App 从缓存恢复关闭前的分析结果」时，
+ *   `session` 已被填好但 `AppState` 还是空的，必须重发一次视图才能让 UI 看到事件与台账。
+ *   这段投影逻辑与用例内部用的**必须**是同一份 —— 否则"恢复出来的界面"与"分析出来的界面"
+ *   会按两套口径渲染（正是本轮重构要消灭的重复）。
+ *   对外只暴露 [publish] / [buildLedgerRows] / [summaryOf] 这类投影函数，不含任何业务判定。
+ */
+object ViewPublisher {
 
     /**
      * 重算并发布全部派生视图。
@@ -96,8 +104,38 @@ internal object ViewPublisher {
         }
     }
 
-    private fun buildEvents(
-        parsed: ParsedLog,
+    /**
+     * 只发布「照片已扫出来」这一半：照片与分析计数有值，事件/分类/台账为空。
+     *
+     * 对应「改巡查日期 / 改源目录 → 只扫照片」这条路径（见 `AnalysisPipeline.scanPhotos`）：
+     * 此刻还没有分类结果（`classify == null`），[publish] 会走"清空一切"的分支，
+     * 而这条路径恰恰要把刚扫出来的照片**留着**给界面显示。
+     *
+     * ★ `analysis` 必须发：`unmatchedCount` 传 0 是**有意**的 ——
+     *   没有分类就没有"未匹配"这个概念，界面此时也不读这个数（它读 `classify.unmatched`）。
+     *   发一个空分类的摘要只为让 `candidateCount / photoCount` 两个数字有值。
+     */
+    fun publishScan(
+        store: AppStateStore,
+        session: PhotoSession,
+        message: String? = null,
+    ) {
+        store.publish {
+            it.copy(
+                status = CoreStatus.READY,
+                progress = null,
+                analysis = buildSummary(session, emptyList()),
+                photos = buildPhotoInfos(session),
+                events = emptyList(),
+                eventPhotoIds = emptyMap(),
+                unmatchedPhotoIds = emptyList(),
+                ledger = emptyList(),
+                message = message ?: it.message,
+            )
+        }
+    }
+
+    private fun buildEvents(        parsed: ParsedLog,
         eventPhotoMap: Map<Int, List<Long>>,
         classify: ClassifyResult,
     ): List<EventSnapshot> {

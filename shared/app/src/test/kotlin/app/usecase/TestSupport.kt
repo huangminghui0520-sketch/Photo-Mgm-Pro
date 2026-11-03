@@ -177,7 +177,7 @@ class Harness(
         photoIds = ids,
     )
     val adjust = AdjustUseCase(store, session)
-    val settingsUseCase = SettingsUseCase(store, session, settingsStorage, logs)
+    val settingsUseCase = SettingsUseCase(store, session, settingsStorage) { logs }
 
     /** 设置日志并跑一遍分析（等价于用户「粘贴日志 → 点分析」）。 */
     fun analyze(logText: String = Fixtures.LOG_TEXT, isCancelled: () -> Boolean = { false }) {

@@ -21,7 +21,6 @@
 package app.usecase
 
 import algorithm.AlgorithmApi
-import algorithm.CandidatePhoto
 import algorithm.ExifReader
 import algorithm.ParsedLog
 import algorithm.PhotoIngest
@@ -118,15 +117,53 @@ class AnalysisPipeline(
         }
 
         stage(listener, CoreStatus.ANALYZING, "扫描照片", 0, 0)
-        val all = ArrayList<CandidatePhoto>()
-        for (dir in settings.sourceDirs) all += sourceProvider.listCandidates(dir)
+        val finalPhotos = scanAndRead(settings, listener, isCancelled)
 
-        // 粗筛：目录白名单 + 文件名日期区间（闭区间，只看文件名）+ 按路径去重
-        val range = settings.patrolDate..settings.patrolDate
-        val filtered = PhotoIngest.coarseFilter(all, settings.sourceDirs, range)
-        // 派生去重：内容哈希双层判定（保留主图，合并真正的复制副本）
-        val (deduped, mergedGroups) = PhotoIngest.dedupDerived(filtered) { hasher(it) }
-        session.mergedDerivedGroups = mergedGroups
+        if (finalPhotos.isEmpty()) {
+            publishEmptyClassification(parsed, settings.patrolDate)
+            return
+        }
+
+        checkCancelled(isCancelled)
+
+        stage(listener, CoreStatus.ANALYZING, "分类中", finalPhotos.size, finalPhotos.size)
+        val grouped = AlgorithmApi.gpsGroup(finalPhotos)
+        session.classify = AlgorithmApi.classify(
+            events = parsed.events,
+            clusters = grouped.clusters,
+            singles = grouped.singles,
+            patrolDate = settings.patrolDate,
+            splitCount = grouped.splitCount,
+            zone = session.zone,
+        )
+        session.clusterCount = grouped.clusters.size
+        ViewPublisher.publish(store, session, CoreStatus.READY)
+    }
+
+    /**
+     * 只扫描照片：粗筛 → 派生去重 → 分配 id → EXIF 精读 → 按 id 去重。
+     *
+     * 从 [runAnalysis] 的扫描段**原样提取**（T11），供 [scanPhotos] 复用。
+     * 提取时不改任何判定顺序 —— 尤其是"派生去重先于 id 分配""id 分配先于 EXIF"这两条，
+     * 见文件头第 1、2 条说明。
+     *
+     * @return 最终照片列表（可能为空 = 本日期无照片）；本函数不改 `parsed`、不分类。
+     */
+    private fun scanAndRead(
+        settings: app.api.Settings,
+        listener: ProgressListener?,
+        isCancelled: () -> Boolean,
+    ): List<Photo> {
+        // 粗筛（候选合并 → 目录白名单 + 文件名日期 → 派生去重）走 `PhotoScan`：
+        // 安卓的「防线一」照片增删校验要的是同一套判定，两处各写一份必然漂移。
+        val coarse = PhotoScan.coarseCandidates(
+            sourceProvider = sourceProvider,
+            sourceDirs = settings.sourceDirs,
+            date = settings.patrolDate,
+            hasher = hasher,
+        )
+        session.mergedDerivedGroups = coarse.mergedGroups
+        val deduped = coarse.photos
 
         photoIds.reset()
         val withIds = deduped.map { it.copy(id = photoIds.allocate(it.sourceRef, it.id)) }
@@ -134,8 +171,8 @@ class AnalysisPipeline(
         session.heicCount = withIds.count { isHeicPhotoName(it.displayName) }
 
         if (withIds.isEmpty()) {
-            publishEmptyClassification(parsed, settings.patrolDate)
-            return
+            session.setPhotos(emptyList())
+            return emptyList()
         }
 
         // EXIF 精读：分批（既复用核心函数，又能报进度与响应取消）
@@ -151,21 +188,68 @@ class AnalysisPipeline(
 
         val finalPhotos = PhotoIngest.dedupById(read)
         session.setPhotos(finalPhotos)
+        return finalPhotos
+    }
 
-        checkCancelled(isCancelled)
+    /**
+     * 只扫描照片，**不解析日志、不分类**（安卓端「改巡查日期 / 改源目录」走这条）。
+     *
+     * ★ 为什么需要它（T11 的一个硬约束）：
+     *   安卓的既有语义是"选日期只把照片扫出来，分类统一由『解析日志』触发"——
+     *   旧日期的事件时间戳对新日期的照片没有意义，自动分类只会把整批照片塞进未匹配池。
+     *   更实际的原因是：`parseLogs` 有一条"日志没改过 → 只清人工移动"的快路径，
+     *   它的前提是 `parsed` 来自**用户点解析**那一刻。若自动扫描顺手解析了日志，
+     *   `parsed` 会提前变成非空，快路径会误判"已经解析过了"，用户点解析只得到一句
+     *   "已是最初分类状态"，事件列表永远是空的。
+     *
+     * ★ 与 [analyze] 的关系：完全独立的入口，共用 [scanAndRead] 这一段。
+     *   两者的区别只有"要不要解析日志 / 要不要分类"，扫描部分一个字都不差。
+     */
+    fun scanPhotos(listener: ProgressListener?, isCancelled: () -> Boolean) {
+        store.withLock {
+            try {
+                if (store.current().status == CoreStatus.EXPORTING) return
+                val settings = store.current().settings
+                if (settings.sourceDirs.isEmpty()) {
+                    session.resetCounters()
+                    session.classify = null
+                    session.clearPhotos()
+                    ViewPublisher.publishScan(store, session, message = null)
+                    return
+                }
+                // 照片换了 → 旧的分类结果与照片对不上，必须一起清掉（保留 parsed：事件列表与照片无关）
+                session.resetCounters()
+                session.classify = null
+                session.clearPhotos()
+                // ★ 必须先置 ANALYZING 再扫：这个状态是"扫描进行中"的唯一对外信号
+                //   （UI 的进度条/禁用态、以及调用方的"等它跑完"都靠它）。
+                //   漏了这一步，外部会看到"状态还是 READY、照片却是空的"，
+                //   于是"等扫描结束"变成"立刻返回"，后续步骤拿到的是一批空照片。
+                stage(listener, CoreStatus.ANALYZING, "扫描照片", 0, 0)
 
-        stage(listener, CoreStatus.ANALYZING, "分类中", withIds.size, withIds.size)
-        val grouped = AlgorithmApi.gpsGroup(finalPhotos)
-        session.classify = AlgorithmApi.classify(
-            events = parsed.events,
-            clusters = grouped.clusters,
-            singles = grouped.singles,
-            patrolDate = settings.patrolDate,
-            splitCount = grouped.splitCount,
-            zone = session.zone,
-        )
-        session.clusterCount = grouped.clusters.size
-        ViewPublisher.publish(store, session, CoreStatus.READY)
+                val photos = scanAndRead(settings, listener, isCancelled)
+                val message = if (photos.isEmpty()) {
+                    "所选日期（${settings.patrolDate}）在源目录未找到照片，请检查日期或源目录"
+                } else {
+                    // ★ P2：该日期尚无解析结果时给引导
+                    if (session.parsed == null) "已加载 ${settings.patrolDate} 的照片 ${photos.size} 张，粘贴日志后点「解析日志」即自动分类"
+                    else null
+                }
+                ViewPublisher.publishScan(store, session, message)
+            } catch (e: CancellationException) {
+                // ★ 取消不是失败：退回 READY，用户再点一次就是重跑
+                store.publish { it.copy(status = CoreStatus.READY, progress = null, message = "扫描已取消") }
+                throw e
+            } catch (e: Throwable) {
+                store.publish {
+                    it.copy(
+                        status = CoreStatus.FAILED,
+                        progress = null,
+                        error = "扫描照片失败：${e.message ?: e.javaClass.simpleName}",
+                    )
+                }
+            }
+        }
     }
 
     /**
