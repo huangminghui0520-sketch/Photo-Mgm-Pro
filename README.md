@@ -4,20 +4,44 @@
 
 ## 模块结构
 
-仓库同时承载两端：**Android App**（`android/`）与 **Windows 桌面版**（`desktop/`），共用根目录的
-`:algorithm` 核心（同一份源码，无副本）。两端各自是独立 Gradle 工程，互不引用、互不影响。
+仓库同时承载两端：**Android App**（`android/`）与 **Windows 桌面版**（`desktop/`），共用仓库根
+`shared/` 下的同一份源码（无副本）。两端各自是独立 Gradle 工程，互不引用、互不影响。
+
+```
+Photo-Mgm/
+├── shared/               ★ 共享层（纯 Kotlin JVM，零平台依赖，两端以源码挂载）
+│   ├── algorithm/           算法内核：日志解析、GPS 分组、事件分类、三态去重、台账、ZIP 导出
+│   ├── domain/              业务规则：视图派生、人工调整、台账投影、EXIF 时间、SHA-256
+│   └── app/                 应用层：跨端契约 api/、端口 port/、会话 state/、用例 usecase/、导出 export/
+├── android/              ★ Android 端（独立工程：:shared:* + :data + :app）
+│   ├── data/                MediaStore / SAF / ExifInterface / 图片编解码 / 设置存储
+│   └── app/                 Compose Material3 UI + 编排
+├── desktop/              ★ Windows 桌面端（独立工程：:shared:* + :core + :cli + :ui）
+│   ├── core/                适配器 + 组装根（DesktopCore）
+│   ├── cli/                 无头命令行入口
+│   └── ui/                  Compose Multiplatform 界面
+├── docs/                  两端共享文档（UI 规格、桌面计划、兼容性矩阵、重构执行计划）
+├── scripts/               静态门禁（协程取消 / @Ignore 可溯源 / 隐式时区 / 共享层纯度）
+└── .github/workflows/     ci.yml、build-apk.yml、build-desktop.yml
+```
 
 | 模块 / 目录        | 职责                                                     | 依赖                    |
 | -------------- | ------------------------------------------------------ | --------------------- |
-| `algorithm/`   | 核心算法（纯 Kotlin JVM，零 Android 依赖，被两端以源码挂载）              | 无                     |
-| `android/`     | Android 工程（独立构建：`:data` + `:app`）                       | `:algorithm`          |
-| `android/:data` | Android 数据接入层（MediaStore / SAF / ExifInterface）        | `:algorithm`          |
-| `android/:app`  | Android UI（Compose Material3，仅经 `AlgorithmApi` 单向调用核心） | `:algorithm`, `:data` |
-| `desktop/`     | Windows 桌面版（独立构建：`:core` + `:cli` + `:ui`，含 jpackage 打包） | `:algorithm`（`../algorithm` 挂载） |
+| `shared/algorithm` | 算法内核（纯 Kotlin JVM，零平台依赖，被两端以源码挂载）             | 无                     |
+| `shared/domain`   | 业务规则（视图派生 / 人工调整 / 台账投影 / EXIF / SHA-256）        | `:shared:algorithm`    |
+| `shared/app`      | 应用层（跨端契约 / 端口 / 会话 / 用例 / 导出）                      | `:shared:domain`       |
+| `android/:data`  | Android 数据接入层（MediaStore / SAF / ExifInterface / 图片编解码） | `:shared:*`            |
+| `android/:app`   | Android UI（Compose Material3，经 `app.api` 契约单向调用共享层） | `:shared:*`, `:data`   |
+| `desktop/:core`  | Windows 适配器 + 组装根（DesktopCore + Pc* 端口实现）           | `:shared:*`            |
+| `desktop/:cli`   | 无头命令行入口                                                  | `:shared:*`, `:core`   |
+| `desktop/:ui`    | Compose Multiplatform 界面（含 jpackage 打包）                 | `:shared:*`, `:core`   |
+
+> **共享层只被挂载、不被复制**：两端 `settings.gradle.kts` 用
+> `project(":shared:xxx").projectDir = file("../shared/xxx")` 引入同一份源码；仓库内不存在第二份实现。
 
 目录边界、构建隔离方式与"共用核心的影响面"见 [docs/REPO-LAYOUT.md](docs/REPO-LAYOUT.md)。
 
-## 核心算法能力（:algorithm）
+## 核心算法能力（shared/algorithm）
 
 
 
@@ -77,7 +101,7 @@
 ```
 # ── Android 端（仓库根不再有 settings.gradle，命令一律进 android/ 执行）──
 cd android
-./gradlew :algorithm:test          # 核心算法用例
+./gradlew :shared:algorithm:test :shared:domain:test :shared:app:test   # 共享层三模块用例
 ./gradlew :data:test               # 平台接入层用例
 ./gradlew :app:testDebugUnitTest   # UI/编排用例（Robolectric）
 ./gradlew :app:assembleDebug       # debug APK（release 已启用 R8 混淆与资源裁剪）
@@ -85,6 +109,7 @@ cd android
 
 # ── Windows 桌面端（独立工程，互不干扰）──
 cd desktop
+./gradlew :shared:algorithm:test :shared:domain:test :shared:app:test   # 共享层（桌面侧挂载）
 ./gradlew :core:test :cli:test :ui:test
 ./gradlew :ui:createDistributable  # 便携版 app-image
 ./gradlew :ui:packageMsi           # MSI（需 WiX，Windows 上执行）
@@ -110,7 +135,7 @@ cd desktop
 
 
 
-* `ci.yml`：静态门禁（协程取消 / `@Ignore` 可溯源 / 隐式时区）+ 单元测试，`push`/`pull_request`/手动均触发
+* `ci.yml`：静态门禁（协程取消 / `@Ignore` 可溯源 / 隐式时区 / 共享层纯度）+ 单元测试，`push`/`pull_request`/手动均触发
 
 * `build-apk.yml`（Android）：推 `main` 出 APK 并发布预发布版（`auto-*` 标签）；推 `v*` 标签发布正式版
 
