@@ -1,5 +1,5 @@
 // data/ExifPhotoReader.kt —— §4.3 EXIF 精读（Android 实现）
-// 读取失败字段置 null、不中断（§4.3）；时间解析走纯函数 ExifTimeParser（可单测）
+// 读取失败字段置 null、不中断（§4.3）；时间解析走 :shared:domain 的纯函数 [domain.exif.ExifTime]（可单测）
 // ★ C2 优化（性能基线 E2a 证据 203→67ms）：readAll 一次 ExifInterface 构造同时读时间+GPS，
 //   消除 readCaptureTimeMs/readGps 的重复构造；语义与损坏三分类（T1 0字节/T2 无GPS/T3 无EXIF）经 oracle 验证一致。
 package com.photomgm.data
@@ -7,6 +7,7 @@ package com.photomgm.data
 import algorithm.AppZone
 import algorithm.ExifReader
 import androidx.exifinterface.media.ExifInterface
+import domain.exif.ExifTime
 
 /**
  * ExifInterface 数据接入：按文件路径/uri 精读拍摄时间 + GPS。
@@ -28,7 +29,8 @@ class ExifPhotoReader : ExifReader {
                 ?: return@runCatching null
             // ★ 显式传业务时区（issue #2）：EXIF 时间无时区信息，必须固定按北京时间解释，
             //   不能跟随设备默认时区，否则同一张照片在不同机器上算式不同。
-            ExifTimeParser.parse(raw, AppZone.ID)
+            //   解析规则与桌面端共用同一份实现（T03-C3），不再各写一套。
+            ExifTime.parse(raw, AppZone.ID)
         }.getOrNull()
         val g = runCatching {
             ei.latLong?.let { Pair(it[0], it[1]) }

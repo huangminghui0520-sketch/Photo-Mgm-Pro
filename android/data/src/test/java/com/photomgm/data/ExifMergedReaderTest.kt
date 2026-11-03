@@ -5,6 +5,7 @@
 package com.photomgm.data
 
 import androidx.exifinterface.media.ExifInterface
+import domain.exif.ExifTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -29,7 +30,7 @@ class ExifMergedReaderTest {
                 val raw = ei.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
                     ?: ei.getAttribute(ExifInterface.TAG_DATETIME)
                     ?: return@runCatching null
-                ExifTimeParser.parse(raw)
+                ExifTime.parse(raw)
             }.getOrNull()
             val g = runCatching { ei.latLong?.let { Pair(it[0], it[1]) } }.getOrNull()
             t to g

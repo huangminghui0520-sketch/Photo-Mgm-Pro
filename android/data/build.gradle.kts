@@ -26,6 +26,8 @@ android {
 
 dependencies {
     implementation(project(":shared:algorithm"))
+    // T03：EXIF 时间解析与 SHA-256 收敛到 :shared:domain（纯 Kotlin，与桌面端同一份实现）
+    implementation(project(":shared:domain"))
     // EXIF 精读（§4.3）：androidx ExifInterface（国内镜像 maven.aliyun.com/repository/google）
     implementation("androidx.exifinterface:exifinterface:1.3.7")
 
