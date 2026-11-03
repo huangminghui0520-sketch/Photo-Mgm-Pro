@@ -27,40 +27,53 @@ P5 门禁（`scripts/check-shared-purity.py`）把「UI 层直接 import `algori
 ## 2. 为什么「机械替换」行不通（核心风险）
 
 第一反应是「把 `UiState.photos: List<Photo>` 改成 `List<PhotoInfo>`、`parsed.events` 换成
-`EventSnapshot`」，但这会踩中 **T11 刻意回避的投影层时序一致性难题**。具体有两个坑：
+`EventSnapshot`」，但这里有两个真实的坑。**经 2026-11-03 对代码的逐行复查，下面这个版本
+修正了初稿里一处不准确的判断**（见 §2.3 的「修正记录」）。
 
-### 2.1 `photos` 的时序语义陷阱（最危险）
+### 2.1 `photos` 的引用相等陷阱（真正的障碍）
 
-当前数据流：
+当前数据流（**关键：两条链在 `store.withLock` 内同步，不是异步**）：
 
 ```
 PhotoSession.photos  ──►  UiState.photos（直接取引用，零转换）
     （会话级：clearPhotos() 在 EXIF 精读前 / setPhotos() 在精读后）
 
-AppState.photos  ──►  ViewPublisher.buildPhotoInfos(session) 在「状态发布」时生成
-    （状态级：publish / publishScan 两个入口）
+AppState.photos  ──►  ViewPublisher.buildPhotoInfos(session) 在 publish/publishScan 时生成
+    （状态级：每次发布都 NEW 一个 List<PhotoInfo>，即使照片集合没变）
 ```
 
-两者**更新时机不同步**：
+真正的障碍不是「时序」，而是**引用相等性**：
 
-- `session.photos` 是「会话内部」在 EXIF 精读**完成**后由 `setPhotos()` 填充、精读**前**由
-  `clearPhotos()` 清空的——它是**同步的、确定性的**。
-- `app.photos` 是 `ViewPublisher.publish` 在「发布 AppState 快照」那一刻才 `buildPhotoInfos` 的
-  投影产物，走的是**异步状态发布**。
+- `session.photos` 是 `List<Photo>`，它的引用**只在真正换照片时变**（`setPhotos` / `clearPhotos`）。
+  两次 `setPhotos` 之间，无论切三态、移动照片、标记台账，引用都稳定不变。
+- `app.photos` 是 `List<PhotoInfo>`，它的引用在**每次 `publish` / `publishScan` 时都变**——
+  `buildPhotoInfos(session)` 每次都 `session.photos.map { ... }` 生成**新 List**。而 `publish`
+  会被「切三态（`setDedupMode`）」「移动照片（`movePhotos`）」「标记台账」等**照片集合未变**
+  的操作触发。
 
-`UiProjection.kt` 文件头明确记录了为什么不能换：
+`UiProjection.kt` 文件头理由①的精确含义：
 
-> ① Compose 的 `remember(key)` 依赖引用相等；每次投影新建 List 会让所有事件卡片每帧重算。
-> ② `ThumbnailRefreshTest` 断言「清缓存那一刻 `state.value.photos.size == 0`」，它从主线程读
->    `state.value`；任何异步投影都会让它读到上一帧的旧值。
+> ① Compose 的 `remember(key)` 依赖引用相等；每次投影新建 List 会让所有事件卡片每帧重算
+>   （`LogSection` 里 `remember(state.photos) { associateBy }` 会彻底失效）。
 
-**`ThumbnailRefreshTest` 的两个时序断言**（`android/app/src/test/.../ThumbnailRefreshTest.kt`）：
+`LogSection.kt:146` 的 `remember(state.photos) { state.photos.associateBy { it.id } }` 以
+`state.photos` 的**引用**为 key。若改取 `app.photos`，则「切三态」这种照片一张没变的操作，
+也会因为 `app.photos` 是新 List 而触发 `associateBy` 重算（O(n)，照片上万时是真实损耗）。
+功能仍正确，但**丢失了「照片没变就不重算」的优化**。
 
-1. `clear()` 必须发生在 EXIF 精读之前 → `photosAtClear == 0`；
-2. `preload()` 必须发生在照片读取之后 → `photosAtPreload > 0`。
+**`ThumbnailRefreshTest` 的时序断言（复查结论：改取 `app.photos` 不会破坏）**：
 
-这两个断言靠的是 `session.photos` 的会话级时序。若 `UiState.photos` 改取 `app.photos`，
-时序变成「状态发布级」，断言会**随机假失败**（读到上一帧旧快照）。
+- 断言② `clear()` 时 `photos == 0`：`AppViewModel.setDate` 里 `invalidateAnalysis()` →
+  `clearThumbnailCache()`。而 `AndroidCore.invalidateAnalysis`（第 312-330 行）在同一个
+  `store.withLock` 内**同时** `session.clearPhotos()` 和 `store.publish { photos = emptyList() }`。
+  所以 `clearThumbnailCache()` 那一刻，无论 `state.photos` 取 `session.photos` 还是 `app.photos`，
+  都是 0。✓
+- 断言③ `preload()` 时 `photos > 0`：`AnalysisPipeline.scanPhotos`（第 208-253 行）整个函数体
+  在 `store.withLock` 内，`session.setPhotos(finalPhotos)` 与 `ViewPublisher.publishScan`
+  （`buildPhotoInfos`）**同步原子**完成。`preloadThumbnailCache` 在流水线返回后调用，此时
+  `app.photos` 已填充。✓
+
+所以初稿「改取 `app.photos` 会让时序断言随机假失败」的担忧**不成立**——两条链在锁内是同步的。
 
 ### 2.2 `events` 的源头不在 `UiState` 里
 
@@ -75,6 +88,21 @@ UI 层消费事件走的是 `state.parsed`（`ParsedLog?`），而 `parsed.event
    `parsed`（解析摘要 + skippedLines）与 `events`（事件快照）各司其职。
 
 这意味着替换 `LogEvent` 不是「换个类型」，而是**拆开 `parsed` 的两个职责**（解析摘要 vs 事件列表）。
+
+### 2.3 重新评估（2026-11-03，逐行复查后）
+
+初稿把 `Photo`→`PhotoInfo` 的障碍归因于「时序不同步」，**这个判断不准确**，已在上文修正。
+复查后重新定位的障碍优先级：
+
+| # | 障碍 | 性质 | 严重度 | 结论 |
+| --- | --- | --- | --- | --- |
+| 1 | `app.photos` 引用不稳定（每次 publish 都 NEW） | 性能退化（非正确性） | 中 | 需 `PhotoSession` 缓存 PhotoInfo 视图（方案 A） |
+| 2 | `parsed` 双职责需拆分 | 结构改动 | 低 | `events` 与 `parsed` 并存即可 |
+| 3 | `PhotoInfo` 投影逻辑（`buildPhotoInfos`）位置 | 依赖下沉 | 低 | 可下沉到 `PhotoSession` 或保留在 `ViewPublisher` |
+| 4 | 测试护栏 | 需验证 | 低 | 时序断言**不破**（已证），只需跑通 |
+
+**核心判断修正**：`Photo`→`PhotoInfo` 是**可行**的，主要成本是「让 `PhotoSession` 同步维护一份
+`PhotoInfo` 视图以保住引用相等优化」，而非「解时序陷阱」。风险从「中」降为「中低」。
 
 ---
 
@@ -102,28 +130,36 @@ UI 层消费事件走的是 `state.parsed`（`ParsedLog?`），而 `parsed.event
 UI 用不到也不影响）。唯一的连带改动是 `LogSection` 里 `parsed.skippedLines/inspectors/vehicle`
 仍走 `state.parsed`（保留），所以 `parsed` 字段**继续存在**，只是「事件列表」这条数据源换了。
 
-### 第 3.2 步（中风险）：`Photo` → `PhotoInfo`
+### 第 3.2 步（中低风险）：`Photo` → `PhotoInfo`
 
-**范围**：动 `photos` 这条链，**必须先解决 §2.1 的时序一致性**。
+**范围**：动 `photos` 这条链。核心是**保住 `remember(state.photos)` 的引用相等优化**（§2.1），
+而非解时序（时序经复查已确认无碍）。
 
-1. **前置：把 `UiState.photos` 的时序语义对齐到 `session.photos`**，而不是简单改类型。两种做法：
-   - **方案 A（推荐）**：让 `PhotoSession` 额外维护一份 `PhotoInfo` 视图，随 `setPhotos` 同步更新
-     （在 `setPhotos` 里同时 `photosInfo = list.map { ... }`），`UiState.photos` 取这份同步视图。
-     这样保留了「会话级时序」，`ThumbnailRefreshTest` 的时序断言不破。
-     —— 代价：`PhotoInfo` 投影逻辑（现在在 `ViewPublisher.buildPhotoInfos`）要下沉到 `PhotoSession`，
-     或者让 `PhotoSession` 暴露一个 `fun photoInfos(): List<PhotoInfo>` 供投影层调用。
-   - **方案 B**：让 `UiState.photos` 改取 `app.photos`，**同时**重写 `ThumbnailRefreshTest` 的
-     两个时序断言（改为断言「AppState 发布后的最终态」，不再依赖「主线程同步读到中间态」）。
-     —— 代价：这是**削弱护栏**，违背该测试存在的初衷（防「清缓存晚于读照片」的回归），不推荐。
-2. 把 `UiState.photos: List<Photo>` → `List<PhotoInfo>`，UI 层 5 处签名同步改：
+1. **前置（方案 A，推荐）：让 `PhotoSession` 缓存一份 `PhotoInfo` 视图**，随 `setPhotos` 同步更新：
+   - 在 `PhotoSession` 加 `var photosInfo: List<PhotoInfo> = emptyList()`（private set），
+     `setPhotos(list)` 里同时 `photosInfo = list.map { PhotoInfo(...) }`；
+   - 把 `ViewPublisher.buildPhotoInfos` 的投影逻辑（含 `isDerived = isDerivedPhotoName(...)`）
+     下沉为 `PhotoSession` 的一个方法（或让 `ViewPublisher` 调它），消除「两份投影逻辑」；
+   - `UiState.photos` 改取 `session.photosInfo`，`preloadThumbnailCache` 同步改 `List<PhotoInfo>`。
+   - 收益：引用相等语义与 `session.photos` 完全一致（只在真换照片时变），
+     `ThumbnailRefreshTest` 时序断言不破，`LogSection.remember` 优化保留。
+   - 代价：`PhotoSession`（共享层）要 import `app.api.PhotoInfo`——**这是合理的**，因为
+     `PhotoInfo` 是共享契约类型，`PhotoSession` 本来就在 `app.state` 层（同属 `shared/app`），
+     不存在越层问题（P5 门禁只盯 `app.api` 之外的越界，`app.state`→`app.api` 是层内）。
+2. **方案 B（备选，不推荐）**：`UiState.photos` 直接改取 `app.photos`，接受「切三态/移动照片」
+   时 `remember(state.photos)` 失效重算。功能正确、测试护栏也不破（时序已证同步），
+   但有 O(n) 的 `associateBy` 重算损耗，违背 `UiProjection.kt` 理由①的初衷。
+3. 把 `UiState.photos: List<Photo>` → `List<PhotoInfo>`，UI 层 5 处签名同步改：
    `EventViewer` / `PhotoGrid` / `PhotoTile` / `EventCard.photoThumbs` / `PhotosSheet`。
-3. `preloadThumbnailCache(photos: List<Photo>)`（AppViewModel）同步改 `List<PhotoInfo>`。
-4. 字段访问不变（`id/sourceRef/displayName/captureTimeMs` 两边同名）。
-5. 验证：编译 + 单测 + 门禁（P5 应显示「降至 2 种」）+ **真机回归**（冷启动、事件卡片、
-   照片网格、全屏查看器、未匹配池、批量移动）。
+4. `preloadThumbnailCache(photos: List<Photo>)`（AppViewModel）同步改 `List<PhotoInfo>`。
+5. 字段访问不变（`id/sourceRef/displayName/captureTimeMs` 两边同名）。
+6. 验证：编译 + 单测（`ThumbnailRefreshTest` 的时序断言**不应改**，直接跑）+ 门禁
+   （P5 应显示「降至 2 种」）+ **真机回归**（冷启动、事件卡片、照片网格、全屏查看器、
+   未匹配池、批量移动）。
 
-**风险**：中。核心是 §2.1 的时序一致性。**必须在方案 A 落地、`ThumbnailRefreshTest` 仍绿的前提下**
-才能继续，否则就是在削弱护栏。
+**风险**：中低。核心是方案 A 的「投影逻辑下沉到 `PhotoSession`」这一步要**消除与
+`ViewPublisher.buildPhotoInfos` 的重复**（否则又造一份「必须人肉同步」的投影，正是本重构
+要消灭的东西）。必须在方案 A 落地、`ThumbnailRefreshTest` 不改断言仍绿的前提下继续。
 
 ---
 
@@ -157,8 +193,9 @@ UI 层用 `AppZone.ID` 做 `Instant.atZone(...)` 格式化（`EventViewer` / `Ph
 
 1. **第 3.1 步**（LogEvent→EventSnapshot）：随时可做，风险低，可作为独立小提交先行。
 2. **第 3.2 步**（Photo→PhotoInfo）：需先落地 §3.2 的方案 A（`PhotoSession` 同步维护
-   `PhotoInfo` 视图），并确认 `ThumbnailRefreshTest` 的时序护栏**不改断言仍绿**。建议等
-   当前版本的 `UiState` 形状稳定一轮（与 T15 的「一个版本周期」同一节奏）再动。
+   `PhotoInfo` 视图、投影逻辑单点下沉），并确认 `ThumbnailRefreshTest` **不改断言**仍绿。
+   经复查，时序护栏**不会破**（两条链在 `store.withLock` 内同步），真正的成本是「引用相等
+   优化」的保留。建议等当前 `UiState` 形状稳定一轮再动（与 T15 的「一个版本周期」同节奏）。
 3. **T15（`:ui` 模块拆分）**：触发条件 `PhotoUiState` / `PhotoActions` 稳定运行一个版本周期，
    而这两个类型**当前代码中不存在**（是计划设想的未来契约）。因此 T15 仍**不排期**，
    见下节。
@@ -184,6 +221,52 @@ T15 的目标是「把 `android/app/ui` 提成 `:ui` 模块，用 Gradle 依赖�
 | 事项 | 结论 | 依据 |
 | --- | --- | --- |
 | 第 3.1 步 LogEvent→EventSnapshot | 可做，低风险 | 字段超集对齐，仅拆 `parsed` 双职责 |
-| 第 3.2 步 Photo→PhotoInfo | 暂缓，需先解时序 | `ThumbnailRefreshTest` 时序护栏 + `UiProjection` 引用相等 |
+| 第 3.2 步 Photo→PhotoInfo | 可做，中低风险 | 时序已证同步；核心是引用相等优化，用方案 A 保住 |
 | DedupKeepMode/AppZone | 不消 | 是 `app.api` 契约暴露，非越层 |
 | T15 `:ui` 拆分 | 跳过 | 触发条件未满足，计划不排期 |
+
+---
+
+## 8. 替代方案与调整建议（2026-11-03 复查新增）
+
+针对用户「是否存在更符合现有架构的替代方案」的追问，复查后有两点调整建议，比初稿更贴合
+现有分层：
+
+### 8.1 `Photo`→`PhotoInfo` 其实「零字段损失」，且方向恰好正确
+
+复查确认：**安卓 UI 层当前完全不消费 `isDerived`**（全仓库只有 `desktop/ui/EventCard.kt:425`
+用它画白点）。而 `Photo` 与 `PhotoInfo` 的前 6 个字段（`id/sourceRef/displayName/captureTimeMs/
+latitude/longitude`）**完全同名同型**，`PhotoInfo` 只是多了 `isDerived`。
+
+因此「UI 改读 `PhotoInfo`」不是「换个近似类型」，而是**精确对齐**：UI 要的字段一个不少、
+一个不多，还顺带为「安卓将来也画白点」留好了 `isDerived`。这比初稿「`PhotoInfo` 是 `Photo`
+的超集、UI 用不到多余字段」的表述更积极——它其实是**恰好正确的目标类型**，且与桌面端
+（已经读 `PhotoInfo`）保持一致，是「两端 UI 消费同一份契约投影」的收敛。
+
+### 8.2 投影逻辑下沉的落点建议：`ViewPublisher` 而非 `PhotoSession`
+
+初稿方案 A 建议把 `buildPhotoInfos` 下沉到 `PhotoSession`。复查后更贴合的落点是**保留在
+`ViewPublisher`、只把「引用相等缓存」放进 `PhotoSession`**：
+
+- `PhotoSession` 只加一个**缓存字段**：`var photosInfo: List<PhotoInfo>`（随 `setPhotos` 失效），
+  但不持有投影逻辑——它仍是「数据容器」的定位（见 `PhotoSession.kt` 文件头「它只是一个数据容器」）。
+- 投影逻辑 `buildPhotoInfos` **留在 `ViewPublisher`**（它本就是「派生视图组装」的唯一地方），
+  只改为「写完 `session.photosInfo` 供后续复用」。
+- 这样职责边界不变：`PhotoSession` 存状态、`ViewPublisher` 算投影，与现有分层完全一致，
+  不引入「`PhotoSession` 直接 import `app.api.PhotoInfo`」的定位偏移（虽然这个 import 本身
+  不越层，但会让 `PhotoSession` 从「纯 algorithm 对象容器」变成「混合契约类型容器」）。
+
+**调整后的方案 A'（推荐）**：
+1. `PhotoSession` 加 `var photosInfo: List<PhotoInfo>`（private set，`setPhotos` 里置空/失效）；
+2. `ViewPublisher.buildPhotoInfos` 投影后，把结果写回 `session.photosInfo`（缓存）；
+3. `UiState.photos` 改取 `session.photosInfo`（引用相等语义与 `session.photos` 一致）；
+4. 其余（UI 签名、`preloadThumbnailCache`）同 §3.2 步骤 3-6。
+
+这样既保住了 `remember(state.photos)` 的引用相等优化，又不改变 `PhotoSession` 的职责定位。
+
+### 8.3 一个「更小步」的替代：先只做 `LogEvent`，`Photo` 观察一轮再动
+
+若担心 `Photo` 链牵动 5 个 UI 文件 + `preloadThumbnailCache`，可**只先落地 §3.1**
+（`LogEvent`→`EventSnapshot`，动 4 个文件、无引用相等陷阱、纯加字段），让 P5 从 4 降到 3，
+观察一个版本周期，确认 `EventSnapshot` 投影在真机上稳定后，再以同一模式做 `Photo`。
+这与「T15 等一个版本周期」的节奏一致，风险最低。
