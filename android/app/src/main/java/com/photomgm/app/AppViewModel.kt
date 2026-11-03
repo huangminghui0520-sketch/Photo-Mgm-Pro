@@ -800,6 +800,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         persistManual()
     }
 
+    /**
+     * 把照片**复制**到另一个事件（多归属，原事件保留一份）。
+     *
+     * ★ T12（D2）：能力对齐 PC —— 转发共享 `AdjustUseCase.copyPhotos`，本类不再自己写复制逻辑。
+     *   **UI 入口暂不加**（见计划 P-3），当前无调用方。返回实际新增份数，落盘用 [persistManual]。
+     */
+    fun copyPhotos(photoIds: List<Long>, targetEventId: Int): Int {
+        if (photoIds.isEmpty()) return 0
+        val added = core.copyPhotos(photoIds, targetEventId)
+        if (added > 0) persistManual()
+        return added
+    }
+
     /** ★ 2026-10-31 审查：原「台账照片字节供给」段（readPhotoBytes / compressForExcel）已删除。
      *  全仓库无任何调用方（台账图片实际走 prepareLedger → BitmapImageEncoder.process），属死代码；
      *  且它与现行实现重复定义了一套压缩参数（480px JPEG85 vs 400×300 JPEG50），

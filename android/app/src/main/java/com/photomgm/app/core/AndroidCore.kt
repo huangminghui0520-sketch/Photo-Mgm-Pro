@@ -214,6 +214,20 @@ class AndroidCore(
     fun movePhotos(photoIds: List<Long>, targetEventId: Int?): Int =
         adjust.movePhotos(photoIds, targetEventId)
 
+    /**
+     * 把照片**复制**到另一个事件（多归属，原事件保留一份）。
+     *
+     * ★ T12（D2）：这是 PC 独有、安卓缺失的能力 —— 现在两端共用同一份 [AdjustUseCase.copyPhotos]。
+     *   **UI 入口暂不加**（见计划 P-3）：安卓界面还没有「复制到…」按钮，本方法当前没有调用方，
+     *   是「能力对齐」而非「功能交付」。加它而不是只改共享层，是因为 M4 的目标是
+     *   「两端跑在共享层上、平台层不再自己实现业务」—— 若安卓永远缺这个转发，将来加 UI 入口时
+     *   会顺手在 ViewModel 里再写一份复制逻辑，重新长出第二份实现。
+     *
+     * @return 实际新增的份数（已在目标、不在任何事件、id 不存在的都不计）。
+     */
+    fun copyPhotos(photoIds: List<Long>, targetEventId: Int): Int =
+        adjust.copyPhotos(photoIds, targetEventId)
+
     fun markLedgerPhoto(eventId: Int, slot: Int, photoId: Long?) =
         adjust.markLedgerPhoto(eventId, slot, photoId)
 
