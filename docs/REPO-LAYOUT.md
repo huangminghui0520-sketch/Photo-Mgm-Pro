@@ -21,8 +21,11 @@ Photo-Mgm/
 │   │    │                            三态去重、台账 LedgerEngine、XlsxWriter、ZipExporter、AlgorithmApi）
 │   │    ├── build.gradle.kts             kotlin("jvm") + toolchain 17（零 implementation 依赖）
 │   │    └── src/test/kotlin/algorithm/   22 文件（含 POI 读回、真实素材端到端）
-│   ├── domain/                      ★ 业务规则（T03 起填充）：视图派生 / 人工调整 / 台账投影 /
-│   │    └── build.gradle.kts             EXIF 时间 / SHA-256 / 媒体规格 / 派生命名
+│   ├── domain/                      ★ 业务规则：6 文件 / 596 行（T03 起填充）
+│   │    │                            view/ 视图派生 + 照片顺序、adjust/ 人工调整、
+│   │    │                            ledger/ 台账投影、exif/ 时间、hash/ SHA-256
+│   │    ├── build.gradle.kts             EXIF 时间 / SHA-256 / 媒体规格 / 派生命名
+│   │    └── src/test/kotlin/domain/      6 文件 / 835 行（T07 后 67 条用例）
 │   └── app/                         ★ 应用层（T09 起填充）：用例编排 / 端口定义 / 跨端契约
 │       └── build.gradle.kts             api(domain)，不依赖任何平台 SDK
 │

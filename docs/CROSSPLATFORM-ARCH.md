@@ -248,7 +248,7 @@ include(":shared:app");       project(":shared:app").projectDir       = file("..
 | `api/PhotoMgmCore.kt` (193) | 共享 | `shared/app/api` | 纯接口 + 数据类；`ShellLauncher` 保留为端口 |
 | `api/AppState.kt` (174) | 共享（**拆分**） | `shared/app/api` + PC 专属 `WindowState` 留 `desktop/core` | `window` 字段是 PC 概念（§1.5-3） |
 | `api/ExportModels.kt` (76) | 共享（**拆分**） | 通用部分进 `shared/app/api`；`ResumeVerifyMode` 留 PC | 同上 |
-| `logic/PhotoMgmCoreImpl.kt` (783) | **拆三层** | 编排/状态机 → `shared/app`；视图派生/台账投影 → `shared/domain`；执行器/持久化 → 端口 | 本方案核心 |
+| `logic/PhotoMgmCoreImpl.kt` (783) | **拆三层** | 编排/状态机 → `shared/app`；视图派生/台账投影 → `shared/domain`；执行器/持久化 → 端口 | 本方案核心。**T07 已落地一半**：四个派生方法逐字搬进 `logic/PcViewDerivation`（参数化、双跑已验证与 domain 等价），核心类改一行委托；T12 删该文件并切调用 |
 | `platform/PcPaths.kt` (100) | 平台 | 留 PC | P1（`java.nio.file`、`%APPDATA%`） |
 | `platform/PcPhotoSourceProvider.kt` (101) | 平台（**扩展名集合上移**） | 留 PC + `domain/spec/ImageExtensions` | C4：扩展名口径需与 Android 统一 |
 | `platform/PcExifReader.kt` (80) | 平台（**时间解析上移**） | 留 PC + `domain/exif/ExifTime` | 消灭 D9 |
@@ -280,7 +280,7 @@ include(":shared:app");       project(":shared:app").projectDir       = file("..
 
 | 文件 | 判定 | 去向 |
 | --- | --- | --- |
-| `AppViewModel.kt` (1165) | **拆三层** | 编排/状态/取消 → `shared/app`；视图派生 → `shared/domain`；剩 `UiState` 投影 + SAF + 缩略图 → 留 ~250 行 |
+| `AppViewModel.kt` (1165) | **拆三层** | 编排/状态/取消 → `shared/app`；视图派生 → `shared/domain`；剩 `UiState` 投影 + SAF + 缩略图 → 留 ~250 行 → **T07 已落地一半**：视图派生在 `:shared:domain` 有唯一实现且双跑对比通过；**切调用留 T12** |
 | `PhotoRepository.kt` (47) | **删除** | 被 `shared/app/AnalysisPipeline` 取代（内部逻辑同构） |
 | `SettingsStore.kt` (353) | 平台（**编解码可选上移**） | 留（`SharedPreferences`），序列化逻辑见 D3 决策点 → **T06 已落一半**：物理存储拆到 `data/storage/PrefsSettingsStorage`（key/编码/迁移），JSON 编解码与版本位判定仍留 `:app` |
 | `ImageUtils.kt` (187) | 平台（**规格上移**） | 实现 `ImageEncoder` 端口；常量改引 `MediaSpec` → **T06 已落地前半**：整体搬到 `data/image/BitmapImageEncoder.kt`，常量已引 `MediaSpec`；抽接口留给 T09 |

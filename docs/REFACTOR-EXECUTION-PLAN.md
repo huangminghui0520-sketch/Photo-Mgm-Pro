@@ -441,7 +441,8 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | **T04 纯函数上移 B** | ✅ **已完成**（2026-11-03）：PC 删私有 4 后缀实现改调 `isDerivedPhotoName`；`MediaSpec` 收敛嵌图规格 400×300/JPEG50；删死代码 `derivedSuffix`、订正角标注释。新增 `DerivedNamesTest` 7 条（含"旧实现是子集"方向断言，反证旧实现必红 3 条）。桌面黄金样本 **0 差异**、真机 **0 差异**；用户可见变化仅 3 张照片白点从无到有。执行细则、三处口径订正与实测见 **§12.5** |
 | **T05 纯函数上移 C** | ✅ **已完成**（2026-11-03）：C1 `Json`（279 行上移）+ 取消信号收敛（两端统一为 JDK `CancellationException`）；C2 `DebouncedTextStore` 只留策略、两端变薄适配。**无用户可见变化**：桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）、`export.log` 62 行仍为合法 JSON、安卓 `LogsTextStoreTest`/`SetLogsTextWiringTest` **一行未改**即通过。执行细则与三处口径订正见 **§12.6** |
 | **T06 安卓适配层归位** | ✅ **已完成**（2026-11-03）：C1 `ImageUtils` → `data/image/BitmapImageEncoder`（顺删 3 个转发别名，测试随迁）；C2 `SettingsStore` 介质段 → `data/storage/PrefsSettingsStorage`（key/编码/旧 key 迁移，JSON 与版本位判定留 `:app`）；C3 「打开台账」→ `data/shell/UriShellLauncher`（AR3：只持 `applicationContext`）。**无用户可见变化**：桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）；三个护栏测试（`BitmapImageEncoderOwnership` / `SettingsStoreLogs/ZoneMigration`）断言一行未改即通过。执行细则、边界判据与条数订正见 **§12.11** |
-| T07~T14 | 待开工（T07 domain 双跑可 ∥ T08；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项） |
+| **T07 视图派生上移** | ✅ **已完成**（2026-11-03）：`ViewDerivation`（effectiveMap / 三态展开 / 未匹配池 / ownersOf）、`ManualAdjustment`（move/copy/mark/reset）、`LedgerProjection`（台账行 + 照片列标签）、`PhotoOrder`（时间→文件名口径，**未启用**）四个文件进 `:shared:domain`。**双跑证明等价**：PC 侧 400 轮随机组合扫描（固定种子）+ 两条分辨力反证 + 安卓侧 6 条真实路径对比。**未切调用**，桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）。执行细则、两处计划偏差与一条"反证用例本身没有分辨力"的弯路见 **§14** |
+| T08~T14 | 待开工（T08 安卓契约层可 ∥ T09；T12 负责切调用 + 启用 PhotoOrder；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项） |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
 CI 结构断言扩到"三模块两端都必须挂 + 禁 `android/shared`/`desktop/shared`"；`REPO-LAYOUT.md` 升 v2。
@@ -521,6 +522,7 @@ M2 之前仍然只做纯函数，不碰编排。
 | **T05-C2** | 上移 `DebouncedTextStore`（只留策略，持久化走端口） | **P1** | T05-C1 | 0.5d | ✅ **11-03** | 1 共享文件 + 1 测试；两端薄适配（实测 `873e10a`） |
 | **M2 收口** | 全量验证 + CHANGELOG + tag `shared-v0.1` | **P1** | T05 | 0.5d | **11-03 进行中** | 见 §12.7 检查单（10 项中 9 项已完成，仅真机 V2 待设备接入） |
 | **T06** | Android 适配层归位（A1）：`ImageUtils`→`data/image`、`SettingsStore` 介质段→`data/storage`、新增 `data/shell/UriShellLauncher` | **P1** | M2 | 1.0d | ✅ **11-03** | `:data` 源文件 3→6；`:app` 少 1 个平台类 + 1 个类变薄（实测 `17cfbe7`/`a6031bd`/`e13c9e3`） |
+| **T07** | 视图派生 + 双跑对比：`ViewDerivation`/`ManualAdjustment`/`LedgerProjection`/`PhotoOrder` | **P1** | T05 | 1.0d | ✅ **11-03** | 4 共享文件 + 6 测试文件（domain +50 条）；**不切调用**（实测 `6ef689b`/`c922fd7`/`3c46b42`） |
 | **P1-3** | GPS"部分剥离"复现定性（可滑动） | **P2** | — | 0.5d | **11-11 ~ 11-12 缓冲** | 复现记录 + 去重判据要求 |
 
 **关键节点**：`11-04` 首次出现"两端行为开始一致"的量化证据；`11-06` 唯一改语义点落地；`11-10` 抵达 M2；`11-12` 缓冲截止。
@@ -881,3 +883,65 @@ T06 计划里写的是"介质段（prefs 读写）搬 `:data`，编解码留 `:a
 - **`ImageEncoder` 接口**：本步只搬位置，仍是 `object`。抽接口属 T09 的 `shared/app/port/`，
   届时 `BitmapImageEncoder` 变成该接口的安卓实现。
 - **安卓黄金样本**：设备接入后补跑（`run_android_real.sh` + 台账比对），与 M2 的 V2 双跑一起做。
+
+---
+
+## 14. T07 执行记录（视图派生 + 双跑对比，2026-11-03）
+
+**一句话**：把「人工调整后的有效归属」变成唯一实现，**但先不切调用** —— 用双跑证明等价。
+**用户可见变化：无。** 桌面黄金样本 0 差异。
+
+| 提交 | 内容 |
+| --- | --- |
+| `6ef689b` | **C1** 四个共享文件进 `:shared:domain`（纯新增，零调用方）+ 50 条域测试 |
+| `c922fd7` | **C2** PC 四个 private 方法提成 `PcViewDerivation`（参数化）+ 400 轮随机双跑对比 |
+| `3c46b42` | **C3** 安卓侧 6 条真实路径对比 + `:app` 显式依赖 `:shared:domain` |
+
+### 14.1 与计划的三处偏差
+
+| 计划原文 | 实际 | 原因 |
+| --- | --- | --- |
+| "`ViewDerivation`（`effectiveMap`/`expandedEventMap`/`effectiveUnmatched`/`dupGroups`）" | **`dupGroups` 没进** | 判重分组本身已经是共享的（`PhotoIngest.groupDupContent`），各端只多一层缓存。而缓存的失效判据（PC 用引用相等、安卓用 `AtomicReference` 一次性发布）是**并发模型**，不是业务规则 —— 上移就得把线程/协程带进 domain。改成"接收 `dupGroups` 参数"，缓存留平台。 |
+| "4 个对比测试" | **4 个域语义测试 + 2 个双跑对比测试** | `PhotoOrder` 是**两端都没有**的东西（见下），没有旧实现可比，只能写口径测试。真正的双跑（旧 vs 新）只有 PC 侧与安卓侧各一个。 |
+| "两端旧实现**暂不删除**（双跑期）" | PC 侧旧实现**换了位置**：从 `PhotoMgmCoreImpl` 的 private 方法搬进 `PcViewDerivation` | 那四个方法读实例字段、又是 private —— 测试除了反射没有别的办法，而反射测出来的东西不构成"等价"的证据；在测试里抄副本更糟（抄错了也测不出来）。搬动是参数化的逐字复制，核心类改一行委托，由黄金样本（0 差异）兜底。**T12 切调用后整个文件删除。** |
+
+### 14.2 一条弯路：反证用例本身可能没有分辨力
+
+写"证明测试有效"的反证时，第一版选了 `KEEP_WATERMARKED` 场景，断言"把原地移动算作直通则输出不同"。
+结果两种实现输出**完全相同** —— 因为该模式下"应保留版本"就是主图本身，直通与折叠殊途同归。
+换成 `KEEP_PLAIN` 才测得出差别（主图 vs `_original`）。
+
+**教训**：反证测试要先确认"错误实现真的会不同"，否则它只是在自我安慰。
+本次把这个失败版本的原因写进了测试注释，避免下一个人重走。
+
+### 14.3 验证
+
+| 项 | 结果 |
+| --- | --- |
+| L2 域 | `shared:domain` **67**（17 → 67，+50），失败 0 |
+| L2 桌面 | algorithm **335** / shared:app **21** / core **44**（40 → 44）/ ui **123**，失败 0 |
+| L2 安卓 | `:app` **58**（52 → 58，+6），失败 0 |
+| L1 门禁 | 取消 **105** 文件 / 忽略策略 **51** / 时区 **54**，全 OK（7 个新文件都被扫到） |
+| L3 桌面黄金样本 | **0 差异**（72 行 / 504 单元格 / 50 嵌图，`--ignore '^meta'`） |
+| L3 安卓黄金样本 | ⏳ 待设备接入（与 §12.7 第 3 项同一阻塞；本步不动安卓生产代码，预期 0 差异，但**未验不算过**） |
+
+双跑覆盖度：
+- PC 侧 **400 轮随机组合**（固定种子 `20261103`，失败可复现）：`overrideMap` × `copyMap` × `marked` × 三种 `keepMode`；
+  另加 `assertTrue(nonTrivial > 300)` 防止"整轮都在比两个空输入"。
+- 安卓侧 6 条，逐条对着真实调用路径（无调整 / 单张移动 / 批量移动 / 移出移入 / 预览 / 重复移动）。
+
+### 14.4 本次新发现（已登记）
+
+| # | 发现 | 处置 |
+| --- | --- | --- |
+| 1 | **两端都没有照片排序**，事件内顺序由 `Files.walk` / MediaStore 查询顺序决定 —— 属于未定义行为，换台机器台账照片列可能换一张 | 新增 `PhotoOrder` 定义口径（时间 → 文件名），**但 T07 不接线**：接上去会让黄金样本基线集体移动，无法区分"修好了"和"改坏了"。T12 单独提交 + 重采两端基线 |
+| 2 | **原地移动会改变事件内顺序**：`effectiveMap` 是"先摘除、再追加到末尾"，即使 target == 原事件也会把照片挪到列表尾部 | 既有行为，不是本步引入。已被 §14.2 的反证测试固定（期望值 `[2, 10]` 而非 `[10, 2]`），T12 接 `PhotoOrder` 后由时间/文件名决定 |
+| 3 | 安卓侧**无法注入重复组**做双跑：`_state` 是 private、没有 `forTest(ports)` 工厂 | 本步只覆盖"无重复组"这条路径并写明边界。T08 引入 forTest 工厂后补 |
+| 4 | `:app` 引用 `:shared:domain` 必须显式声明 | `:data` 的 `implementation` **不会**传递到 `:app`。与 T06-C3 补 `androidx.core` 同一条教训：自己 import 的就要自己声明 |
+
+### 14.5 留给后续
+
+- **T12 切调用**：PC 删 `PcViewDerivation`、安卓删 `effectiveMap`/`previewEventMap`/`effectiveUnmatched` 三个方法，
+  两端改调 `domain.view.ViewDerivation`；同一提交里启用 `PhotoOrder` 并重采两端黄金样本基线。
+- **T09 端口**：`ManualAdjustment` 目前是纯函数，切调用时要由 `AdjustUseCase` 持有，
+  状态发布（`StateFlow`）留在平台层。
