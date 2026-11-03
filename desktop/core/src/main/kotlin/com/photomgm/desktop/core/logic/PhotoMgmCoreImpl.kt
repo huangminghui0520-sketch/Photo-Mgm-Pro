@@ -439,52 +439,20 @@ internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
     /**
      * 合并人工移动 + 复制后的事件照片表（target=-1 → 移入未匹配池）。
      *
-     * 顺序是有意义的：先按 overrideMap 把照片从旧事件里摘掉、放进新事件，
-     * 再叠加 copyMap —— 这样"移动"永远优先于"复制"，复制只往表里加、从不摘。
+     * ★ T07：实现搬到 [PcViewDerivation]，此处只做状态透传。
+     *   搬动是为了让「双跑对比测试」能直接调到 PC 现行实现 —— private 方法读实例字段，
+     *   测试除了反射没有别的办法，而反射测出来的东西不构成"与 domain 实现等价"的证据。
+     *   T12 切换调用后本方法与 [PcViewDerivation] 一并删除。
      */
-    private fun effectiveMap(c: ClassifyResult): Map<Int, List<Long>> {
-        val map = c.eventPhotoMap.mapValues { it.value.toMutableList() }.toMutableMap()
-        val all = (c.eventPhotoMap.values.flatten() + c.unmatched).toSet()
-        for ((pid, target) in overrideMap) {
-            if (pid !in all) continue
-            map.values.forEach { it.remove(pid) }
-            if (target >= 0) map.getOrPut(target) { mutableListOf() }.add(pid)
-        }
-        for ((pid, targets) in copyMap) {
-            if (pid !in all) continue
-            // 被移进未匹配池的照片不再保留复制份（否则"移出"后它还挂在别的事件里）。
-            if ((overrideMap[pid] ?: 0) < 0) continue
-            for (target in targets) {
-                if (target < 0) continue
-                val list = map.getOrPut(target) { mutableListOf() }
-                if (pid !in list) list.add(pid)
-            }
-        }
-        return map
-    }
+    private fun effectiveMap(c: ClassifyResult): Map<Int, List<Long>> =
+        PcViewDerivation.effectiveMap(c, overrideMap, copyMap)
 
-    /** 三态展开（仅作用于已分类事件照片；未匹配不参与）。语义与 Android expandedEventMap 一致。 */
-    private fun expandedEventMap(c: ClassifyResult, mode: DedupKeepMode): Map<Int, List<Long>> {
-        val effective = effectiveMap(c)
-        if (mode == DedupKeepMode.KEEP_BOTH) return effective
-        val dup = dupGroups()
-        val keepAlways = marked.values.flatMap { listOfNotNull(it.first, it.second) }.toSet()
-        val originEventOf = HashMap<Long, Int>()
-        for ((eventId, ids) in c.eventPhotoMap) for (pid in ids) originEventOf[pid] = eventId
-        val passthrough = overrideMap
-            .filter { (pid, target) -> target < 0 || originEventOf[pid] != target }
-            .keys
-        return effective.mapValues { (_, ids) ->
-            PhotoIngest.expandForKeepMode(ids, dup, mode, keepAlways, passthrough)
-        }
-    }
+    /** 三态展开（仅作用于已分类事件照片；未匹配不参与）。语义见 [PcViewDerivation.expandedEventMap]。 */
+    private fun expandedEventMap(c: ClassifyResult, mode: DedupKeepMode): Map<Int, List<Long>> =
+        PcViewDerivation.expandedEventMap(c, overrideMap, copyMap, mode, dupGroups(), marked)
 
-    private fun effectiveUnmatched(c: ClassifyResult): List<Long> {
-        val all = (c.eventPhotoMap.values.flatten() + c.unmatched).toSet()
-        val moved = overrideMap.filterValues { it >= 0 }.keys
-        val removed = overrideMap.filterValues { it < 0 }.keys.filter { it in all }
-        return (c.unmatched.filter { it !in moved } + removed).distinct()
-    }
+    private fun effectiveUnmatched(c: ClassifyResult): List<Long> =
+        PcViewDerivation.effectiveUnmatched(c, overrideMap)
 
     private fun dupGroups(): Map<Long, List<Photo>> {
         val snapshot = photos
@@ -514,12 +482,8 @@ internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
         }
     }
 
-    private fun labelOf(folderName: String, ref: String?): String? {
-        if (ref.isNullOrBlank()) return null
-        val name = photosById.values.firstOrNull { it.sourceRef == ref }?.displayName
-            ?: ref.substringAfterLast('/')
-        return if (folderName.isBlank()) name else "$folderName/$name"
-    }
+    private fun labelOf(folderName: String, ref: String?): String? =
+        PcViewDerivation.labelOf(folderName, ref, photosById)
 
     /** 重算并发布全部派生视图；[status] 由调用方决定（READY / ANALYZING）。 */
     private fun republishViews(status: CoreStatus, message: String? = null) {
