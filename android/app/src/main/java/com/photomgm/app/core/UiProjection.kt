@@ -20,6 +20,8 @@ package com.photomgm.app.core
 
 import app.api.AppState
 import app.api.CoreStatus
+import app.api.ExportResult
+import app.api.userMessage
 import app.state.PhotoSession
 import com.photomgm.app.UiState
 import kotlinx.coroutines.flow.FlowCollector
@@ -29,17 +31,39 @@ import kotlinx.coroutines.awaitCancellation
 /**
  * 导出相关的**本地** UI 状态（安卓独有，不进共享 `AppState`）。
  *
- * ★ 为什么单独持有：共享层用 `lastExport: ExportResult` + `message` + `error` + `status`
+ * ★ 为什么不进共享 `AppState`：共享层用 `lastExport: ExportResult` + `message` + `error` + `status`
  *   表达同一件事，字段语义更全；而安卓底栏只要"进度条 + 一句话 + 成功与否"三个值。
- *   把这三个塞进共享契约，桌面端得永远背着三个用不到的成员（与 `Settings.window` 同一个教训）。
+ *   把这三个字段塞进共享契约，桌面端得永远背着三个用不到的成员（与 `Settings.window` 同一个教训）。
  *
- * ★ T11 提交②把导出切成 `ExportUseCase` 后，本类退化为对 `ExportResult` 的投影。
+ * ★ T11 提交②之后本类的定位（这条注释此前写的是"将来会退化"，现在兑现在这里）：
+ *   它**只承载"正在进行中的进度"**这一个共享层没有的状态。`message` / `ok` / `lastExport`
+ *   全部由 `ExportResult` 经 `projectExportResult()` 一次算出，没有任何第二份真值：
+ *     · message ← `ExportResult.userMessage()`（与 PC 同一句文案，四种结局同一套措辞）；
+ *     · ok      ← 没有取消且没有失败；
+ *     · lastExport ← `result.ledgerFile`（台账另存的私有副本，供「打开台账」）。
+ *   之所以不把这三个直接并进 `UiState`：`UiState` 是 `AppState + PhotoSession` 的**纯投影**，
+ *   往里塞可变输出会让"同一次状态快照投影两次得到不同结果"，`ThumbnailRefreshTest` 那种
+ *   主线程同步读 `state.value` 的断言会随机假失败。
  */
 internal data class ExportUi(
     val progress: Float? = null,
     val message: String? = null,
     val ok: Boolean? = null,
     val lastExport: String? = null,
+)
+
+/**
+ * `ExportResult` → [ExportUi]（导出结束时的唯一投影入口）。
+ *
+ * 单独抽成函数而不是在 ViewModel 的 listener 里就地拼：成功路径与"取消 / 部分失败"路径
+ * 走的是同一个 `onFinished`，两处各写一遍的话，取消时最容易漏掉 `ok = false`
+ * （那会让底栏把"取消"渲染成绿色的"导出完成 ✓"）。
+ */
+internal fun projectExportResult(result: ExportResult): ExportUi = ExportUi(
+    progress = null,
+    message = result.userMessage(),
+    ok = !result.cancelled && result.failed == 0,
+    lastExport = result.ledgerFile,
 )
 
 /**

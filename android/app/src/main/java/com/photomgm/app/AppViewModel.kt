@@ -12,15 +12,12 @@
 //   `SetLogsTextWiringTest` 都是对着这些签名与注入点写的，改签名等于把这轮重构的护栏拆掉。
 package com.photomgm.app
 
-import algorithm.AlgorithmApi
 import algorithm.AppZone
 import algorithm.ClassifyResult
 import algorithm.DedupKeepMode
 import algorithm.ParsedLog
-import algorithm.model.LedgerRow
 import algorithm.model.Photo
 import android.app.Application
-import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -28,25 +25,26 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.ContextCompat
-import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.api.LedgerRowInfo
+import app.api.ExportBlockedException
+import app.api.ExportListener
+import app.api.ExportProgress
+import app.api.ExportResult
 // T06：图片解码/裁剪/压缩是纯平台职责，已归位到 :data（原 app/ImageUtils.kt）。
-import com.photomgm.data.image.BitmapImageEncoder
 // T06：用系统应用打开导出文件（FileProvider + ACTION_VIEW + chooser）同属平台职责。
 import com.photomgm.data.shell.UriShellLauncher
 // T05-C1：取消语义上移到 :shared:app（`runCatchingCancellable` 原来在 app/Cancellable.kt）。
 import app.infra.runCatchingCancellable
 import com.photomgm.app.core.AndroidCore
 import com.photomgm.app.core.ExportUi
+import com.photomgm.app.core.projectExportResult
 import com.photomgm.app.core.projectUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,13 +52,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.LocalDate
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * UI 状态（形状与 T11 之前**完全一致**，UI 层零改动）。
@@ -684,83 +678,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- 导出（§7.3 Excel / §7.4 ZIP） ----------
 
-    /**
-     * 台账行生成（导出专用）。
-     *
-     * ★ T11 保留：写 xlsx 用的是**原始行**（带 `photo1Ref`，`XlsxWriter` 靠它找图），
-     *   而共享 `ViewPublisher` 发布的是**展示行**（带"文件夹名/文件名"前缀，给 UI 预览）。
-     *   两者不是同一份数据，不能相互替代。共享层对应的是 `ExportPlan.ledger`。
-     *   T11 提交②把导出切成 `ExportUseCase` 后，本方法随旧导出实现一起删除。
-     */
-    private fun buildRows(s: UiState, eventPhotoMap: Map<Int, List<Long>>): List<LedgerRow>? {
-        val c = s.classify ?: return null
-        val parsed = s.parsed ?: return null
-        val photoById: Map<Long, Photo> = s.photos.associateBy { it.id }
-        // ★ 传入人工台账标记，否则「设为台账」在导出时被静默忽略；
-        //   namingTemplate 保证台账照片列"文件夹名/文件名"前缀与 ZIP 分类文件夹一致（P1-3）
-        return AlgorithmApi.buildLedger(parsed.events, eventPhotoMap, photoById::get, s.marked, s.namingTemplate, AppZone.ID)
-    }
-
-    /**
-     * 台账内容准备（§7.3，ZIP 导出使用）：
-     * buildRows → 并行解码照片字节（4:3 裁剪 400px JPEG50）→ 返回 (rows, 图片字节缓存, 调试统计)。
-     * 失败返回 null。
-     * @param eventPhotoMap 打包前一刻的最终分类快照（台账与 ZIP 共用，保证照片一致）
-     * @param onProgress 图片预收集进度回调（0.1..0.7 区间；★ 2026-10-08 并行 + 每 5 张节流）
-     */
-    private suspend fun prepareLedger(
-        s: UiState,
-        eventPhotoMap: Map<Int, List<Long>>,
-        onProgress: (Float) -> Unit = {},
-    ): Triple<List<LedgerRow>, Map<String, ByteArray?>, String>? {
-        return try {
-            val rows = buildRows(s, eventPhotoMap) ?: return null
-            // ★ 分区存储：sourceRef 是 MediaStore DATA 物理路径，Android 10+ 无法直接 decodeFile，
-            //   用 Photo.id 构造 content://media/... URI 读取（App 有 READ_MEDIA_IMAGES 权限）。
-            val ctx = getApp()
-            val photoByRef: Map<String, Photo> = s.photos.associateBy { it.sourceRef }
-            val refs = rows.flatMap { listOfNotNull(it.photo1Ref, it.photo2Ref) }.distinct()
-            if (refs.isEmpty()) return Triple(rows, emptyMap(), "图片:成功0/失败0")
-            // ★ 2026-10-08 P1-4/P1-6：并行解码（固定并发，Dispatchers.Default 自然限流）
-            //   async 任务按 refs 顺序 await 保序；计数/容器并发安全；进度每 5 张一跳。
-            val done = AtomicInteger(0); val ok = AtomicInteger(0); val fail = AtomicInteger(0)
-            val failures = ConcurrentLinkedQueue<String>()
-            val bytesCache = ConcurrentHashMap<String, ByteArray?>()
-            val total = refs.size
-            coroutineScope {
-                refs.map { ref ->
-                    async(Dispatchers.Default) {
-                        val photo = photoByRef[ref]
-                        val readRef = photo?.let { p ->
-                            if (ref.startsWith("/") || ref.startsWith("file:"))
-                                ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, p.id).toString()
-                            else ref
-                        } ?: ref
-                        val bytes = BitmapImageEncoder.process(ctx, readRef)
-                        if (bytes != null && bytes.isNotEmpty()) ok.incrementAndGet() else {
-                            fail.incrementAndGet()
-                            failures.add("${ref.substringAfterLast('/')}(found=${photo != null},id=${photo?.id})")
-                        }
-                        bytesCache[ref] = bytes
-                        val n = done.incrementAndGet()
-                        if (n % 5 == 0 || n == total) onProgress(0.1f + 0.6f * n / total.coerceAtLeast(1))
-                    }
-                }.forEach { it.await() }
-            }
-            val imgDebug = "图片:成功${ok.get()}/失败${fail.get()}" +
-                if (failures.isNotEmpty()) " 失败[${failures.joinToString(",")}]" else ""
-            Triple(rows, bytesCache, imgDebug)
-        } catch (e: CancellationException) {
-            // ★ 2026-10-31 审查修复：取消必须重抛（同 exportZip）。
-            //   否则协程已取消，本函数却返回 null 让 exportZip 继续跑完剩余的图片解码与打包。
-            throw e
-        } catch (e: Exception) {
-            // ★ P3-9：记录异常（此前静默吞错，真机"台账未生成"无日志可查）
-            Log.w("Photo-Mgm", "prepareLedger 失败（台账未生成）", e)
-            null
-        }
-    }
-
     /** ★ 打开最近导出的台账文件（导出Excel 2.0 方案 §4.4：成功后提供「打开」）。
      *  用 Toast 直接提示（不依赖页面滚动位置）。
      *  ★ T06：FileProvider / ACTION_VIEW / chooser 全部移到 `:data` 的 [UriShellLauncher]，
@@ -780,185 +697,82 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 导出 ZIP：按事件分类文件夹打包（命名模板由设置页选择），未匹配→未分类（§7.4）。
-     *  ★ 2026-09-08 需求：压缩包同时包含 照片分类文件夹 + 台账 Excel（extraFiles 打入 ZIP）。
-     *  核心 ZipExporter 仅收 File（PC 可移植）→ Android 侧先写临时文件，再复制到输出目标（SAF/路径）。 */
+    /**
+     * 导出 ZIP：按事件分类文件夹打包（命名模板由设置页选择），未匹配→未分类（§7.4）。
+     * 压缩包同时包含 照片分类文件夹 + 台账 Excel。
+     *
+     * ★ T11 提交②：本方法从"自己实现导出"退化为**只负责协程形态与门禁**。
+     *   计划生成（哪些照片进哪个文件夹、重名后缀、台账行）、前置闸门（未分析 / 未设目录 /
+     *   无可导出照片）、结果回填，全部在共享 `ExportUseCase` + `AndroidZipExportExecutor`。
+     *   本类保留的只有三件平台工作，理由与类头一致：
+     *     1. **门禁必须是原子的 CAS 且发生在 launch 之前**（见下）；
+     *     2. **协程生命周期**：Job 级兜底复位（协程还没开始就被取消时，body 里的 finally 不跑）；
+     *     3. **状态投影**：`ExportResult` → 底栏要的"进度 + 一句话 + 成功与否"。
+     *
+     * ★ 导出重入门禁为什么不能交给共享层：共享层的闸门是"`status == EXPORTING` 就拒绝"，
+     *   而状态变更发生在协程**体内** —— 两次快速点击会在同一个主线程 tick 内先后通过检查。
+     *   原来踩过的故障是两个导出协程共用同一个 tmpZip（文件名精确到秒），先结束者删掉
+     *   对方正在写的文件，产物损坏。CAS 把"检查 + 置位"压成一个操作，跨线程也成立。
+     */
     fun exportZip() {
-        // ★ 2026-10-31 审查修复：导出重入门禁，且必须在 launch 之外**同步**完成。
-        //   原实现把 check-then-act 放在协程体内（Dispatchers.IO），两次快速点击会先后通过检查：
-        //   两个导出协程共用同一个 tmpZip（文件名精确到秒，同秒同名）与同一个 stateFile，
-        //   先结束者执行 tmpZip.delete() 会删掉对方正在写的文件 → ZIP 损坏或"导出失败"，
-        //   断点续传状态也会互相覆盖。busy 只由解析流水线置位、导出期间为 false，拦不住重入。
-        //
-        // ★ 2026-10-31 复核补充：门禁改用 [exportBusy].compareAndSet 做**原子** check-then-act。
-        //   原写法是「读 state.value → _state.update」两步：StateFlow 各自的读/写是原子的，
-        //   但两步之间不是——若 exportZip 将来被非主线程调用（如外部触发），仍有并发窗口。
-        //   CAS 把"检查 + 置位"压成一个操作，跨线程、跨调用点都成立，且不引入锁。
-        //   门禁内**不含任何 IO**：只读内存态 state.value、写 StateFlow、CAS 布尔量，
-        //   因此放在调用线程（主线程）执行无卡顿风险。
-        //
-        //   ★ 为何没有把 UiState.busy 本身改成 AtomicBoolean：busy 是 UI 状态，被
-        //     AppNav / LogInputSection / UnifiedScreen 直接读取渲染，改成原子量会穿透到
-        //     UI 层并破坏状态提升（state 必须是不可变快照）。它的可见性由 MutableStateFlow
-        //     保证（update 是 CAS 循环、value 读取拿到最新引用），作为**判据**是安全的；
-        //     真正的"互斥"由 exportBusy 承担。
+        // ★ 解析流水线跑着就不许导出：导出按入口快照打包，而流水线会把 photos / classify 换掉
         if (state.value.busy) return
         if (!exportBusy.compareAndSet(false, true)) return   // 已有导出在跑 → 直接丢弃本次点击
-        // 同时清掉上一次结果，避免旧文案误导
-        exportUi.update { it.copy(progress = 0f, message = null, ok = null) }
-        // ★ E(#6)：调度器可注入（默认 Dispatchers.IO），测试用 StandardTestDispatcher 推进虚拟时间
+        // 清掉上一次的结果，避免旧文案误导（"成功 0"看起来像这次的结果）
+        exportUi.update { it.copy(progress = 0f, message = null, ok = null, lastExport = null) }
+
         val exportJob = viewModelScope.launch(exportDispatcher) {
-            // ★ 2026-10-31 复核补充：进度复位与门禁释放统一收口在 finally，
-            //   不再依赖"每个提前 return 都记得手写复位"（漏一处 → 导出入口永久禁用）。
-            //   取消时 finally 照常执行；exportBusy.set 是原子操作，不依赖协程是否还活着。
+            // 取消查询取的是**本协程 Job** 的状态：`isCancelled` 会被一路传到执行器的每个
+            // 文件边界，协程被取消时导出在下一条照片之前停下，不再白读几十张图。
+            val selfJob = coroutineContext[Job]
             try {
-            val s = state.value
-            // ★ 修复：未设置输出目录禁止导出（★ 提前返回必须复位 exportProgress，否则导出入口永久禁用）
-            if (s.outputDir.isNullOrBlank()) {
-                core.notify("未设置输出目录，请先在「设置」页选择或输入输出目录后再导出")
-                setExportProgress(null)
-                return@launch
-            }
-            val c = s.classify ?: run {
-                core.notify("请先在预览页生成分类")
-                setExportProgress(null); return@launch
-            }
-            val parsed = s.parsed ?: run {
-                core.notify("请先解析日志")
-                setExportProgress(null); return@launch
-            }
-        // ★ 2026-10-08 P0-3：临时文件声明移到 try 外——导出失败也必须清理（含原图，可达几十 MB）
-        val fileName = "照片分类_${s.date.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))}_" +
-                java.time.LocalDateTime.now(AppZone.ID)
-                    .format(java.time.format.DateTimeFormatter.ofPattern("HHmmss")) + ".zip"
-        // ★ 断点续传状态文件与输出位置解耦（放 app 私有 files 目录），避免输出目录切换丢失
-        val stateFile = File(getApp().filesDir, ".export_state_${s.date}.json")
-        val tmpZip = File(getApp().cacheDir, fileName)
-        try {
-            // ★ 2026-10-08 P0-2：photoById 建表 O(1)（替代线性 find，与 photoByRef 对齐）
-            val photoById: Map<Long, Photo> = s.photos.associateBy { it.id }
-            // ★ 打包前一刻计算最终分类快照（合并人工移动/移除），台账与打包共用同一份，保证照片一致
-            // ★ 2026-10-24 B1：已分类事件照片按三态展开（带水印/不带水印/都保留）；
-            //   未匹配照片不参与三态、全量保留（effectiveUnmatched 原样）。
-            //   ★ 已知边界（2026-10-31）：因此「仅保留带水印」时，未匹配或被人工移除（target<0）的
-            //     _original 仍会进入 ZIP 的「未分类」文件夹。属既有设计约定（未匹配=待人工处理），
-            //     收窄未匹配池属语义变更、需产品确认，此处先标注，勿误当 bug 改。
-            val finalMap = core.previewEventMap(c)
-            val finalUnmatched = core.effectiveUnmatched(c)
-            val expandedTotal = finalMap.values.flatten().size + finalUnmatched.size   // 去重后张数
-            // ★ 2026-10-31 C：记录被三态折叠/整组抑制掉的照片数——"照片怎么不见了"时的定位线索。
-            //   仅在导出一刻记一次（预览会高频重算，避免日志刷屏）。
-            if (s.dedupKeepMode != DedupKeepMode.KEEP_BOTH) {
-                val beforeCount = core.effectiveMap(c).values.sumOf { it.size }
-                val afterCount = finalMap.values.sumOf { it.size }
-                if (beforeCount > afterCount)
-                    Log.d("Photo-Mgm", "三态[${s.dedupKeepMode}] 折叠+整组抑制 ${beforeCount - afterCount} 张")
-            }
+                core.exportZip(
+                    listener = object : ExportListener {
+                        override fun onProgress(progress: ExportProgress) {
+                            setExportProgress(progress.fraction)
+                        }
 
-            // ★ 台账 Excel 准备（用同一个 finalMap，保证台账照片 = 实际打包的照片）
-            val prep = prepareLedger(s, finalMap) { frac -> setExportProgress(0.6f * frac) }
-            val xlsxBytes = prep?.let { (rows, cache, _) ->
-                val bos = ByteArrayOutputStream()
-                // ★ 2026-10-31：协程体内改用 runCatchingCancellable（取消信号不被吞）。
-                //   本处包裹的是非 suspend 调用，今天不会抛取消；但它是导出协程里最重的一步，
-                //   将来一旦加入挂起点（如切线程写盘）就会静默复现 S1，故按统一约定写。
-                runCatchingCancellable { AlgorithmApi.exportLedgerXlsx(rows, bos) { ref -> cache[ref] } }
-                    .getOrNull()?.let { bos.toByteArray() }
-            }
-            // ★ 台账文件名含巡查日期 + 时分秒：区分"导出时刻"与"巡查日期"，
-            //   并避免同日二次导出时同名被静默覆盖（SAF findFile 会复用同名文档）。
-            val now = java.time.LocalDateTime.now(AppZone.ID)
-            val stamp = now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
-            val xlsxName = "巡查台账_${s.date.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"))}_$stamp.xlsx"
-            val extraFiles = if (xlsxBytes != null && xlsxBytes.isNotEmpty()) mapOf(xlsxName to xlsxBytes) else emptyMap()
-            // ★ 2026-10-18 P0-2：台账 xlsx 单独落缓存（App 外部私有目录，FileProvider 可打开），
-            //   供导出后「打开台账」直接打开；ZIP 内的 xlsx 不便直开。台账失败时为 null。
-            val xlsxCachePath = if (xlsxBytes != null && xlsxBytes.isNotEmpty()) {
-                runCatchingCancellable {
-                    val dir = File(getApp().getExternalFilesDir(null), "export").apply { mkdirs() }
-                    val f = File(dir, xlsxName)
-                    f.writeBytes(xlsxBytes)
-                    f.absolutePath
-                }.getOrNull()
-            } else null
+                        override fun onFinished(result: ExportResult) {
+                            // 文案 / 成功判据 / 台账路径三者的唯一投影入口（见 projectExportResult）
+                            exportUi.value = projectExportResult(result)
+                            // 失败明细在底栏放不下（底栏只有一行），走提示通道补一句可执行的处置建议
+                            if (result.failed > 0) {
+                                val sample = result.failures.take(2)
+                                    .joinToString("；") { "${it.relativePath}（${it.reason}）" }
+                                core.notify("有 ${result.failed} 张照片未打包：$sample")
+                            }
+                        }
 
-            val r = AlgorithmApi.exportZip(parsed.events, finalMap, finalUnmatched,
-                photoById::get, s.namingTemplate, tmpZip, stateFile, extraFiles = extraFiles,
-                zone = AppZone.ID) { frac, _ ->
-                setExportProgress(0.6f + 0.4f * frac)
-            }
-            // ★ 2026-10-18 P0-2：copyToOutput 返回 null = 输出目录不可写，结果里需提示；
-            //   tmpZip 无论是否复制统一清理（断点续传跳过时也会残留空文件）。
-            val shown = if (r.copied > 0 || r.failed > 0) copyToOutput(tmpZip, fileName) else null
-            // ★ 2026-10-31：协程体内一律用 runCatchingCancellable（三处 tmpZip 清理统一）。
-            //   delete() 是非挂起调用，今天不会抛取消；统一写法的好处是 CI 规则零例外，
-            //   将来谁在这里插入一个挂起调用，取消语义仍是对的。
-            runCatchingCancellable { tmpZip.delete() }
-            val skipNote = if (r.skippedFromState > 0) "（跳过已完成 ${r.skippedFromState}）" else ""
-            val writeNote = if (r.copied > 0 && shown == null) "（输出目录不可写）" else ""
-            // ★ 2026-10-18 P0-3：打包失败明细摘要（前 2 条 + 总数），让用户知道缺了哪些照片、为什么
-            val failNote = if (r.failedDetails.isNotEmpty()) {
-                val shown2 = r.failedDetails.take(2).joinToString("；")
-                val more = r.failedDetails.size - 2
-                " 失败[${shown2}${if (more > 0) " 等${r.failedDetails.size}条" else ""}]"
-            } else ""
-            // ★ 2026-10-08 P0-1：Excel 生成结果附图片统计/失败明细，失败可诊断（不再静默降级）
-            val xlsxNote = if (extraFiles.isNotEmpty()) {
-                val dbg = prep?.third.orEmpty()
-                if (dbg.isNotBlank()) " + 台账Excel（$dbg）" else " + 台账Excel"
-            } else {
-                "（台账未生成：${prep?.third ?: "准备失败"}）"
-            }
-            // ★ 2026-10-31 审查修复：成功判据——正常打包且写出到输出目录，或断点续传判定已完成
-            //   （ZipExporter 跳过前已校验产物存在）。输出目录不可写（shown=null）仍属失败，
-            //   不能因为"没抛异常"就报成功。
-            val ok = (r.copied > 0 && shown != null) || r.skippedFromState > 0
-            exportUi.update {
-                it.copy(
-                    // ★ 2026-10-24 B1：导出消息附去重后张数（三态展开后的实际打包数）
-                    message = "ZIP 导出：成功 ${r.copied} / 失败 ${r.failed}（去重后共 $expandedTotal 张）$failNote$skipNote$xlsxNote$writeNote",
-                    progress = null,
-                    ok = ok,
-                    // ★ 2026-10-18 P0-2：回填台账 xlsx 缓存路径（此前从未赋值 → 「打开台账」永远无响应）；
-                    //   台账失败时为 null → UI 不显示「打开台账」入口。
-                    lastExport = xlsxCachePath,
+                        override fun onFailed(error: Throwable) {
+                            // 两类失败的呈现方式不同，混在一起会让用户误读：
+                            //   · ExportBlockedException = 前置条件没满足（未设目录 / 未分析 /
+                            //     无可导出照片）。文案已由 AndroidCore 或共享层写进 AppState.error，
+                            //     它会被投影成 `UiState.message` 直接显示。**不设 exportMessage** ——
+                            //     否则 AppNav 的第 2 步会被点亮成"已导出"，而实际上是根本没开始。
+                            //   · 其他 = 真的执行失败了（IO/OOM…）。这时要设 exportMessage + ok=false，
+                            //     底栏才会显示红色的"导出未完成 ⚠"。
+                            if (error is ExportBlockedException) {
+                                exportUi.update { it.copy(progress = null) }
+                            } else {
+                                exportUi.update {
+                                    it.copy(
+                                        progress = null,
+                                        message = "ZIP 导出失败：${error.message ?: error.javaClass.simpleName}",
+                                        ok = false,
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    isCancelled = { selfJob?.isActive != true },
                 )
+            } finally {
+                // ★ 门禁释放与进度复位统一收口在 finally：不再依赖"每个提前 return 都记得手写"。
+                //   提前 return 的分支现在都在共享层的 `prepare` 里，但仍保留这一层 ——
+                //   将来若本方法加回同步前置判断，漏写会表现为"导出按钮永久点不动"。
+                exportBusy.set(false)
+                if (exportUi.value.progress != null) setExportProgress(null)
             }
-            // ★ 2026-10-31：失败时一并把原因送进 Snackbar 通道（底栏只有一行，放不下失败明细），
-            //   否则界面只在底栏标红、用户拿不到任何可执行的信息。成功时不动既有提示。
-            if (!ok) {
-                core.notify(
-                    "ZIP 导出未完成：" +
-                        if (shown == null) "输出目录不可写，请在设置中重新选择"
-                        else "有照片未打包，请查看底栏明细"
-                )
-            }
-        } catch (e: CancellationException) {
-            // ★ 2026-10-31 审查修复：取消必须重抛（结构化并发）。
-            //   JVM 上 kotlinx.coroutines.CancellationException 是 java.util.concurrent.CancellationException
-            //   的 typealias，继承 IllegalStateException → 会被下方 catch (Exception) 吞掉：
-            //   协程已取消却仍把状态写成"ZIP 导出失败"，外层也感知不到取消。
-            //   与 autoPipeline / parseLogs 的处理保持一致。
-            runCatchingCancellable { tmpZip.delete() }
-            setExportProgress(null)
-            throw e
-        } catch (e: Exception) {
-            // ★ 2026-10-08 P0-3：失败也清理临时 ZIP（可能含全部原图，几十 MB）
-            runCatchingCancellable { tmpZip.delete() }
-            exportUi.update { it.copy(message = "ZIP 导出失败：${e.message}", progress = null, ok = false) }
-        }
-        } finally {
-            // ★ 2026-10-31 复核补充：**外层** try 的唯一出口释放门禁。
-            //   必须包住提前 return 的分支（未设输出目录 / 未生成分类 / 未解析日志），否则这些分支
-            //   return 后 exportBusy 永远不释放 → 导出按钮再也点不动（比原 bug 更隐蔽）。
-            //   同时兜住 Error/Throwable：catch(Exception) 抓不到 OOM，此前会让 exportProgress
-            //   卡在非 null，导出永久不可用且无任何提示。
-            exportBusy.set(false)
-            if (exportUi.value.progress != null) setExportProgress(null)
-        }
-        // ★ E(#6)：finally 只兜得住"body 至少跑过一次"的情形。协程在开始执行之前就被取消
-        //   （ViewModel 销毁、或测试里 cancel 后直接推进调度器）时 body 一次都不跑，finally 不会触发，
-        //   门禁会永远停在 true → 导出入口永久禁用且无任何提示。故再挂一层 Job 级兜底。
         }
         bindExportGateTo(exportJob)
     }
@@ -980,36 +794,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (exportUi.value.progress != null) setExportProgress(null)
         }
     }
-
-    private fun exportDir(): File {
-        val custom = state.value.outputDir
-        return if (!custom.isNullOrBlank() && !custom.startsWith("content://")) File(custom).also { it.mkdirs() }
-        else File(getApp().getExternalFilesDir(null), "export").also { it.mkdirs() }
-    }
-
-    /** 打开输出写入流：SAF 树 URI → contentResolver；否则本地文件流。返回 (流, 用户可见位置)。 */
-    private fun openOutputSink(fileName: String): Pair<java.io.OutputStream?, String> {
-        val custom = state.value.outputDir
-        if (!custom.isNullOrBlank() && custom.startsWith("content://")) {
-            val parent = DocumentFile.fromTreeUri(getApp(), Uri.parse(custom)) ?: return null to custom
-            val doc = parent.findFile(fileName) ?: parent.createFile("application/octet-stream", fileName)
-                ?: return null to custom
-            val os = getApp().contentResolver.openOutputStream(doc.uri)
-            return os to doc.uri.toString()
-        }
-        val dir = exportDir().apply { mkdirs() }
-        val f = File(dir, fileName)
-        return f.outputStream() to f.absolutePath
-    }
-
-    /** 把已生成的临时文件复制到输出目标（SAF 树或本地路径）。返回用户可见位置；失败（目录不可写）返回 null。 */
-    private fun copyToOutput(tmp: File, fileName: String): String? {
-        val (os, shown) = openOutputSink(fileName)
-        if (os == null) return null
-        os.use { out -> tmp.inputStream().use { it.copyTo(out) } }
-        return shown
-    }
-
     /** 台账照片标记：slot=1 照片1 / slot=2 照片2；photoId=null 表示恢复默认（最早+最晚）。 */
     fun markLedgerPhoto(eventId: Int, slot: Int, photoId: Long?) {
         core.markLedgerPhoto(eventId, slot, photoId)

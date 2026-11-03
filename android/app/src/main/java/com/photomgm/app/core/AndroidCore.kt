@@ -21,10 +21,14 @@
 //   ④ 最后接用例。
 package com.photomgm.app.core
 
+import algorithm.AppZone
 import algorithm.CandidatePhoto
 import algorithm.ClassifyResult
 import app.api.AppState
 import app.api.CoreStatus
+import app.api.ExportBlockedException
+import app.api.ExportListener
+import app.api.ExportRequest
 import app.api.ProgressListener
 import app.api.Settings
 import app.infra.DebouncedTextStore
@@ -32,6 +36,7 @@ import app.state.AppStateStore
 import app.state.PhotoSession
 import app.usecase.AdjustUseCase
 import app.usecase.AnalysisPipeline
+import app.usecase.ExportUseCase
 import app.usecase.PhotoScan
 import app.usecase.SettingsUseCase
 import app.usecase.ViewPublisher
@@ -40,6 +45,7 @@ import com.photomgm.app.SettingsStore
 import com.photomgm.app.core.adapter.AndroidLogTextStorage
 import com.photomgm.app.core.adapter.AndroidPhotoIdSource
 import com.photomgm.app.core.adapter.AndroidSettingsStorage
+import com.photomgm.app.core.adapter.AndroidZipExportExecutor
 import com.photomgm.data.ExifPhotoReader
 import com.photomgm.data.FileHasher
 import com.photomgm.data.MediaStorePhotoSourceProvider
@@ -47,6 +53,8 @@ import domain.adjust.ManualState
 import domain.view.ViewDerivation
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * 安卓端核心（装配根）。
@@ -86,6 +94,16 @@ class AndroidCore(
     // ── 用例 ──────────────────────────────────────────────────────────────
     private val adjust = AdjustUseCase(store, session)
     private val settingsUseCase = SettingsUseCase(store, session, settingsStorage) { logsProvider() }
+
+    /**
+     * 导出（T11 提交②）：计划生成、闸门、结果回填全部在共享 [ExportUseCase]，
+     * 本类只负责**把平台执行器接上去**。
+     *
+     * ★ 执行器持有一份即可（无状态：所有输入都从 `execute` 的参数进来）。
+     *   它内部只用 `applicationContext`，不持有 View 或 Activity。
+     */
+    private val zipExporter = AndroidZipExportExecutor(appContext)
+    private val export = ExportUseCase(store, session, zipExporter)
 
     init {
         restoreFromCache()
@@ -297,6 +315,47 @@ class AndroidCore(
         }
     }
 
+    // ── 导出（§7.4） ──────────────────────────────────────────────────────
+
+    /**
+     * 导出为 ZIP（**阻塞**，调用方决定跑在哪个协程上）。
+     *
+     * @param ledgerName 台账文件名。由本类生成而不交给 ViewModel：它是"安卓产物形态"的一部分
+     *   （一次性 ZIP，解压后只看到这一个表格，必须带巡查日期与导出时刻才能区分多次导出），
+     *   与 PC 固定 `ledger.xlsx` 的差别属于平台差异，不该让编排层知道。
+     */
+    fun exportZip(
+        listener: ExportListener,
+        isCancelled: () -> Boolean,
+    ) {
+        val settings = store.current().settings
+        // ★ 未设输出目录在这里拦，而不是只靠共享层的 `prepare`：
+        //   `prepare` 的检查顺序是「状态 → 是否分析过 → 目标是否为空」，所以"既没分析也没设目录"
+        //   的用户会先看到"请先完成分析"，而他真正该做的是先去设置页选个目录。
+        //   Android 的既有语义是"没有输出位置 = 这次导出根本不该启动"，先说不设目录的那句。
+        //
+        // ★ 提成局部 val：`settings.outputDir` 是**跨模块**的 public 属性，Kotlin 不对它做
+        //   smart cast（编译器无法证明中间没有被别的线程改掉），直接用会编译失败。
+        val outputDir = settings.outputDir?.takeIf { it.isNotBlank() }
+        if (outputDir == null) {
+            val message = "未设置输出目录，请先在「设置」页选择或输入输出目录后再导出"
+            notify(message)
+            listener.onFailed(ExportBlockedException(message))
+            return
+        }
+        val now = LocalDateTime.now(AppZone.ID)
+        val ledgerName = "巡查台账_${LEDGER_DATE.format(settings.patrolDate)}_${LEDGER_TIME.format(now)}.xlsx"
+        export.export(
+            request = ExportRequest(
+                target = outputDir,
+                includeLedger = true,
+                ledgerName = ledgerName,
+            ),
+            listener = listener,
+            isCancelled = isCancelled,
+        )
+    }
+
     // ── 提示 ──────────────────────────────────────────────────────────────
 
     fun notify(message: String) = store.withLock {
@@ -394,4 +453,12 @@ class AndroidCore(
 
     /** 当前设置的快照（UI 不需要，测试与装配检查用）。 */
     fun currentSettings(): Settings = store.current().settings
+
+    private companion object {
+        /** 台账文件名里的巡查日期（`巡查台账_20260814_131349.xlsx`）。 */
+        val LEDGER_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
+
+        /** 台账文件名里的导出时刻。 */
+        val LEDGER_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HHmmss")
+    }
 }
