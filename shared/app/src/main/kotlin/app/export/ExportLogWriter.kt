@@ -1,11 +1,21 @@
-// desktop/core/export/ExportLogWriter.kt —— export.log（JSON Lines）
+// shared/app/export/ExportLogWriter.kt —— export.log（JSON Lines）
 //
 // 规格（方案 §4.5-④）：
 //   · UTF-8 无 BOM，每行一个 JSON 对象，每次导出**覆盖写**（不追加历史）；
 //   · 字段：timestamp / level / event / relativePath / reason / bytes / durationMs；
 //   · 末行 export_end 带 summary{total,success,skipped,failed}；
 //   · 目的：机器可读（双端比对、排障脚本可直接 jq）+ 人可读（记事本打开就能看）。
-package com.photomgm.desktop.core.export
+//
+// ★ T11 提交②：本类从 `desktop/core/export` **原样上移**（此前只有 PC 写这份日志，
+//   安卓导出没有任何机器可读的产物，出问题只能靠用户复述"底栏写了什么"）。
+//   上移而不是各写一份的理由与 `ExportPlanner` 相同：日志格式是"两端产物对拍"的基准，
+//   两份实现必然在字段名/顺序上漂移，而漂移的症状是"对拍脚本只说对不上"。
+//
+// ★ 为什么上移后仍是"写文件"而不是"写 Appendable"：两端都不需要把日志塞进产物
+//   （PC 的导出目录本身是文件夹，安卓的 ZIP 里放一份日志会让"逐条对拍 ZIP 条目"多一条噪音），
+//   都写在自己的私有目录里供排障取用。若将来真需要打进 ZIP，再抽 `Appendable` 不迟 ——
+//   现在多一层抽象只会让"关文件"这件事变成调用方的责任。
+package app.export
 
 import app.infra.Json
 import app.infra.json
@@ -17,7 +27,13 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-internal class ExportLogWriter(
+/**
+ * 导出日志写入器。
+ *
+ * ★ 所有写入都是"尽力而为"：磁盘满、目录不可写时**静默放弃**（`writer()` 返回 null），
+ *   调用方无需 try/catch。日志是排障辅助，不能因为写不了日志就让一次成功的导出报失败。
+ */
+class ExportLogWriter(
     private val file: Path,
     private val zone: ZoneId,
 ) : AutoCloseable {
@@ -27,7 +43,7 @@ internal class ExportLogWriter(
     private fun writer(): BufferedWriter? {
         writer?.let { return it }
         return runCatching {
-            Files.createDirectories(file.parent)
+            file.parent?.let { Files.createDirectories(it) }
             Files.newBufferedWriter(
                 file, Charsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE,

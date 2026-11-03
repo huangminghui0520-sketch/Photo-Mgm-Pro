@@ -23,6 +23,7 @@ import app.api.ExportPlan
 import app.api.ExportProgress
 import app.api.ExportRequest
 import app.api.ExportResult
+import app.api.userMessage
 import app.export.ExportPlanner
 import app.state.AppStateStore
 import app.state.PhotoSession
@@ -99,7 +100,13 @@ class ExportUseCase(
         val parsed = session.parsed
         val classify = session.classify
         if (parsed == null || classify == null) {
-            runCatching { listener.onFailed(IllegalStateException("请先完成分析再导出")) }
+            // ★ T11 提交②：这里与"未设目录 / 无可导出照片"归为**同一类前置阻断**，
+            //   但**不改 status**（未分析时状态本来就是 IDLE，改成 READY 等于谎称"可导出了"）。
+            //   以前这一支只走 listener、不写 `state.error`，症状是：用户点导出，界面什么都不显示
+            //   （Android 侧尤其明显 —— 底栏没有任何变化，用户会连点几次）。
+            val message = "请先完成分析再导出：请先解析日志并生成分类"
+            store.publish { it.copy(error = message) }
+            runCatching { listener.onFailed(ExportBlockedException(message)) }
             return null
         }
         if (request.target.isBlank()) {
@@ -120,6 +127,7 @@ class ExportUseCase(
             namingTemplate = state.settings.namingTemplate,
             includeLedger = request.includeLedger,
             zone = session.zone,
+            ledgerName = request.ledgerName,
         )
         if (!plan.hasTargets) {
             return blocked(
@@ -156,13 +164,9 @@ class ExportUseCase(
     /**
      * 完成提示语（四种结局，文案两端必须一致 —— 用户靠它判断"能不能直接用"）。
      *
-     * ★ 取消排在第一位：取消的导出**可能已经写出了一部分**，若先说"导出完成"，
-     *   用户会拿一个不全的目录去交付。
+     * ★ 实现已挪到 [app.api.userMessage]（T11 提交②：安卓侧也要用同一套文案，
+     *   而它手里只有 `ExportResult`，没有本用例实例）。这里保留同名方法是为了不惊动
+     *   PC 侧既有调用点，**行为一字未改**。
      */
-    internal fun exportMessage(result: ExportResult): String = when {
-        result.cancelled -> "导出已取消：已导出 ${result.copied} 个文件，可稍后续传"
-        result.resumed -> "上次导出的产物校验一致（${result.skipped} 个文件），本次未重复复制"
-        result.failed > 0 -> "导出完成但有 ${result.failed} 个失败，详见 export.log"
-        else -> "导出完成：${result.copied} 个文件 → ${result.exportDir}"
-    }
+    internal fun exportMessage(result: ExportResult): String = result.userMessage()
 }

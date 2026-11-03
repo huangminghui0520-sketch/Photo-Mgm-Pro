@@ -41,6 +41,8 @@ object ExportPlanner {
      * @param marked 人工台账标记（影响台账选照片，不影响文件清单）。
      * @param namingTemplate 0=事件类型 / 1=巡查日志内容。
      * @param includeLedger false 时计划里不带台账行（仅排障/快速复制照片）。
+     * @param ledgerName 台账文件名（写进计划，执行器照写）。桌面默认 `ledger.xlsx`；
+     *   安卓传 `巡查台账_<巡查日期>_<导出时刻>.xlsx`，见 [ExportPlan.ledgerFileName]。
      */
     fun build(
         events: List<LogEvent>,
@@ -51,6 +53,7 @@ object ExportPlanner {
         namingTemplate: Int = 0,
         includeLedger: Boolean = true,
         zone: ZoneId = AppZone.ID,
+        ledgerName: String = ExportPlan.DEFAULT_LEDGER_NAME,
     ): ExportPlan {
         val byId: Map<Long, Photo> = photos.associateBy { it.id }
         val folderNames = ZipExporter(zone).numberedFolderNames(events, namingTemplate)
@@ -117,6 +120,7 @@ object ExportPlanner {
             ledgerPreview = ledger?.projected.orEmpty(),
             renames = renames,
             warnings = emptyList(),
+            ledgerFileName = ledgerName,
         )
     }
 

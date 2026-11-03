@@ -33,8 +33,8 @@ import app.api.ExportProgress
 import app.api.ExportResult
 import app.api.ExportFailure
 import app.api.ResumeVerifyMode
+import app.export.ExportLogWriter
 import app.port.ExportExecutor
-import com.photomgm.desktop.core.export.ExportLogWriter
 import com.photomgm.desktop.core.export.ExportManifest
 import com.photomgm.desktop.core.export.ManifestEntry
 import com.photomgm.desktop.core.platform.PcFileHasher
@@ -83,6 +83,7 @@ internal class PcExportExecutor(
         val warnings = plan.warnings.toMutableList()
 
         // ── 1) 台账行（计划里已算好：既用于写文件，也用于续传指纹） ─────────────
+        val ledgerName: String = plan.ledgerFileName
         val ledgerRows: List<LedgerRow> = plan.ledger
         val ledgerFingerprint = if (plan.includeLedger) ledgerFingerprint(ledgerRows) else null
         val photoSetHash = photoSetHash(plan.files)
@@ -95,7 +96,7 @@ internal class PcExportExecutor(
             }
             return ExportResult(
                 exportDir = PcPaths.normalize(existing.toString()),
-                ledgerFile = existing.resolve(LEDGER_NAME).takeIf { Files.isRegularFile(it) }
+                ledgerFile = existing.resolve(ledgerName).takeIf { Files.isRegularFile(it) }
                     ?.let { PcPaths.normalize(it.toString()) },
                 logFile = PcPaths.normalize(existing.resolve(LOG_NAME).toString()),
                 manifestFile = PcPaths.normalize(existing.resolve(ExportManifest.FILE_NAME).toString()),
@@ -182,8 +183,8 @@ internal class PcExportExecutor(
             // ── 5) 台账（最后写：它的内容依赖全部照片，且失败不应影响照片已导出） ──
             var ledgerFile: java.nio.file.Path? = null
             if (plan.includeLedger && !cancelled) {
-                onProgress(ExportProgress("生成台账", copied + failed, total, LEDGER_NAME))
-                val dest = root.resolve(LEDGER_NAME)
+                onProgress(ExportProgress("生成台账", copied + failed, total, ledgerName))
+                val dest = root.resolve(ledgerName)
                 try {
                     Files.newOutputStream(
                         dest,
@@ -199,8 +200,8 @@ internal class PcExportExecutor(
                 } catch (e: Exception) {
                     failed++
                     val reason = (e.message ?: e.javaClass.simpleName).take(120)
-                    failures += ExportFailure(LEDGER_NAME, reason)
-                    log.failed(LEDGER_NAME, reason)
+                    failures += ExportFailure(ledgerName, reason)
+                    log.failed(ledgerName, reason)
                     runCatching { Files.deleteIfExists(dest) }
                 }
             }
@@ -383,7 +384,8 @@ internal class PcExportExecutor(
         /** 该目录名是否形如导出根（`1101_203200` / `1101_203200_2`）。 */
         fun isExportDirName(name: String): Boolean = EXPORT_DIR_REGEX.matches(name)
 
-        const val LEDGER_NAME = "ledger.xlsx"
+        /** 兼容别名：实际名字由 [ExportPlan.ledgerFileName] 带入，见该字段的说明。 */
+        const val LEDGER_NAME = ExportPlan.DEFAULT_LEDGER_NAME
         const val LOG_NAME = "export.log"
 
         /** Windows 单段长路径硬约束（留余量，不是 260 逼近线）。 */

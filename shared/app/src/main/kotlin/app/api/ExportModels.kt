@@ -35,6 +35,11 @@ import algorithm.model.LedgerRow
  *   从计划里直接取比事后重算更不会说谎。
  * @property renames 被重命名的文件（原名 → 相对路径），导出日志要逐条记下来。
  * @property warnings 计划阶段产生的非致命提示（如"事件文件夹名为空，退回编号"）。
+ * @property ledgerFileName 台账在产物里的文件名。**由请求带入、不在执行器里写死**：
+ *   桌面是文件夹导出，固定 `ledger.xlsx` 最省事；安卓是一次性 ZIP，用户解压后只看到这一个
+ *   表格文件，需要带巡查日期与导出时刻（`巡查台账_20260814_131349.xlsx`）才能区分多次导出。
+ *   T11 提交② 之前这个差别体现为"安卓 ZIP 里叫巡查台账_…、PC 目录里叫 ledger.xlsx"，
+ *   但两边的名字都硬编码在各自执行器里 —— 现在收敛成一个字段，执行器只管按它写。
  */
 data class ExportPlan(
     val namingTemplate: Int,
@@ -46,6 +51,7 @@ data class ExportPlan(
     val ledgerPreview: List<LedgerRowInfo>,
     val renames: List<ExportRename>,
     val warnings: List<String>,
+    val ledgerFileName: String = DEFAULT_LEDGER_NAME,
 ) {
     /** 照片目标数（**只数照片**，不含台账；与 [ExportResult.totalTargets] 同口径）。 */
     val totalTargets: Int get() = files.size
@@ -64,6 +70,9 @@ data class ExportPlan(
          *   在那之前，`ExportPlannerTest` 用字面量 `99_未分类` 断言，改动时至少会红一次。
          */
         const val UNMATCHED_FOLDER: String = "99_未分类"
+
+        /** 台账默认文件名（桌面端；安卓按请求换成带日期的名字，见 [ExportPlan.ledgerFileName]）。 */
+        const val DEFAULT_LEDGER_NAME: String = "ledger.xlsx"
 
         /** 空计划（未分析时导出被阻断，用不到它；测试与默认值用）。 */
         fun empty(namingTemplate: Int = Settings.NAMED_BY_LOG_CONTENT): ExportPlan = ExportPlan(
@@ -105,10 +114,13 @@ data class ExportRename(
  * @property target **平台输出目标**，共享层不解释其语法：桌面端是输出父目录的绝对路径，
  *   安卓端是用户选定的树 URI（或应用私有目录路径）。执行器负责把它变成可写的目的地。
  * @property includeLedger 是否生成台账（关掉仅用于排障/快速复制照片）。
+ * @property ledgerName 台账文件名（见 [ExportPlan.ledgerFileName]）。两端默认值不同：
+ *   桌面留空即用 `ledger.xlsx`，安卓传入带日期的名字。
  */
 data class ExportRequest(
     val target: String,
     val includeLedger: Boolean = true,
+    val ledgerName: String = ExportPlan.DEFAULT_LEDGER_NAME,
 )
 
 /** 导出进度（stage 为中文阶段名，UI 可直接显示）。 */
@@ -138,6 +150,11 @@ data class ExportFailure(val relativePath: String, val reason: String)
  *
  * ★ 路径字段一律是**不透明字符串**（桌面=绝对路径，安卓=content URI 或私有目录路径）。
  *   共享层只负责把它们原样交回 UI，不解析、不拼接、不做 `File` 运算。
+ *
+ * ★ [logFile] / [manifestFile] 允许是**空串**，语义是"本端不产出该文件"：
+ *   安卓导出是一次性 ZIP，没有跨次续传，也就没有 manifest；它仍然写 export.log，
+ *   但写在应用私有目录（不进 ZIP），所以 logFile 有值。空串而不是 null 是既有契约
+ *   （字段非空、已有调用方直接拼字符串显示），改成可空会波及 PC 侧所有展示点。
  */
 data class ExportResult(
     val exportDir: String,
@@ -156,3 +173,21 @@ data class ExportResult(
     /** 非致命警告（重命名、HEIC 跳过、文件夹名为空等）。 */
     val warnings: List<String> = emptyList(),
 )
+
+/**
+ * 完成提示语（四种结局，文案**两端必须一致** —— 用户靠它判断"能不能直接用"）。
+ *
+ * ★ 取消排在第一位：取消的导出**可能已经写出了一部分**，若先说"导出完成"，
+ *   用户会拿一个不全的目录去交付。
+ *
+ * ★ T11 提交② 从 `ExportUseCase` 的私有方法提成 `ExportResult` 的扩展：安卓侧要把结果
+ *   投影成自己的底栏文案，而 `ExportUseCase` 是共享层的**实例**、安卓只拿到结果对象。
+ *   做成扩展而不是让 ViewModel 自己拼一遍，是因为"文案分几种结局"属于界面契约，
+ *   两份实现必然在某个分支上说得不一样（例如取消时一份说"已取消"、另一份说"未完成"）。
+ */
+fun ExportResult.userMessage(): String = when {
+    cancelled -> "导出已取消：已导出 $copied 个文件，可稍后续传"
+    resumed -> "上次导出的产物校验一致（$skipped 个文件），本次未重复复制"
+    failed > 0 -> "导出完成但有 $failed 个失败，详见 export.log"
+    else -> "导出完成：$copied 个文件 → $exportDir"
+}
