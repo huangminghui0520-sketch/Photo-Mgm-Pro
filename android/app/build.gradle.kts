@@ -82,6 +82,10 @@ android {
 
 dependencies {
     implementation(project(":shared:algorithm"))
+    // T07：视图派生（effectiveMap / 三态展开 / 未匹配池）上移到 :shared:domain。
+    // 双跑期只在测试里引用；T12 切换调用后成为生产依赖。
+    // 必须显式声明 —— :data 的 implementation 不会传递到 :app。
+    implementation(project(":shared:domain"))
     // T05-C1：`runCatchingCancellable` 上移到 :shared:app（取消信号两端同一类型）。
     implementation(project(":shared:app"))
     implementation(project(":data"))
