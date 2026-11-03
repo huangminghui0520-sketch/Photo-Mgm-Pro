@@ -15,10 +15,9 @@ import com.drew.metadata.Metadata
 import com.drew.metadata.exif.ExifIFD0Directory
 import com.drew.metadata.exif.ExifSubIFDDirectory
 import com.drew.metadata.exif.GpsDirectory
+import domain.exif.ExifTime
 import java.io.File
-import java.time.LocalDateTime
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 internal class PcExifReader(
     private val zone: ZoneId = AppZone.ID,
@@ -61,20 +60,17 @@ internal class PcExifReader(
     }
 
     companion object {
-        /** EXIF 时间格式：`yyyy:MM:dd HH:mm:ss`（个别设备带毫秒，宽松解析）。 */
-        private val EXIF_TIME = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")
-
         /**
          * 把 EXIF 的"本地挂钟时间"按 [zone] 解释成 epoch 毫秒。
-         * 单测直接调用它验证时区语义（同一字符串在不同 zone 下应得到不同 epoch）。
+         *
+         * T03-C2：解析规则已收敛到 [domain.exif.ExifTime]（两端同一份实现）。原来这里只认
+         * `yyyy:MM:dd`，安卓认出短横格式，于是同一张照片在 PC 上"无拍摄时间"、在手机上却有 ——
+         * 8 张真实素材就掉进了 `99_未分类`。现在取两端能力并集：
+         * 冒号/短横都认 + `substring(0,19)` 截断（容忍毫秒与时区尾巴）+ 失败返回 null。
+         *
+         * 保留本函数而不让调用方直接调 ExifTime：单测拿它验证时区语义（同一字符串在不同 zone
+         * 下应得到不同 epoch），这层薄壳让断言不必关心包名迁移。
          */
-        fun parseExifDateTime(raw: String, zone: ZoneId = AppZone.ID): Long? {
-            val text = raw.trim()
-            if (text.length < 19) return null
-            val core = text.substring(0, 19)
-            return runCatching {
-                LocalDateTime.parse(core, EXIF_TIME).atZone(zone).toInstant().toEpochMilli()
-            }.getOrNull()
-        }
+        fun parseExifDateTime(raw: String, zone: ZoneId = AppZone.ID): Long? = ExifTime.parse(raw, zone)
     }
 }

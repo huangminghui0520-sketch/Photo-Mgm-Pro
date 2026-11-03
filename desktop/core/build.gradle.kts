@@ -19,6 +19,9 @@ java {
 
 dependencies {
     api(project(":shared:algorithm"))
+    // T03-C2：EXIF 时间解析与 SHA-256 已收敛到 :shared:domain（纯函数），
+    // 桌面端只保留"怎么读文件"的适配器，判定逻辑不再各写一套。
+    api(project(":shared:domain"))
 
     // ★ api 而非 implementation：PhotoMgmCore.state 的类型是 StateFlow，
     //   任何消费者（未来的 UI、:cli）在编译期都要能解析该类型，否则调用方被迫自己声明版本。
