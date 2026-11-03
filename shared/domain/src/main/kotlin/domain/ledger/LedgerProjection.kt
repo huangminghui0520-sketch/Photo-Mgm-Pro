@@ -41,7 +41,60 @@ data class ProjectedLedgerRow(
 object LedgerProjection {
 
     /**
-     * 构建台账行。
+     * 一次投影的两种形态：**原始行**与**展示行**。
+     *
+     * ★ 为什么要两种（T09）：写 xlsx 用的是原始行（带 `photo1Ref`，XlsxWriter 靠它找图），
+     *   UI 预览用的是展示行（带 `照片1 = 文件夹名/文件名`）。此前这两份分别在导出器和视图组装里
+     *   各自生成，各有一次 `buildLedger` 调用 —— 同一批数据跑两遍，任何一次入参不同就会
+     *   "预览的台账"与"导出的台账"不一致。这里一次算齐，两个消费者各取所需。
+     */
+    data class Result(
+        val rows: List<LedgerRow>,
+        val projected: List<ProjectedLedgerRow>,
+    )
+
+    /**
+     * 一次算齐原始行与展示行（同序同数）。
+     *
+     * @param eventPhotoMap **已做三态展开**的事件照片表（`ViewDerivation.expandedEventMap` 的结果）。
+     * @param photos 本次分类涉及的全部照片，用于把 `sourceRef` 反查成 `displayName`。
+     */
+    fun project(
+        events: List<LogEvent>,
+        eventPhotoMap: Map<Int, List<Long>>,
+        photos: List<Photo>,
+        marked: Map<Int, Pair<Long?, Long?>> = emptyMap(),
+        namingTemplate: Int = 0,
+        zone: ZoneId = AppZone.ID,
+    ): Result {
+        val byId: Map<Long, Photo> = photos.associateBy { it.id }
+        val byRef: Map<String, Photo> = buildRefIndex(photos)
+        val rows = AlgorithmApi.buildLedger(
+            events = events,
+            eventPhotoMap = eventPhotoMap,
+            photoById = { byId[it] },
+            marked = marked,
+            namingTemplate = namingTemplate,
+            zone = zone,
+        )
+        return Result(
+            rows = rows,
+            projected = rows.map { r ->
+                ProjectedLedgerRow(
+                    dateTime = r.dateTime,
+                    endTime = r.endTime,
+                    location = r.location,
+                    description = r.description,
+                    photo1Label = labelOf(r.folderName, r.photo1Ref, byRef),
+                    photo2Label = labelOf(r.folderName, r.photo2Ref, byRef),
+                    folderName = r.folderName,
+                )
+            },
+        )
+    }
+
+    /**
+     * 构建台账展示行。
      *
      * @param eventPhotoMap **已做三态展开**的事件照片表（`ViewDerivation.expandedEventMap` 的结果）。
      *   直接传 `effectiveMap` 会让台账照片列在「仅保留不带水印」时选到本该被过滤的那张。
@@ -55,28 +108,8 @@ object LedgerProjection {
         marked: Map<Int, Pair<Long?, Long?>> = emptyMap(),
         namingTemplate: Int = 0,
         zone: ZoneId = AppZone.ID,
-    ): List<ProjectedLedgerRow> {
-        val byId: Map<Long, Photo> = photos.associateBy { it.id }
-        val byRef: Map<String, Photo> = buildRefIndex(photos)
-        return AlgorithmApi.buildLedger(
-            events = events,
-            eventPhotoMap = eventPhotoMap,
-            photoById = { byId[it] },
-            marked = marked,
-            namingTemplate = namingTemplate,
-            zone = zone,
-        ).map { r ->
-            ProjectedLedgerRow(
-                dateTime = r.dateTime,
-                endTime = r.endTime,
-                location = r.location,
-                description = r.description,
-                photo1Label = labelOf(r.folderName, r.photo1Ref, byRef),
-                photo2Label = labelOf(r.folderName, r.photo2Ref, byRef),
-                folderName = r.folderName,
-            )
-        }
-    }
+    ): List<ProjectedLedgerRow> =
+        project(events, eventPhotoMap, photos, marked, namingTemplate, zone).projected
 
     /**
      * 照片列标签：`文件夹名/文件名`。

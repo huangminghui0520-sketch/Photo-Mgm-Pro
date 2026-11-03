@@ -151,17 +151,7 @@ internal object ViewPublisher {
             marked = session.manual.marked,
             namingTemplate = namingTemplate,
             zone = session.zone,
-        ).map { r ->
-            LedgerRowInfo(
-                dateTime = r.dateTime,
-                endTime = r.endTime,
-                location = r.location,
-                description = r.description,
-                photo1Label = r.photo1Label,
-                photo2Label = r.photo2Label,
-                folderName = r.folderName,
-            )
-        }
+        )
 
     private fun buildSummary(session: PhotoSession, unmatched: List<Long>): AnalysisSummary =
         AnalysisSummary(

@@ -126,4 +126,26 @@ class LedgerProjectionTest {
         )
         assertEquals(rows[0].folderName, rows[1].folderName)
     }
+
+    @Test
+    fun `一次投影同时给出原始行与展示行_同序同数`() {
+        // T09：写 xlsx 要原始行（带 photo1Ref），UI 预览要展示行（带标签）。
+        // 两者必须来自**同一次** buildLedger，否则「预览的台账」与「导出的台账」可能不一致。
+        val e = event()
+        val p1 = photo(1L, "IMG_A.jpg", 1_000L)
+        val result = LedgerProjection.project(
+            events = listOf(e),
+            eventPhotoMap = mapOf(1 to listOf(1L)),
+            photos = listOf(p1),
+        )
+
+        assertEquals(1, result.rows.size)
+        assertEquals(result.rows.size, result.projected.size)
+        assertEquals("/photos/IMG_A.jpg", result.rows.single().photo1Ref, "原始行给写盘用，必须带 ref")
+        assertEquals(
+            "${result.rows.single().folderName}/IMG_A.jpg",
+            result.projected.single().photo1Label,
+            "展示行给 UI 用，必须带文件夹前缀",
+        )
+    }
 }

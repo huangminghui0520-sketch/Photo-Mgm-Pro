@@ -83,17 +83,15 @@ data class EventSnapshot(
     val hints: List<String>,
 )
 
-/** 台账行（导出预览用；字段与 XlsxWriter 实际写出的列一一对应）。 */
-data class LedgerRowInfo(
-    val dateTime: String,
-    val endTime: String,
-    val location: String,
-    val description: String,
-    /** 照片 1 的展示标签（形如 `01_护栏损坏/IMG_001.jpg`；无照片为 null）。 */
-    val photo1Label: String?,
-    val photo2Label: String?,
-    val folderName: String,
-)
+/**
+ * 台账行（导出预览用；字段与 XlsxWriter 实际写出的列一一对应）。
+ *
+ * ★ T09：这里不再重复定义一份 data class，而是**别名到** `domain.ledger.ProjectedLedgerRow`。
+ *   两者字段完全一致（T07 上移台账投影时留下的两处定义），继续并存就等于在共享层内部
+ *   又造了一份"必须人肉保持同步"的重复 —— 正是本次重构要消灭的东西。
+ *   UI 侧仍写 `LedgerRowInfo`，源码不用改。
+ */
+typealias LedgerRowInfo = domain.ledger.ProjectedLedgerRow
 
 /** 日志解析摘要（UI 顶部提示用）。 */
 data class ParsedSummary(
