@@ -10,6 +10,9 @@ import android.app.Application
 import android.os.Looper
 import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
+import app.usecase.PhotoScan
+import com.photomgm.data.FileHasher
+import com.photomgm.data.MediaStorePhotoSourceProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -144,7 +147,14 @@ class AppViewModelTest {
         assertTrue("listCandidates 应返回临时目录照片", cands.isNotEmpty())
         val d0 = LocalDate.of(2026, 9, 25)
         // ★ 粗筛全链路（coarseFilter 日期+目录过滤、dedupDerived）：VM 流程实际走的路径
-        val coarse = PhotoRepository(app).coarseCandidates(d0, listOf("DCIM/Camera"))
+        // ★ T11：`PhotoRepository` 已删除，粗筛判定收进共享的 `PhotoScan`（与流水线同一份实现），
+        //   这里换成同一个入口 —— 断言不变。
+        val coarse = PhotoScan.coarseCandidates(
+            sourceProvider = MediaStorePhotoSourceProvider(app.contentResolver),
+            sourceDirs = listOf("DCIM/Camera"),
+            date = d0,
+            hasher = FileHasher()::sha256,
+        ).photos
         assertTrue("coarseCandidates 应返回照片", coarse.isNotEmpty())
     }
 

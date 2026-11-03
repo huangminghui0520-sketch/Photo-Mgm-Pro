@@ -42,7 +42,7 @@ class LogsTextStore(
         const val DEFAULT_DEBOUNCE_MS = DebouncedTextStore.DEFAULT_DEBOUNCE_MS
     }
 
-    private val store = DebouncedTextStore(
+    private val debounced = DebouncedTextStore(
         persist = persist,
         scheduler = DelayScheduler { delayMs, action ->
             val job = scope.launch(dispatcher) {
@@ -55,11 +55,20 @@ class LogsTextStore(
     )
 
     /** 输入变化：内存态由调用方立即更新，这里只负责"稍后落盘最后一次值"。 */
-    fun onChanged(text: String) = store.onChanged(text)
+    fun onChanged(text: String) = debounced.onChanged(text)
 
     /** 立即落盘（离开页面 / ViewModel 销毁前调用）。没有待落盘内容时是空操作。 */
-    fun flush() = store.flush()
+    fun flush() = debounced.flush()
+
+    /**
+     * 内部防抖器（T11）。
+     *
+     * ★ 共享的 `SettingsUseCase` 需要的是 `DebouncedTextStore` 本体（落盘策略 + flush 语义），
+     *   而不是这个平台壳。用取值函数传出去，实例被整体替换（测试注入计数型防抖器）后立即生效 ——
+     *   否则共享层会一直写"构造时那个"旧通道，症状是"设置了新防抖器却依然写旧路径"，无任何报错。
+     */
+    internal val delegate: DebouncedTextStore get() = debounced
 
     /** 取消待落盘（"清空日志"用）：若不取消，用户点了清空后窗口到期会把旧文本写回去。 */
-    fun cancelPending() = store.cancelPending()
+    fun cancelPending() = debounced.cancelPending()
 }
