@@ -144,6 +144,9 @@ Windows 控制台默认 GBK，CLI 的中文输出（进度、事件清单、告�
 **验证方式**：core 单测 `PcFolderExporterTest.取消导出后写入不完整清单且不命中续传`（`desktop/core/.../PcFolderExporterTest.kt:300`）
 已覆盖取消语义，本次补跑确认绿。
 
+> T10 之后该类改名为 `PcExportExecutorTest`（导出计划上移，执行器只负责写盘），**用例名与断言未变**；
+> 本节是当轮（2026-11-01）的验证记录，不改写历史。
+
 **结果 —— ✅ 通过**：
 - 取消时 `isCancelled()` 钩子触发 → 停止复制、不写台账、`cancelled=true`；
 - manifest 写入 `complete=false`，下次导出**不命中续传**（必须重导，避免把不完整产物当成品）；

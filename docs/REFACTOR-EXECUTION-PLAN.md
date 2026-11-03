@@ -443,7 +443,8 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | **T06 安卓适配层归位** | ✅ **已完成**（2026-11-03）：C1 `ImageUtils` → `data/image/BitmapImageEncoder`（顺删 3 个转发别名，测试随迁）；C2 `SettingsStore` 介质段 → `data/storage/PrefsSettingsStorage`（key/编码/旧 key 迁移，JSON 与版本位判定留 `:app`）；C3 「打开台账」→ `data/shell/UriShellLauncher`（AR3：只持 `applicationContext`）。**无用户可见变化**：桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）；三个护栏测试（`BitmapImageEncoderOwnership` / `SettingsStoreLogs/ZoneMigration`）断言一行未改即通过。执行细则、边界判据与条数订正见 **§12.11** |
 | **T07 视图派生上移** | ✅ **已完成**（2026-11-03）：`ViewDerivation`（effectiveMap / 三态展开 / 未匹配池 / ownersOf）、`ManualAdjustment`（move/copy/mark/reset）、`LedgerProjection`（台账行 + 照片列标签）、`PhotoOrder`（时间→文件名口径，**未启用**）四个文件进 `:shared:domain`。**双跑证明等价**：PC 侧 400 轮随机组合扫描（固定种子）+ 两条分辨力反证 + 安卓侧 6 条真实路径对比。**未切调用**，桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）。执行细则、两处计划偏差与一条"反证用例本身没有分辨力"的弯路见 **§14** |
 | **T09 共享层编排** | ✅ **已完成**（2026-11-03）：`shared/app` 从 3 个 infra 文件长到 **25 文件 / 2389 行** —— `api/`（门面、状态快照、导出计划/结果、设置、`ExportBlockedException`）、`port/`（7 个端口）、`state/`（`PhotoSession` + `AppStateStore` 锁内一次性发布）、`usecase/`（分析/调整/设置/导出 + 视图组装）、`export/ExportPlanner`。**两端调用一行未改**，故用户可见变化为零；桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）。单测 **21 → 91**（全用假端口、纯 JVM）。契约里彻底不含 `window`/`Path`/`Uri`：`Settings.window` 留在桌面侧、`ExportRequest.outputDir: Path` → `target: String`、`ResumeVerifyMode` 单独成文件且不挂在请求上。执行细则、三处减法与两个顺手修掉的既有缺陷见 **§15** |
-| T08、T10~T14 | 待开工（T08 安卓契约层与 T09 编译面隔离，可并行；T12 负责切调用 + 启用 PhotoOrder；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项） |
+| **T10 PC 收窄为适配器 + 组装根** | ✅ **已完成**（2026-11-03）：`logic/PhotoMgmCoreImpl.kt`（743 行）删除，`desktop/core` 主源码 **2660 → 1814 行（19 文件）**；新增 `DesktopCore`（253 行组装根）+ 7 个 `adapter/Pc*`（`SettingsStorage`/`LogTextStorage`/`FileBytesReader`/`ImageEncoder`/`ShellLauncher`/`PhotoIdSource`/`ExportExecutor`）。**PC 侧最关键的一次验证通过**：黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图），`export.log` 62 行全为合法 JSON，清单 60 条 SHA-256 用 Python `hashlib` 独立复算 **60/60 一致**。单测 `core` **44 → 49**（`ui` 123 未改口径）、安卓 **84 条（app 58 / data 26）一行未改即通过**；`:ui:createDistributable` 成功。`ExportPlanner.build` 接管了原先 `PcFolderExporter.buildPlan` 的全部规划；顺手收口仓库最后两处 `MessageDigest`。执行细则、三处判断与五处签名适配见 **§16** |
+| T08、T11~T14 | 待开工（T08 安卓契约层与 T09 编译面隔离，可并行；T11 委派四个用例；T12 负责切调用 + 启用 PhotoOrder；T14 门禁；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项） |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
 CI 结构断言扩到"三模块两端都必须挂 + 禁 `android/shared`/`desktop/shared`"；`REPO-LAYOUT.md` 升 v2。
@@ -1022,3 +1023,98 @@ T06 计划里写的是"介质段（prefs 读写）搬 `:data`，编解码留 `:a
 - **T11（安卓瘦身）**：`AppViewModel` 委派四个用例；日志 flush 已经在流水线内部（开始分析前），不必在 VM 里再补一次。
 - **T12**：`ExportPlanner` 与 `ZipExporter` 内部的命名逻辑二选一 —— 安卓切 ZIP 时应改用共享计划，并把 `ZipExporter.export` 的文件夹/重名段删掉。
 - **T14 门禁**：`99_未分类` 目前有两处定义（`ExportPlan.UNMATCHED_FOLDER` 与 `ZipExporter` 的 private 常量），属"常量重复"规则要扫的目标；`api/` 的禁用词表也要写进脚本（本次是手工 grep 预演）。
+
+---
+
+## 16. T10 执行记录（PC 收窄为适配器 + 组装根）
+
+**一句话**：桌面的 743 行「实现」变成 253 行「装配」。整条流水线、视图重算、台账、导出规划
+都在 `shared/app`，与安卓共用同一份；桌面只剩三件平台事 —— **长任务在哪跑、状态发到哪、关闭时释放什么**。
+
+### 16.1 结果（实测）
+
+| 项 | T09 结束 | T10 结束 |
+| --- | --- | --- |
+| `desktop/core` 主源码 | 17 文件 / 2660 行 | **19 文件 / 1814 行** |
+| 最大的单文件 | `PhotoMgmCoreImpl.kt` 743 行 | `adapter/PcExportExecutor.kt` 397 行 |
+| `desktop/core` 单测 | 44 条 | **49 条**（+`WindowMemoryTest` 5） |
+| 桌面黄金样本 | 0 差异 | **0 差异**（72 行 / 504 单元格 / 50 嵌图） |
+| `export.log` | 62 行合法 JSON | **62 行合法 JSON**（start 1 + copy 60 + end 1） |
+| 清单哈希 | 未独立复算 | **60/60 与 Python `hashlib` 逐条一致** |
+| 共享率（主源码行） | 5684 / 21811 = 26.1% | **5738 / 21030 = 27.3%** |
+
+单测全绿：`desktop:core` 49 / `desktop:ui` 123 / `shared:algorithm` 335 / `shared:app` 91 / `shared:domain` 71 /
+安卓 `app` 58 + `data` 26（取 debug 变体；release 变体 56/20，同样 0 失败 —— 直接数 `test-results/` 会把两个变体加在一起，
+本行是逐目录核过的），失败 0。门禁：`check-cancellation` 136 文件、`check-ignore-policy` 59 文件、
+`check-timezone` 77 文件，全部 OK。`:ui:createDistributable` 成功。
+
+### 16.2 三处「当初看起来都该是值，其实该是函数/该补字段」的判断
+
+**① `PcSettingsStorage.save(settings)` 必须把窗口几何原样写回。**
+`Settings.window` 从跨端契约上摘掉之后（T09 的减法），窗口几何由桌面侧自己保管，但
+`settings.json` 是**一次性整体重写**的。而 `SettingsUseCase.updateSettings` 每次改设置都会调
+`save(settings)`，交进来的 `Settings` 里**没有** window 这一项。若 `save` 只按传入对象重写整个文件，
+用户改一次巡查日期就把窗口记忆清成 null —— 表现为「下次启动窗口回到默认位置」，且不报任何错。
+→ `PcSettingsStorage` 自己持有 window，每次写盘时补回去。**这条已做反证**：把
+`write(settings, window)` 改成 `write(settings, null)`，`WindowMemoryTest` 的那条立刻变红（1 failed）。
+
+**② `PcExportExecutor` 的 `verifyMode` 是取值函数（`() -> ResumeVerifyMode`），不是值。**
+UI 的设置页能在运行期改它。构造时定死 → 用户改完要重启才生效，而说明书里没有任何地方会写这件事。
+
+**③ 桌面端 `ShellLauncher` 只返回 `STARTED` / `UNAVAILABLE`，不伪造 `NO_VIEWER`。**
+端口的第三态是为安卓加的（"拿不到 URI" 与 "系统里没有能打开的应用" 给用户的提示完全不同）。
+AWT Desktop 只能告诉「我发起没发起」，**判断不了有没有能打开它的程序** —— 那是 Windows 在选择器阶段
+才回答的问题。硬造一个 `NO_VIEWER` 是撒谎：用户会看到「没有能打开 xlsx 的程序」，而实际只是默认程序没设对。
+
+### 16.3 与计划的偏差
+
+1. **`desktop/core/api/` 直接删除，没有做 `typealias` 垫片。** 计划里给了两个选项。选删的理由：
+   typealias 会让同一批类型长期有两个名字，正是这轮重构要消灭的那类重复；而 UI 侧的改动
+   本来就是机械替换 + 五处签名适配（见 16.4），垫片省不下什么。
+2. **`PhotoMgmCoreFactory` 没有保留同名，改成 `DesktopCore.create(...)`。** 名字里带 `PhotoMgmCore`
+   会让"共享门面"与"桌面组装根"看起来是同一个东西；`DesktopCore` 除了实现共享门面，还多三个
+   桌面独有成员（`windowState` / `saveWindow` / `setVerifyMode`），本来就不是同一个层次。
+3. **`PcExportExecutorTest` 的断言口径不变，但用例多了两处结构性改动。**
+   计划写的是"断言不改"，实际做到了；但输入构造从 `PcFolderExporter.Input(...)` 变成
+   `ExportPlanner.build(...)`（计划已上移），且 `ExportResult` 的路径是字符串，断言前多一层
+   `dir(r): Path = Paths.get(r.exportDir)`。另外「重名」那条现在同时断言**计划里的相对路径**
+   （唯一实现处是 `ExportPlanner`），它验的是"计划真的原样落到磁盘"，而不是"后缀规则算对了"。
+
+### 16.4 ui/cli 侧：66 处 import + 五处不可避免的签名适配
+
+纪律是「本提交的 diff 里 `desktop/ui` 只许出现 `import` 行」，实际只有下面五处越线（都是签名变更的直接结果）：
+
+| 原写法 | 新写法 | 为什么躲不掉 |
+| --- | --- | --- |
+| `core.state.value.settings.window` | `core.windowState` | 窗口几何已不在共享 `Settings` 上 |
+| `core.readLogFile(Paths.get(file))` | `core.readLogText(file)` | 共享层不认 `Path`；UI 手里本来就是 String |
+| `ExportRequest(outputDir = Paths.get(out), …)` | `ExportRequest(target = out, …)` | 同上 |
+| `verifyMode = ui().exportOptions.verifyMode`（请求字段） | `core.setVerifyMode(...)` + 请求不带它 | 安卓没有 manifest 续传 |
+| `r.exportDir.resolve(...)`（`Path`） | `Paths.get(r.exportDir).resolve(...)` | `ExportResult` 路径字段是 String |
+
+`--demo` 里那句 `window = null`（重置窗口记忆，保证演示截图可比）同样躲不掉，改成 `core.saveWindow(null)`。
+
+### 16.5 顺手收掉的两处 `MessageDigest`（计划附录表 ③）
+
+仓库里曾有 **4 处** `MessageDigest.getInstance("SHA-256")`。T03 只收口了 `FileHasher` / `PcFileHasher`，
+另两处当初各有正当理由没搬：复制循环要**边读边写边算**（而 `Sha256` 只有整段/整流入口），
+id 分配只要**前 8 字节**（而 `Sha256` 只返回十六进制串）。
+
+两个理由都成立 —— 但正确的修法是**补入口**，不是让算法留四份。新增 `Sha256.digester()`：
+`update(buffer, offset, length)` + **幂等**的 `finish()`。两个细节在注释里写死了理由 ——
+不暴露底层 `MessageDigest`（否则 `digest()` 的"调一次就清空状态"会漏到调用方，
+「复制完算一次、日志里再算一次」会静默得到空内容的哈希）；`finish()` 必须幂等（同上）。
+
+`PhotoIdAllocator` 改成取前 16 个十六进制字符 `toULong(16)` 再清符号位。
+**位模式与原先大端拼字节后再清符号位逐位相同** —— 这不是洁癖：id 一变，
+用户上一轮做的人工调整会整体错位到别的照片上，而界面上看不出任何异常。
+
+### 16.6 没做的事（留给 T11 / T12 / T14）
+
+- **不写共享 `PhotoMgmCoreImpl`。** 理由见 §15.5，T10 之后更确信：门面剩下的就是
+  「`OperationHandle` 从哪来、`close()` 释放什么、状态发到哪个生命周期」，两端各 ~60 行装配
+  比硬抽象一份便宜。`DesktopCore` 现在 253 行，其中约 90 行是注释与装配。
+- **`PcViewDerivation` 保留。** T07 的双跑证据（`ViewDerivationParityTest`）要等 T12 切调用后才失效；
+  现在删掉它，等于把"等价性被证明过一次"这件事的现场毁了。
+- **`99_未分类` 仍是两处定义。** 桌面执行器已改用 `ExportPlan.UNMATCHED_FOLDER`（少了一处），
+  剩下 `ZipExporter` 的 private 常量与共享常量同值重复 —— T14 的门禁要扫的就是这个。

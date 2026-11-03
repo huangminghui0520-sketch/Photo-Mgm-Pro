@@ -5,6 +5,40 @@
 
 ## [Unreleased]
 
+### 工程（桌面端 · T10 收窄为适配器 + 组装根，**无用户可见变化**）
+- 桌面端从「实现」退化为「适配 + 装配」：`logic/PhotoMgmCoreImpl.kt`（743 行）删除，
+  `desktop/core` 主源码 **2660 → 1814 行**。整条流水线（解析 → 扫描 → 粗筛 → 派生去重 → EXIF →
+  GPS 分组 → 分类 → 视图重算 → 台账 → 导出计划）现在都在 `shared/app`，与安卓共用同一份
+  - `DesktopCore`（253 行）：组装根 + 共享门面实现。它只决定三件事 —— 长任务在哪跑（`Executor` +
+    显式 `OperationHandle`）、状态发到哪（一路 `StateFlow` 到 `close()`）、关闭时释放什么（线程池）
+  - 新增 7 个端口适配器 `adapter/Pc*`：`SettingsStorage` / `LogTextStorage` / `FileBytesReader` /
+    `ImageEncoder` / `ShellLauncher` / `PhotoIdSource` / `ExportExecutor`
+  - `desktop/core/api/` 删除，UI/CLI 直接依赖 `app.api.*`。**没有做 typealias 垫片** —— 让同一批类型
+    长期有两个名字，正是这轮重构要消灭的那类重复
+- 导出**计划**不再由桌面执行器自己算：`PcFolderExporter.buildPlan` 整段删除，改用
+  `shared/app/export/ExportPlanner.build`；`PcFolderExporter` → `PcExportExecutor`，只负责
+  「把计划里的相对路径写到磁盘上」+ 台账 + 清单 + 日志
+- 窗口几何的落点：`Settings.window` 已不在跨端契约上（T09 的减法），改由 `PcSettingsStorage` 自己保管，
+  `settings.json` 的 `window` 键**格式不变、老配置照读**。这里有个不会报错只会"下次启动窗口回默认位置"的坑：
+  `settings.json` 是一次性整体重写，而 `updateSettings` 每次都会调 `save(settings)` —— 那份 settings 里
+  没有 window。**已做反证**：把 `write(settings, window)` 改成 `write(settings, null)`，新增的
+  `WindowMemoryTest` 立刻变红
+- 断点续传的校验强度不再挂在 `ExportRequest` 上（安卓没有 manifest 续传），改为桌面导出执行器的
+  **取值函数**：UI 在设置页改了立刻生效，不用重启
+- 顺手收掉仓库最后两处 `MessageDigest.getInstance("SHA-256")`（复制循环、照片 id 分配）：
+  `domain.hash.Sha256` 补 `digester()`（边读边写边算 + 幂等 `finish()`），不再让同一套算法留四份拷贝。
+  `PhotoIdAllocator` 取的 id **位模式与原先逐位相同** —— id 一变，用户上一轮的人工调整会整体错位
+- UI/CLI 侧 66 处 import 机械替换 + 五处不可避免的签名适配（`settings.window`→`core.windowState`、
+  `readLogFile(Path)`→`readLogText(String)`、`ExportRequest(outputDir: Path)`→`(target: String)`、
+  `verifyMode` 改走 `core.setVerifyMode`、`ExportResult` 路径字段 `Path`→`String`）。
+  除这五处，`desktop/ui` 的 diff 里只有 import 行，没有顺手优化
+  - `affects:` 无（导出产物、界面、设置文件格式、`export.log`/manifest 格式全部不变；老配置与老产物照常可用）
+  - `verify:` 桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图，`--ignore '^meta'`）；`export.log`
+    62 行全为合法 JSON（start 1 + copy 60 + end 1）；清单 60 条 SHA-256 用 Python `hashlib` **独立复算 60/60 一致**；
+    自检「产物照片 60 张 / 目标 60 张 ✔」；`desktop:core` **49 条**（44 → 49）、`ui` 123、`shared:app` 91、
+    `shared:domain` 71、`shared:algorithm` 335、安卓 `app` 58 / `data` 26（debug 变体；release 56/20 同样全绿），
+    失败 0；三条静态门禁 0 问题（136 / 59 / 77 文件）；`:ui:createDistributable` 成功
+
 ### 工程（跨端共用 · T09 编排上移，**无用户可见变化**）
 - 「一遍流水线」第一次有了唯一实现，位于 `shared/app`（25 文件 / 2389 行）：
   - `usecase/AnalysisPipeline`：解析日志 → 扫描 → 文件名日期粗筛 → 派生去重 → 分配稳定 id → EXIF 精读 → GPS 分组 → 分类 → 发布视图。三步顺序被明确写进注释并各有用例：id 必须早于 EXIF/分类、派生去重必须早于 id 分配、清空人工调整必须在解析之后

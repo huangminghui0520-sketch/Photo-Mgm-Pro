@@ -21,11 +21,11 @@ Photo-Mgm/
 │   │    │                            三态去重、台账 LedgerEngine、XlsxWriter、ZipExporter、AlgorithmApi）
 │   │    ├── build.gradle.kts             kotlin("jvm") + toolchain 17（零 implementation 依赖）
 │   │    └── src/test/kotlin/algorithm/   23 文件（含 POI 读回、真实素材端到端）
-│   ├── domain/                      ★ 业务规则：6 文件 / 629 行（T03 起填充）
+│   ├── domain/                      ★ 业务规则：6 文件 / 683 行（T03 起填充，T10 补 SHA-256 增量入口）
 │   │    │                            view/ 视图派生 + 照片顺序、adjust/ 人工调整、
 │   │    │                            ledger/ 台账投影、exif/ 时间、hash/ SHA-256
 │   │    ├── build.gradle.kts             EXIF 时间 / SHA-256 / 媒体规格 / 派生命名
-│   │    └── src/test/kotlin/domain/      6 文件 / 857 行（T09 后 68 条用例）
+│   │    └── src/test/kotlin/domain/      6 文件 / 906 行（T10 后 71 条用例）
 │   └── app/                         ★ 应用层：25 文件 / 2389 行（T09）
 │       │                            api/ 跨端契约（门面/状态快照/导出计划/设置）、
 │       │                            port/ 7 个端口、state/ 会话与快照发布、
@@ -47,9 +47,12 @@ Photo-Mgm/
 │   ├── settings.gradle.kts          :core / :cli / :ui + 挂载 ../shared/{algorithm,domain,app}
 │   ├── build.gradle.kts             插件版本 + 把 :shared:* 产物重定向到 desktop/build/external/shared-*
 │   ├── gradle.properties / gradlew / gradle/wrapper/    桌面端专用 wrapper
-│   ├── core/                        纯逻辑核心（17 文件 / 2660 行）
-│   ├── cli/                         无头命令行入口（1 文件 / 383 行）
-│   ├── ui/                          Compose Multiplatform 界面（38 文件 / 6689 行 + 13 测试文件）
+│   ├── core/                        ★ 适配器 + 组装根（19 文件 / 1814 行，T10 收窄）
+│   │    │                             DesktopCore（装配）+ WindowState/DesktopCoreConfig、
+│   │    │                             adapter/ 7 个 Pc* 端口实现、platform/ 目录·EXIF·哈希·嵌图·id、
+│   │    │                             export/ 日志·清单；logic/PcViewDerivation 留到 T12 删
+│   ├── cli/                         无头命令行入口（1 文件 / 386 行）
+│   ├── ui/                          Compose Multiplatform 界面（38 文件 / 6694 行 + 13 测试文件）
 │   ├── packaging/                   jpackage / MSI / 便携版打包脚本与 dist 产物（不入库）
 │   └── scripts/                     安装冒烟、导出核对等 PowerShell 脚本
 │
