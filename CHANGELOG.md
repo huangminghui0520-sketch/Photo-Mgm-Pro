@@ -5,6 +5,36 @@
 
 ## [Unreleased]
 
+### 工程（安卓端 · T11 第一提交：ViewModel 交出分析/调整/设置，**无用户可见变化**）
+- 安卓 `AppViewModel`（1221 行）不再自己实现分析、人工调整、设置失效判定，改为委派 `shared/app`
+  的 `AnalysisPipeline` / `AdjustUseCase` / `SettingsUseCase` —— 与桌面端**同一份实现**。
+  公开方法签名一个未改（`parseLogs` / `movePhotos` / `markLedgerPhoto` / `exportZip` / …），UI 层零改动
+  - 新增 `core/AndroidCore`（385 行组装根）：与桌面 `DesktopCore` 同构，只决定「长任务在哪跑
+    （`viewModelScope` + `Job`）、状态发到哪（`AppStateStore.state`）、关闭时释放什么（协程作用域）」
+  - 新增 `core/UiProjection`（138 行）：`AppState` + `PhotoSession` → `UiState` 的投影。
+    `StateFlow.value` 是**同步计算**的，不是 `stateIn` 的上一帧缓存（否则「清缓存那一刻照片数为 0」
+    这类断言会随机假失败）
+  - 新增 3 个端口适配器：`AndroidSettingsStorage`（逐字段赋值，不整份替换）、
+    `AndroidLogTextStorage`、`AndroidPhotoIdSource`（`_ID` 直用，`≤0` 时按 `sourceRef.hashCode()` 兜底）
+- `PhotoRepository.kt` 删除。它内部的粗筛判定（候选合并 → 目录白名单 + 文件名日期 → 派生去重）
+  收进共享的 `usecase/PhotoScan`，`AnalysisPipeline` 与安卓「照片增删校验」共用同一份 ——
+  此前两处各写一份、连 `MediaStorePhotoSourceProvider`/`FileHasher` 都是各自的实例，
+  判定一旦漂移就是「校验说照片没变、重扫却扫出另一批」，且只表现为人工调整错位到别的照片上
+- 新增共享入口 `AnalysisPipeline.scanPhotos`：安卓「改巡查日期 / 改源目录」的语义是**只扫照片、
+  不解析日志**。若走完整分析，`parsed` 会提前非空，使「日志没改过 → 只清人工移动」的快路径永久误判
+  —— 用户点「解析日志」只会得到"已是最初分类状态"，事件列表永远空
+- `SettingsUseCase` 的日志防抖器参数改为**取值函数**（`() -> DebouncedTextStore`）：安卓测试会整体
+  替换 ViewModel 上的实例来验证接线，构造期拿死实例会让注入的写入永远收不到（测试红、生产静默失效）。
+  同 T10 的 `verifyMode`
+  - `affects:` 无（导出产物、界面、设置文件格式、缓存格式全部不变；`photoSetHash` / 台账逐单元格一致）
+  - `verify:` 桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图，`--ignore '^meta'`；xlsx 字节数
+    270810 与基线**逐字节同长**，嵌图 50/50 `sha256` 逐条相同）；`export.log` 62 行全为合法 JSON
+    （62 条全 `info`）；导出清单 60 条 `sha256`/`size` 用 Python `hashlib` **独立复算 0 不符**；
+    安卓 `app` **58 / 58**（debug / release，失败 0）、`data` 26 / 26（各 skip 3，源照片缺失）、
+    `desktop:core` 49、`ui` 123、`shared:algorithm` 335、`shared:app` 91、`shared:domain` 71，失败 0；
+    三条静态门禁 0 问题（141 / 59 / 82 文件）。**10 个既有测试断言一行未改**；
+    **12 项手工清单未执行**（无设备接入，⑪⑫ 需真机）
+
 ### 工程（桌面端 · T10 收窄为适配器 + 组装根，**无用户可见变化**）
 - 桌面端从「实现」退化为「适配 + 装配」：`logic/PhotoMgmCoreImpl.kt`（743 行）删除，
   `desktop/core` 主源码 **2660 → 1814 行**。整条流水线（解析 → 扫描 → 粗筛 → 派生去重 → EXIF →

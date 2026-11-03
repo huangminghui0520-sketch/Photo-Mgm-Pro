@@ -444,7 +444,8 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | **T07 视图派生上移** | ✅ **已完成**（2026-11-03）：`ViewDerivation`（effectiveMap / 三态展开 / 未匹配池 / ownersOf）、`ManualAdjustment`（move/copy/mark/reset）、`LedgerProjection`（台账行 + 照片列标签）、`PhotoOrder`（时间→文件名口径，**未启用**）四个文件进 `:shared:domain`。**双跑证明等价**：PC 侧 400 轮随机组合扫描（固定种子）+ 两条分辨力反证 + 安卓侧 6 条真实路径对比。**未切调用**，桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）。执行细则、两处计划偏差与一条"反证用例本身没有分辨力"的弯路见 **§14** |
 | **T09 共享层编排** | ✅ **已完成**（2026-11-03）：`shared/app` 从 3 个 infra 文件长到 **25 文件 / 2389 行** —— `api/`（门面、状态快照、导出计划/结果、设置、`ExportBlockedException`）、`port/`（7 个端口）、`state/`（`PhotoSession` + `AppStateStore` 锁内一次性发布）、`usecase/`（分析/调整/设置/导出 + 视图组装）、`export/ExportPlanner`。**两端调用一行未改**，故用户可见变化为零；桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）。单测 **21 → 91**（全用假端口、纯 JVM）。契约里彻底不含 `window`/`Path`/`Uri`：`Settings.window` 留在桌面侧、`ExportRequest.outputDir: Path` → `target: String`、`ResumeVerifyMode` 单独成文件且不挂在请求上。执行细则、三处减法与两个顺手修掉的既有缺陷见 **§15** |
 | **T10 PC 收窄为适配器 + 组装根** | ✅ **已完成**（2026-11-03）：`logic/PhotoMgmCoreImpl.kt`（743 行）删除，`desktop/core` 主源码 **2660 → 1814 行（19 文件）**；新增 `DesktopCore`（253 行组装根）+ 7 个 `adapter/Pc*`（`SettingsStorage`/`LogTextStorage`/`FileBytesReader`/`ImageEncoder`/`ShellLauncher`/`PhotoIdSource`/`ExportExecutor`）。**PC 侧最关键的一次验证通过**：黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图），`export.log` 62 行全为合法 JSON，清单 60 条 SHA-256 用 Python `hashlib` 独立复算 **60/60 一致**。单测 `core` **44 → 49**（`ui` 123 未改口径）、安卓 **84 条（app 58 / data 26）一行未改即通过**；`:ui:createDistributable` 成功。`ExportPlanner.build` 接管了原先 `PcFolderExporter.buildPlan` 的全部规划；顺手收口仓库最后两处 `MessageDigest`。执行细则、三处判断与五处签名适配见 **§16** |
-| T08、T11~T14 | 待开工（T08 安卓契约层与 T09 编译面隔离，可并行；T11 委派四个用例；T12 负责切调用 + 启用 PhotoOrder；T14 门禁；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项） |
+| **T11 安卓 ViewModel 瘦身** | 🟡 **第一提交已完成（2026-11-03），第二提交待做**：`AppViewModel` 1221 → **1036 行**，分析/调整/设置委派给 `shared/app`（与桌面同一份实现）；新增 `core/`（`AndroidCore` 组装根 385 + `UiProjection` 138 + 3 个适配器 96）、删除 `PhotoRepository.kt`、粗筛收进共享 `PhotoScan`。**硬门槛全过**：10 个既有测试断言一行未改、桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图，xlsx 字节数 270810 相同、嵌图 50/50 `sha256` 相同）、清单 60 条独立复算 0 不符；失败 0。**导出段仍在 VM 里**（第二提交搬），**12 项手工清单未执行**（无设备接入）。执行记录与六处踩坑见 **§17** |
+| T08、T12~T14 | 待开工（T08 安卓契约层与 T09 编译面隔离，可并行；T12 负责切调用 + 启用 PhotoOrder；T14 门禁；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项）。**T11 第二提交**（导出/设置委派 + 安卓 `ExportExecutor`）同样待做，见 §17.5 |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
 CI 结构断言扩到"三模块两端都必须挂 + 禁 `android/shared`/`desktop/shared`"；`REPO-LAYOUT.md` 升 v2。
@@ -1118,3 +1119,132 @@ id 分配只要**前 8 字节**（而 `Sha256` 只返回十六进制串）。
   现在删掉它，等于把"等价性被证明过一次"这件事的现场毁了。
 - **`99_未分类` 仍是两处定义。** 桌面执行器已改用 `ExportPlan.UNMATCHED_FOLDER`（少了一处），
   剩下 `ZipExporter` 的 private 常量与共享常量同值重复 —— T14 的门禁要扫的就是这个。
+
+## 17. T11 执行记录（Android ViewModel 瘦身 · **第一提交**：分析 / 调整 / 设置委派）
+
+**一句话**：1221 行的 `AppViewModel` 交出「怎么分析、怎么改归属、怎么让设置失效」，
+只剩**投影成 `UiState` / SAF / 缩略图 / 协程**四件平台事。分析流水线、视图派生、人工调整、
+三态展开、台账投影、设置失效判定现在与桌面**同一份实现**（`shared/app` + `shared/domain`）。
+
+按计划的回滚栏拆成两个提交，本记录只覆盖**第一提交**（分析 / 调整 / 设置）。导出段仍在
+`AppViewModel` 里 —— 理由见 §17.3 第 1 条，不是"忘了"。
+（实际落地是 3 个提交，沿用 T10 的分法：`eda6805` 共享层先能接住 → `aa3eb1b` 安卓切换 → 本文档。）
+
+### 17.1 结果（实测）
+
+| 项 | T10 结束 | 第一提交后 |
+| --- | --- | --- |
+| `AppViewModel` | 1221 行 | **1036 行** |
+| 安卓 `app` 主源码 | 5585 行 | **6157 行**（+572，见下） |
+| 新增 `core/` | — | **619 行**（`AndroidCore` 385 / `UiProjection` 138 / 3 个适配器 96） |
+| 删除 | — | `PhotoRepository.kt` 47 行 |
+| 共享层新增 | — | `usecase/PhotoScan.kt`（粗筛唯一实现） |
+| 安卓 `app` 单测 | 58 / 56 | **58 / 58**，失败 0（release 变体本轮无 skip） |
+| 安卓 `data` 单测 | 26 / 20 | **26 / 26**，失败 0（各 skip 3，源照片缺失） |
+| 桌面黄金样本 | 0 差异 | **0 差异**（72 行 / 504 单元格 / 50 嵌图） |
+| 台账 xlsx 字节数 | 270810 | **270810**（逐字节同长） |
+| 嵌图 SHA-256 | 50/50 一致 | **50/50 一致**（逐条 `sha256` 相等） |
+| `export.log` | 62 行合法 JSON | **62 行合法 JSON**（62 条全 `info`） |
+| 导出清单 | 60 条 | **60 条，`sha256`/`size` 用 Python `hashlib` 独立复算 0 不符** |
+
+**为什么主源码反而多了 572 行**：这一轮搬走的每一段都带着「当时为什么这么写」的注释，
+而新写的三个文件（组装根 / 投影 / 适配器）也要把这些理由接过来 —— 纪律要求
+「每个 `//` 长注释在旧版必须找得到出处」，于是注释跟着代码一起搬，没有净减少。
+**行数不是这一轮的验收指标，"同一份实现"才是**；`AppViewModel` 的真实瘦身在第二提交
+（导出段 ≈330 行）之后才看得出来。
+
+单测全绿：`desktop:core` 49 / `desktop:ui` 123 / `shared:algorithm` 335 / `shared:app` 91 /
+`shared:domain` 71 / 安卓 `app` 58（debug）与 58（release）/ `data` 26 与 26。
+门禁：`check-cancellation` 141 文件、`check-ignore-policy` 59 文件、`check-timezone` 82 文件，全部 OK。
+
+### 17.2 六处「不看旧代码就会写错」的地方
+
+**① 投影后的 `StateFlow.value` 必须**同步**算，不能 `map(...).stateIn(scope)`。**
+`stateIn` 的 `value` 是**上一次派发**的缓存，而 `ThumbnailRefreshTest` 在主线程同步读
+`state.value.photos` —— 异步投影会让它读到上一帧，于是「清缓存那一刻照片数应为 0」
+变成随机的假失败。`UiProjection.kt` 里因此自实现了一个 `StateFlow`：`value get() = project(source.value)`。
+
+**② 可变依赖不能在构造期冻结，要传取值函数。**
+`AndroidCore(app) { logsTextStore.delegate }`。`SetLogsTextWiringTest` 的做法是整体替换
+`vm.logsTextStore`（注入计数型防抖器，证明"接线"），构造期拿死实例的话，注入的写入永远收不到 ——
+测试红，而生产是**静默失效**（防抖落盘还是老路子）。同一个教训在 T10 已经出现过一次
+（`PcExportExecutor.verifyMode`），这是第二次。
+
+**③ 新增的 `scanPhotos` 必须**先置 `ANALYZING` 再扫**。**
+状态变更是"异步完成"的**唯一**对外信号。漏了这一步，外部 `await { !busy }` 会在扫描开始前
+就返回（此时 `photos` 还是空），拿到一批空照片；诊断现场打印是
+`afterDir events=[clear] photos=0 coarse=null` —— 返回时扫描根本还没跑。
+
+**④ 预缓存必须紧贴扫描结果，中间不许夹慢操作。**
+`persistCache()`（把 30 张照片序列化成 JSON 写 SharedPreferences）一旦排在
+`preloadThumbnailCache` 之前，就把「取消旧扫描 → 开始新扫描」的竞态窗口撑大：
+旧协程收尾时读到已被清空的 `photos`，预缓存白做一次，`ThumbnailRefreshTest` 看到"预加载时 0 张"。
+旧实现把预缓存放在 EXIF 之后、publish 之前，是同一个道理。
+
+**⑤ `AdjustUseCase.movePhotos` 在 `classify == null` 时直接拒绝，而 `overrideMap` 不依赖分类。**
+生产路径等价（UI 只在有分类时给入口），但双跑护栏 `ViewDerivationParityTest` 是直接调
+`movePhoto` 的，它对着「无条件写入」的既有行为写。解法是 `AndroidCore.recordManualMove`
+（无条件写 + 清 `copyMap`），按 `classify == null` 分流 —— **没有**去改共享用例的语义。
+
+**⑥ 「清空日志」不能复用 `setLogText("")`。**
+后者会调 `DebouncedTextStore.onChanged("")` 排一次落盘，而"清空"的语义是**取消**待落盘 +
+立刻写空串。混用会多排一次写，`SetLogsTextWiringTest` 的「删了又回来」判据盯的正是这个窗口。
+
+### 17.3 与计划的四处偏差
+
+1. **提交①没有切导出。** 计划里两栏的顺序互相矛盾：**回滚栏**写「先导出/设置，再分析/调整」，
+   **风险栏**写「先搬导出闸门，再搬流水线」。实际执行按**依赖**走：安卓侧的
+   `ExportExecutor` 端口还没有实现（桌面的 `PcExportExecutor` 是为文件夹写的，ZIP + SAF + 断点续传
+   是另一套），而 5 条硬门槛测试（`ExportGateTest` 三条、`SetLogsTextWiringTest`、
+   `ThumbnailCacheWiringTest`）都盯着导出行为 —— 先把导出搬过去再验证，等于同时动两个变量。
+   故：第一提交只搬分析/调整/设置，导出整段**原样留在** `AppViewModel`（连注释一起）。
+2. **新增了计划里没有的共享入口 `AnalysisPipeline.scanPhotos`。** 安卓「改日期 / 改源目录」
+   的产品语义是**只扫照片、不解析日志**。一度直接调完整的 `analyze`，后果是 `parsed` 提前非空，
+   `parseLogs` 的「日志没改过 → 只清人工移动」快路径永久误判 —— 用户点解析只得到一句
+   "已是最初分类状态"，事件列表永远空。这条弯路占掉了本轮最多的时间，见 §17.4。
+3. **`PhotoRepository` 不是"直接删除"，是"删除 + 把粗筛抽成共享的 `PhotoScan`"。**
+   计划写"删除 `PhotoRepository.kt`"。如果只删，粗筛那段（候选合并 → 目录白名单 + 文件名日期 →
+   派生去重）会原样复制进 `AndroidCore` —— 从"删掉一处重复"变成"把重复挪了个地方"。
+   而这个重复**正好是危险的**：防线一校验（照片增删感知）与流水线扫描必须用同一套判定，
+   一旦漂移就是"校验说没变、重扫却扫出另一批"，表现为人工调整错位到别的照片上。
+   故抽 `app/usecase/PhotoScan.kt`，`AnalysisPipeline.scanAndRead` 与 `AndroidCore.candidates`
+   共用它，且共用同一组 provider/hasher 实例（此前 `PhotoRepository` 自己 new 了一套）。
+   `AppViewModelTest` 第 147 行的 setup 随之换成同一个入口，**断言一行未改**。
+4. **12 项手工清单本轮未执行**（⑪ 杀进程重开、⑫ 时区切换这两项尤其需要真机）。
+   原因是当前没有设备接入（`adb devices` 为空）。逻辑面已被自动化覆盖的部分：
+   ④ 三态 → `SettingsUseCase` + `ViewDerivationParityTest`；⑤⑥ 移动 → `AdjustUseCase` + 双跑护栏；
+   ⑦ 台账标记 → `AdjustUseCase.markLedgerPhoto`；⑧⑨⑩ 导出/取消/重入 → `ExportGateTest` 三条；
+   ⑫ 时区 → 缓存版本位用例。**但"UI 真的还能点"这件事，只有人点过才算数**，登记为待办。
+
+### 17.4 一条弯路：三轮诊断，最后靠"打印出现的位置"定位
+
+现象：`AppViewModelTest.重新解析日志…解析后应有事件` 红，`parsed == null`。
+
+| 轮次 | 做法 | 得到什么 |
+| --- | --- | --- |
+| ① | 临时用例直接调 `AlgorithmApi.parseLog` | `directParse events=12`，但 `afterParse parsedEvents=0` —— 解析函数没问题，是流程没走到 |
+| ② | 在 `AnalysisPipeline` 里临时 `println("DIAG-PIPE …")` | 出现**两次**调用：`logTextLen=0 … events=0` 与 `logTextLen=640 … events=12` |
+| ③ | 对比 `parsedLogsText` 与 `state.logsText` | `parsedLogsTextLen=0 stateLogsLen=640 same=false` —— 快路径没命中，符合预期 |
+
+决定性观察不是数值，而是**位置**：`events=12` 那次打印出现在 `afterParse` **之后**。
+说明 `autoPipeline()`（当时调的是完整 `analyze`）自己把日志解析了，于是 `state.parsed` 提前非空，
+测试的 `await { it.parsed != null && !it.busy }` 在 `parseLogs` **之前**就满足了 ——
+断言读到的是"自动流水线顺手解析"的结果，不是"点解析"的结果。
+修法即 §17.3 第 2 条。诊断代码（临时用例 + `println`）已全部删除，未留在提交里。
+
+**记一条方法论**：这轮三次失败里有两次，"看数值"都只能确认症状，"看打印的先后顺序"才定位到根因。
+断言超时/空值这类问题，先怀疑"前置条件被别的路径提前满足了"，而不是先怀疑被测函数。
+
+### 17.5 留给第二提交（导出段）
+
+- `AppViewModel` 里 685~1011 行是导出（≈330 行，含注释）：`exportZip` 的门禁与三层 `finally`、
+  `prepareLedger` 的并行解码、`buildRows` 的原始行、`openOutputSink`/`copyToOutput` 的 SAF 写入、
+  `bindExportGateTo` 的 Job 级兜底。**整段原样保留，注释未改一字**，等共享 `ExportUseCase` +
+  安卓 `ExportExecutor`（ZIP 版）就位后再搬。
+- 搬完后 `UiState.exportProgress/exportMessage/exportOk/lastExport` 应退化成对
+  `ExportResult` 的投影（`ExportUi` 这个本地类随之消失）。
+- **行数目标要重新校准**：计划写 `AppViewModel` ~250 行、G2 写 ≤300。按现在的构成，
+  导出搬走之后仍在 **~700 行** 量级 —— 剩下的 `UiState` 定义（含 55 行字段注释）、
+  平台注入点、SAF、权限、缩略图预缓存都是**安卓独有且没有第二份可共享**的。
+  第二提交落地时要么把 `UiState` 拆到独立文件、要么把 ≤300 这条判据改成"不含 `UiState` 定义与注释"，
+  **不可以在报告里直接写"达标"**。
