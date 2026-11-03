@@ -20,6 +20,12 @@ java {
 
 dependencies {
     api(project(":shared:domain"))
+    // ★ T09：门面以 StateFlow 作为「逻辑 → UI」的状态通道，与桌面端既有做法一致
+    //   （desktop/core 早已依赖 coroutines 并在 API 上暴露 StateFlow）。
+    //   这里必须是 api 而不是 implementation：消费者编译时要能解析 StateFlow 类型，
+    //   否则 UI 被迫自己声明一个版本，两处版本一漂移就是 NoSuchMethodError。
+    //   ★ 只用 core 的 Flow，不引入协程上下文/调度器——线程模型仍由装配根决定。
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
