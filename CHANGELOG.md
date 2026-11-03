@@ -14,6 +14,16 @@
 - **嵌图规格常量收敛**：台账嵌图的 `400×300 / JPEG 50%` 原先在 PC 与安卓各写一份字面量，注释互相声称"与另一端一致"但无机制保证（改一边不会报错）。现由 `shared/algorithm` 的 `MediaSpec` 单点定义，两端引用；`XlsxWriter` 的排版尺寸（3.81cm / EMU）**刻意不并入**——那是显示大小，与源分辨率无换算关系
 - 删掉 `derivedSuffix()`（全仓 0 调用，返回的 `"派生"` 文案从未接入 UI）。留着它只会让人以为界面上有文字角标，而实际只有一个 5dp 白点
 - 订正 `AppState.isDerived` 的注释：原写"UI 可据此显示**无水印备份**角标"，与实现不符，且已导致一次判断走偏。白点是**派生副本**标记，不专指 `_original`
+  - `affects:` `desktop/ui` 缩略图角标（5dp 白点）；黄金样本不受影响（`isDerived` 不落盘，标尺测不到）
+  - `verify:` 跑 `:shared:algorithm:test --tests "*DerivedNamesTest*"`（7 条，含"旧实现是子集"方向断言）；打开合成样本看 `19_`/`23_`/`24_` 三个事件各有一张缩略图带白点
+
+### 工程（跨端共用 · T05 收尾，**无用户可见变化**）
+- 手写 JSON、取消信号、日志落盘防抖三处上移到 `shared/app/infra`，两端各留薄适配器：
+  - `Json`（279 行）：PC 的设置文件 / 导出清单 / 导出日志共用同一份实现，正文逐字未改，只换 package 与可见性（`internal` 跨不了模块）
+  - `Cancellation`：两端取消信号统一为 JDK `CancellationException`——它正是协程取消在 JVM 上的实际类型，安卓侧零改动即被同一套判定覆盖。桌面删掉私有 `CancellationExceptionMarker`，改 `checkCancelled { }`；此前桌面/安卓都可能被 `runCatching` 或 `catch (Exception)` 静默吞掉取消（安卓 2026-10-31 踩过，桌面只是恰好没触发）
+  - `DebouncedTextStore`：只保留策略（400ms 窗口、连打合并、`flush` / `cancelPending` 的顺序），落盘与"多久后执行"全走端口，共享层不含线程、协程、文件、SharedPreferences；两端从各 ~75 行降到 ~40 行适配器
+  - `affects:` 无（导出产物、界面、设置文件格式均不变）
+  - `verify:` 桌面黄金样本 0 差异（72 行 / 504 单元格 / 50 嵌图）；`shared:app` 21 条、`core` 40 条、安卓 `app` 56 条全绿；安卓 `LogsTextStoreTest` / `SetLogsTextWiringTest` **一行未改**即通过
 
 ### 变更（跨端共用 · T03 纯函数上移，含一处用户可见行为变化）
 - **PC 端首次能识别 `yyyy-MM-dd`（短横）格式的 EXIF 拍摄时间**：此前 PC 只认 `yyyy:MM:dd`，而安卓两种都认，导致同一张照片"手机上归了事件、电脑上归不了"。真实素材里 8 张短横 EXIF 照片因此在 PC 上全部落进 `99_未分类`
@@ -23,6 +33,8 @@
   - 顺带补上安卓缺失的一格能力：带毫秒 / 时区尾巴的时间戳（`…08:30:00.123`、`…+08:00`）原来在安卓上解析失败，现在两端都能解析。现有素材没有这类照片，故安卓侧可观测行为不变
 - EXIF 时间解析与 SHA-256 收敛为**一份实现**（`shared/domain` 的 `ExifTime` / `Sha256`），安卓删除私有 `ExifTimeParser`、`FileHasher` 与桌面端各自保留的 10 行平台适配器只负责"怎么打开文件"
 - 黄金样本口径补充：**台账快照不能按图片序号比**。新增嵌图会让后续图片编号整体后移，按索引比会报出大量假差异；判断口径与脚本用法见 `docs/golden/README.md` §4.1
+  - `affects:` PC 导出目录（8 张照片的归属、`99_未分类` 与三个事件目录）与台账行；安卓侧无可观测变化
+  - `verify:` `python scripts/golden/compare.py --base docs/golden/desktop-baseline.json --after <新快照> --ignore '^meta'` 应为 0 差异；真机 `run_android_real.sh` 双跑 ZIP 60 条目 0 差异
 
 ### 修复（去重 · 两端共用）
 - **连拍间隔 <1s 时真实照片被当作重复丢弃**：`ExifContentDedupStrategy.isSame` 的 GPS 有效分支只有「时间 ±1s + 距离 ≤10m」两条判据，二者都只能证明"同一地点同一时刻"，无法区分"同一张的两个版本"与"两张不同照片"。同一个人在同地连拍，两张不同照片必然同时满足两条 → 后者被当作前者的副本丢弃，**且不可恢复**（ZIP 里没有，原件也不在输出里）

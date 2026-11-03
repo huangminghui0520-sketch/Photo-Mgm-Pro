@@ -66,7 +66,7 @@ desktop/ui ──► desktop/core ──► algorithm ◄── android/app ◄�
 | D8 | 台账嵌图规格 400×300 / JPEG50 / 4:3 | `PcImageEmbedder.kt` 常量区 | `ImageUtils.kt:20-27` | 2 套常量 | 值一致，**两份定义** |
 | D9 | EXIF 时间字符串解析 | `PcExifReader.kt` 的 `parseExifDateTime` | `ExifTimeParser.kt` 全文件 | ~30 行 | **是**：PC 只认 `yyyy:MM:dd`，Android 兼容 `-` 分隔 |
 | D10 | SHA-256 文件哈希 | `PcFileHasher.kt` | `FileHasher.kt` | ~25 行 | 否（PC 多两个重载） |
-| D11 | 日志文本落盘防抖（400ms） | `LogsTextStore.kt`（ScheduledExecutor） | `LogsTextStore.kt`（协程 delay） | 各 ~75 行 | 否（策略同，机制不同） |
+| D11 | 日志文本落盘防抖（400ms） | `LogsTextStore.kt`（ScheduledExecutor） | `LogsTextStore.kt`（协程 delay） | 各 ~75 行 | 否（策略同，机制不同）→ **已消灭**（T05-C2：策略在 `app/infra/DebouncedTextStore`，两端只剩调度适配） |
 | D12 | 派生文件后缀判定 `isDerivedName` | `PhotoMgmCoreImpl.kt:605`（`contains` 宽松判定） | 无（Android 不做角标） | ~6 行 | **是**：核心 `Dedup.kt:110 DerivedNames.isDerived` 是正则严格版，PC 这份是"再写一遍的宽松版" |
 
 合计**确定性重复约 600~700 行**，其中 D2/D7/D9/D12 已有可观测的行为分歧。

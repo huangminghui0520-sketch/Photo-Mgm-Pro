@@ -150,7 +150,7 @@
 | 目标 | 消灭 D11（防抖两版），统一取消语义（PC `Operation` vs Android `Cancellable`），手写 JSON 上移 |
 | 依赖 | T04 |
 | 改动 | 新增 `shared/app/infra/DebouncedTextStore.kt`（**只保留策略**：延迟时长、合并写、`flush()`；持久化动作由 `LogTextStorage` 端口回调）、`Cancellation.kt`（合并两端语义，**保留安卓"取消不被吞"的语义**）、`Json.kt`（搬 `desktop/core/infra/Json.kt` 279 行，零改动）；PC `LogsTextStore`、Android `LogsTextStore` 改为薄适配；`desktop/core` 的 `SettingsRepository` 改调共享 JSON |
-| 产出 | 3 个共享文件 + 2 个测试；两端各 1 个文件从 ~80 行降到 ~30 行 |
+| 产出 | 3 个共享文件 + 2~3 个测试；两端各 1 个文件从 ~75 行降到 ~40 行适配器（**实测见 §12.6.1**：`Json` 的 5 条测试随源码迁入，故共 3 个测试文件；取消信号最终未新造类型） |
 | 验证 | L2 全绿，**必须包含这两个测试**：`DebouncedTextStoreTest`（"连续 5 次 set 只落盘 1 次""close 前 flush 不丢最后一次"）、`CancellationTest`（"取消后 `runCatching` 不吞 `CancellationException`"）；黄金样本全等 |
 | 回滚 | 单提交 |
 | 风险 | 若把安卓的 `runCatchingCancellable` 语义搬成 PC 的 `Operation`（可能吞取消）→ 导出中断会静默继续。纪律：**以安卓版为语义基准**，PC 侧跟随 |
@@ -439,7 +439,8 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | **P0-2 修复（连拍 <1s 误删真实照片）** | ✅ **已完成**（2026-11-02，真实素材首次端到端暴露）：`groupDupContent` 改「锚点 + 派生就近附着」；真机导出 **54 → 55 张**、55/55 逐字节一致；两端黄金样本零回归。文档 `docs/DEDUP-ADJACENT-BURST-FIX.md`。**遗留已清**：合成素材的 <1s 连拍用例已补（`d16ec95`，66→69 张），两端基线同轮重建并双跑验证 0 差异 |
 | **T03 纯函数上移 A** | ✅ **已完成**（2026-11-03）：C1 `ExifTime`/`Sha256` + **17** 条单测；C2 PC 适配器改调纯函数（桌面基线升级并留档）；C3 安卓删私有实现、`FileHasher` 缩适配器。**真机复验全通过**：ZIP / 台账对基线 **0 差异**、V2 双跑 **0 差异**、59 张照片与素材逐字节相同、跨端 **D9 归零**（26 目录 0 处不一致）。执行细则与实测见 **§12.4** |
 | **T04 纯函数上移 B** | ✅ **已完成**（2026-11-03）：PC 删私有 4 后缀实现改调 `isDerivedPhotoName`；`MediaSpec` 收敛嵌图规格 400×300/JPEG50；删死代码 `derivedSuffix`、订正角标注释。新增 `DerivedNamesTest` 7 条（含"旧实现是子集"方向断言，反证旧实现必红 3 条）。桌面黄金样本 **0 差异**、真机 **0 差异**；用户可见变化仅 3 张照片白点从无到有。执行细则、三处口径订正与实测见 **§12.5** |
-| T05~T14 | 待开工（T05 排期见 §12.3） |
+| **T05 纯函数上移 C** | ✅ **已完成**（2026-11-03）：C1 `Json`（279 行上移）+ 取消信号收敛（两端统一为 JDK `CancellationException`）；C2 `DebouncedTextStore` 只留策略、两端变薄适配。**无用户可见变化**：桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）、`export.log` 62 行仍为合法 JSON、安卓 `LogsTextStoreTest`/`SetLogsTextWiringTest` **一行未改**即通过。执行细则与三处口径订正见 **§12.6** |
+| T06~T14 | 待开工（M2 收口见 §12.7；仅剩真机 V2 双跑一项待设备接入） |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
 CI 结构断言扩到"三模块两端都必须挂 + 禁 `android/shared`/`desktop/shared`"；`REPO-LAYOUT.md` 升 v2。
@@ -515,9 +516,9 @@ M2 之前仍然只做纯函数，不碰编排。
 | **T03-C3** | 安卓侧删 `ExifTimeParser` 副本、`FileHasher` 缩为适配器 + V2 复跑 | **P0** | C1 | 0.5d | **11-04 下午** | 删 1 文件、1 个变 10 行；安卓 V2 0 差异 |
 | **V4'** | 跨端差异**首次复测**（T03 后 D-b/D-c/D-d 应收敛） | **P0** | C2+C3 | 0.25d | **11-05 上午** | 报告 §6.5 差异表更新 |
 | **T04** | 纯函数上移 B：`MediaSpec` + `DerivedName`（**唯一改语义**） | **P1** | T03 | 1.0d | **11-06** | 2 共享文件；角标变化清单；CHANGELOG 行为变更 |
-| **T05-C1** | 上移 `Json`（279 行零改动）+ `Cancellation`（以安卓语义为基准） | **P1** | T04 | 0.5d | **11-09 上午** | 2 共享文件 + 1 测试 |
-| **T05-C2** | 上移 `DebouncedTextStore`（只留策略，持久化走端口） | **P1** | T05-C1 | 0.5d | **11-09 下午** | 1 共享文件 + 1 测试；两端薄适配 |
-| **M2 收口** | 全量验证 + CHANGELOG + tag `shared-v0.1` | **P1** | T05 | 0.5d | **11-10** | 见 §12.7 检查单 |
+| **T05-C1** | 上移 `Json`（279 行零改动）+ `Cancellation`（以安卓语义为基准） | **P1** | T04 | 0.5d | ✅ **11-03** | 2 共享文件 + 1 测试（实测 `dc8870d`） |
+| **T05-C2** | 上移 `DebouncedTextStore`（只留策略，持久化走端口） | **P1** | T05-C1 | 0.5d | ✅ **11-03** | 1 共享文件 + 1 测试；两端薄适配（实测 `873e10a`） |
+| **M2 收口** | 全量验证 + CHANGELOG + tag `shared-v0.1` | **P1** | T05 | 0.5d | **11-03 进行中** | 见 §12.7 检查单（10 项中 9 项已完成，仅真机 V2 待设备接入） |
 | **P1-3** | GPS"部分剥离"复现定性（可滑动） | **P2** | — | 0.5d | **11-11 ~ 11-12 缓冲** | 复现记录 + 去重判据要求 |
 
 **关键节点**：`11-04` 首次出现"两端行为开始一致"的量化证据；`11-06` 唯一改语义点落地；`11-10` 抵达 M2；`11-12` 缓冲截止。
@@ -719,18 +720,57 @@ C2 之后必须**同时**更新 `docs/golden/desktop-baseline.json`（`meta.rebu
 3. `DebouncedTextStore` 只保留策略（延迟 400ms、合并写、`flush()`），持久化走 `LogTextStorage` 端口——**把 `SharedPreferences`/`ScheduledExecutor` 带进去就破坏 C2**。
 4. 必测两条：连续 5 次 `set` 只落盘 1 次、`close` 前 `flush` 不丢最后一次；取消后 `runCatching` 不吞 `CancellationException`。
 
+#### 12.6.1 实测记录（2026-11-03，`dc8870d` + `873e10a`）
+
+**产出**（原计划"3 共享文件 + 2 测试"）：3 个源码文件 `app/infra/{Json,Cancellation,DebouncedTextStore}.kt`；
+3 个测试文件（`CancellationTest` 9 条 + `DebouncedTextStoreTest` 7 条为**新写**，`JsonTest` 5 条随源码迁入、断言一行未改）。
+两端各剩薄适配器：桌面 `LogsTextStore` 只剩 `load` + 临时文件原子改名，安卓只剩 `scope.launch + delay` 的端口实现。
+
+**三处与本节预设不同，均已按实际情况落地**：
+
+| # | 本节原写法 | 实际做法 | 为什么 |
+| --- | --- | --- | --- |
+| 1 | "先 `git mv` 再改 package，保证 diff 里只有 package 行" | 还改了 **18 处 `internal` → `public`** | 跨模块引用必须公开，这条不可能做到"只有 package 行"。已用 grep 校验正文其余**零改动**（无第 19 处 `internal`，279 行 → 284 行仅多文件头 5 行）。判据订正为"diff 只允许含 package + 可见性 + 文件头" |
+| 2 | "取消语义以安卓为基准，PC 的 `Operation` 跟随" | 两端统一到 JDK `CancellationException`，**没有新造类型** | 它正是 `kotlinx.coroutines.CancellationException` 在 JVM 上的类型（typealias，已 javap 实证）。用它比"PC 跟随安卓的语义"更彻底：两端从此是**同一个类型**，共享层的 `runCatchingCancellable` 与 PC 的 `catch` 盯的是同一个类，不必各自翻译 |
+| 3 | "持久化走 `LogTextStorage` 端口" | 需要**两个**端口：`persist` + `DelayScheduler` | 只抽持久化还不够——"多久之后执行一次"桌面用 `ScheduledExecutorService`、安卓用 `delay`，不抽这一层就必须把线程或协程写进共享层，直接破 C2 |
+
+**验证数据**：
+
+- L2：`shared:algorithm` 335 / `shared:domain` 17 / `shared:app` **21**（新增 16，迁入 5）/ `core` **40**（45−5，JsonTest 迁出，**不是净损失**）/ `ui` 123 / 安卓 `app` **56**，失败与错误均为 0。总数 520 → 536
+- L1 门禁（`shared/` 现在确实在扫描范围内）：取消 92 文件 / 忽略策略 44 测试文件 / 时区 48 文件，全 OK
+- L3 桌面：对 `desktop-baseline.json` **0 差异**（72 行 / 504 单元格 / 50 嵌图）；`export.log` 62 行逐行 `json.loads` 通过（证明上移的 `Json` 输出的仍是合法 JSON）
+- 跨端台账（桌面新快照 vs `android-ledger-baseline.json`）：**102 处差异全部是 D-e**（50 张嵌图的 `bytes`+`sha256`）加 `file` 名与 xlsx 总字节——**行、列、锚点 0 差异**。这条同时是 §12.7 第 4 项的实测依据
+
+**一条教训（与 T03 的"测试条数数错"同类）**：`kotlin.test` 的 `assertEquals(expected, actual, message)` 参数顺序与 JUnit 不同，
+本轮一开始把 message 写在第一位 → 一次编译报出 20 余条 `Int where Double expected`。
+**编译期就能拦住的东西不要靠肉眼复核**：写测试时先编译一次，再谈断言是否成立。
+
 ### 12.7 M2 停止点检查单（10 项，逐条打勾才许进 T06）
 
-1. L1 三门禁全绿**且打印的扫描文件数 > 0**（`shared/` 尚未进门禁扫描范围，本步手工确认一次）。
-2. L2 六组测试全绿：algorithm 22 / domain 新增 2 / desktop core 9 / desktop ui 13 / android app 10+ / android data 5。
-3. L3：desktop 黄金样本 = 新基线且差异已解释；android V2 双跑 0 差异。
-4. 跨端差异表已更新（D-b/D-c/D-d 应消失；D-e/D-g 仍标"不可比"）。
-5. 9 个提交各自可单独 `revert`；`git status` 干净。
-6. CHANGELOG 两条「已知行为变更」+ `affects:` + `verify:` 齐全。
-7. `docs/golden/history/` 存有 T03/T04 之前的基线副本。
-8. 本地打 tag `shared-v0.1`（不覆盖 `desktop-v2.0.0`）。
-9. 网络若恢复 → push + 看 CI；否则在 tag 说明里写"CI 未验证"。
-10. 本文档 §11 与 §12.3 的状态列更新到 M2。
+1. ✅ L1 三门禁全绿**且打印的扫描文件数 > 0**：取消 92 / 忽略策略 44 / 时区 48 文件，全 OK。`shared/` 本来就在取消门禁的扫描根里（`scripts/check-cancellation.py` 默认 `android/app shared android/data`），本轮新增的 3 个共享文件确实被扫到（87 → 92 文件）。
+2. ✅ L2 全绿（**以 JUnit XML 的 `tests=` 为准**，不数 `grep fun`）：algorithm 335 / domain 17 / **app(shared) 21** / core 40 / ui 123 / 安卓 app 56 / 安卓 data 15，失败 0、错误 0。
+3. ⏳ L3：**desktop 侧已完成**（0 差异，72 行 / 504 单元格 / 50 嵌图）；**android V2 双跑待设备接入**——本轮执行时 `adb devices` 为空，尚缺"新 APK + 双跑 0 差异"这一条。**这是唯一未勾选项，tag 因此暂缓**。
+4. ✅ 跨端差异表已更新（见 §12.7.1）：D-b/D-c/D-d/D-f 归零，仅 D-e/D-g 仍标"不可比"。实测口径：桌面新快照 vs `android-ledger-baseline.json` → 102 处差异全部落在 D-e（50 张嵌图 × 字节/哈希）与 `file` 名、xlsx 总字节上，**行/列/锚点 0 差异**。
+5. ✅ 提交链 `d16ec95 → 873e10a` 共 **15 个提交**（原估 9 个，多出的是素材/基线/文档单点提交），每个都是自洽的编译单元、可单独 `revert`；`git status` 干净。
+6. ✅ CHANGELOG：T03/T04 两条「已知行为变更」补齐 `affects:` + `verify:`，另加 T05「无用户可见变化」一节并写明验证方式。
+7. ✅ `docs/golden/history/` 存有 `desktop-baseline.d16ec95.json`（T03/T04 之前的桌面基线副本）。
+8. ⏳ 本地 tag `shared-v0.1`：**等第 3 项**（不覆盖 `desktop-v2.0.0`）。
+9. ⏳ push + CI：按本项目约定**不推送**（只有收到明确推送指令才允许 push），tag 说明里注明"CI 未验证"。
+10. ✅ 本文档 §11 与 §12.3 的状态列已更新到 M2。
+
+#### 12.7.1 跨端差异表终态（2026-11-03 复核）
+
+| # | 差异项 | 原值（T01 时） | 终态 | 依据 |
+| --- | --- | --- | --- | --- |
+| D-a | 台账单元格文本 | 71 条 vs 71 条 | **0 差异** | 桌面快照 vs 安卓台账基线：行/列/锚点全等 |
+| D-b | 有照片的事件数 | 23 vs 26 | **0 差异** | T03 统一 EXIF 时间解析（D9）后收敛 |
+| D-c | 未分类照片 | 11 张 vs 3 张 | **0 差异** | 同上 |
+| D-d | 台账嵌图数 | 44 vs 50 | **0 差异** | 同上 |
+| D-f | 嵌图锚点行 | 34 处不同 | **0 差异** | 同上 |
+| D-e | 嵌图字节 | 每张都不同 | **不可比**（保留） | 编码器不同（ImageIO vs Bitmap），只比尺寸/数量 |
+| D-g | ZIP 条目数 | 82 vs 57 | **不可比**（保留） | PC 含 manifest/export.log，目录口径不同（D4 决策） |
+
+> 口径提醒：D-e 的 50 张嵌图字节差异**永远存在**，不要把它当回归追。`compare.py` 跨端比时只允许"行/列/锚点/尺寸"这一类，字节类差异需 `--ignore '^media\[\*\]\.(bytes|sha256)$'`。
 
 ### 12.8 新增风险（R12~R17，接 §8 登记册）
 
