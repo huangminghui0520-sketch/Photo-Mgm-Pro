@@ -6,14 +6,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -33,7 +28,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import algorithm.model.Photo
 import com.photomgm.app.ThumbnailSpec
 
 // ──────────────────────────────────────────────────────────────────
@@ -116,41 +110,6 @@ internal fun Thumb(
                     ),
                 )
             }
-        }
-    }
-}
-
-// ──────────────────────────────────────────────────────────────────
-// 缩略图单元格：8dp 安全边距 + 2.5dp 主色边框 + 圆形对勾叠层 + 底部标准 Checkbox
-// ──────────────────────────────────────────────────────────────────
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-internal fun ThumbCell(
-    p: Photo,
-    selected: Boolean,
-    onToggle: () -> Unit,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-        modifier = Modifier.padding(4.dp),
-    ) {
-        Thumb(
-            p.sourceRef, p.displayName,
-            selected = selected,
-            onClick = onClick,
-            onLongClick = onLongClick,
-        )
-        Row(
-            Modifier.heightIn(min = 40.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            androidx.compose.material3.Checkbox(
-                checked = selected,
-                onCheckedChange = { onToggle() },
-            )
         }
     }
 }
