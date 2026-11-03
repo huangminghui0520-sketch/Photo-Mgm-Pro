@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### 工程（安卓 · T06 适配层归位，**无用户可见变化**）
+- 三处平台职责从 `:app` 挪进 `:data`，`:app` 往「UI + 编排」再近一步（T08/T09 的前提）：
+  - `ImageUtils.kt` → `data/image/BitmapImageEncoder.kt`：解码 / 4:3 裁剪 / 400×300 / JPEG50 的逻辑**一字未改**，只是换了模块。顺带删掉 `TARGET_WIDTH`/`TARGET_HEIGHT`/`JPEG_QUALITY` 三个转发别名（真值只有 `MediaSpec` 一处，别名只为"不动调用点"而存在，而调用点全仓库只有一处）
+  - `SettingsStore` 的物理存储 → `data/storage/PrefsSettingsStorage.kt`：prefs 文件名、key、值类型、人工移动与台账标记的字符串编码、日志旧 key 迁移。JSON 编解码与缓存版本位判定仍留 `:app`——判据是"换掉存储介质时哪部分要跟着改"
+  - 「打开导出台账」→ `data/shell/UriShellLauncher.kt`：FileProvider + ACTION_VIEW + chooser，结果从 Boolean 改成三态（`STARTED` / `URI_UNAVAILABLE` / `NO_VIEWER_APP`），三种情况给用户的提示不同。**只持 `applicationContext`、不持 Activity**（AR3），启动一律带 `NEW_TASK`
+  - `affects:` 无（导出产物、界面、设置文件格式、prefs key 全部不变；老用户升级后设置与人工标记照常读出）
+  - `verify:` 桌面黄金样本 0 差异（72 行 / 504 单元格 / 50 嵌图）；`:data` 26 条、`:app` 52 条、桌面 5 组共 536 条全绿；`SettingsStoreLogsMigration` / `SettingsStoreZoneMigration` / `BitmapImageEncoderOwnership` **断言一行未改**即通过；安卓黄金样本待设备接入后补跑
+
 ### 修复（PC 界面 · T04 派生副本角标漏标）
 - **桌面端缩略图的「派生」白点漏标了两类加工副本**：`isDerived` 只在 PC 侧用私有函数判定，那份实现只认 4 个后缀（`_original`/`_compressed`/`_edited`/`_modified`），而核心 `DerivedNames` 认 8 个（另有 `_optimized`/`_resized`/`_缩略`/`_压缩`/`_原图`）。同一个文件因此出现「**核心判派生、界面判不派生**」的相反结论
   - 用户可见变化：3 张照片右上角的白色圆点从**无变有** —— `IMG_20260814_134015_optimized.jpg`（`19_1340 检查K533+000交安设施…`）、`IMG_20260814_155015_缩略.jpg`（`23_发现摩托车违规上高速…`）、`IMG_20260814_161015_resized.jpg`（`24_巡查K540+000至K542+000…`）。它们都是所在事件里唯一的照片，所以表现为「主图上带派生点」——**这是对的**：白点描述的是文件名属性（这是副本），不是它在组内的身份

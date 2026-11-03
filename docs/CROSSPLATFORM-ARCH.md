@@ -63,7 +63,7 @@ desktop/ui ──► desktop/core ──► algorithm ◄── android/app ◄�
 | D5 | 内容判重分组 + 缓存 `dupGroups` | `:486` | `:664` | 各 ~15 行 | 否（缓存机制不同：PC 用引用比较，Android 用原子引用） |
 | D6 | 台账行投影 `buildLedgerRows`/`buildRows` + `labelOf` | `:495`、`:514` | `:645` | 各 ~25 行 | 否 |
 | D7 | 人工移动 / 台账标记 / 重置 | `:355`、`:409`、`:420` | `:748`、`:1129`、`:769` | ~60 行 | **是**：PC 有 `copyPhotos`，Android 无对应功能 |
-| D8 | 台账嵌图规格 400×300 / JPEG50 / 4:3 | `PcImageEmbedder.kt` 常量区 | `ImageUtils.kt:20-27` | 2 套常量 | 值一致，**两份定义** |
+| D8 | 台账嵌图规格 400×300 / JPEG50 / 4:3 | `PcImageEmbedder.kt` 常量区 | `ImageUtils.kt:20-27` | 2 套常量 | 值一致，**两份定义** → **已消灭**（T04：真值收敛到 `shared/algorithm/MediaSpec`；T06：安卓实现搬至 `data/image/BitmapImageEncoder`，三个转发别名一并删除） |
 | D9 | EXIF 时间字符串解析 | `PcExifReader.kt` 的 `parseExifDateTime` | `ExifTimeParser.kt` 全文件 | ~30 行 | **是**：PC 只认 `yyyy:MM:dd`，Android 兼容 `-` 分隔 |
 | D10 | SHA-256 文件哈希 | `PcFileHasher.kt` | `FileHasher.kt` | ~25 行 | 否（PC 多两个重载） |
 | D11 | 日志文本落盘防抖（400ms） | `LogsTextStore.kt`（ScheduledExecutor） | `LogsTextStore.kt`（协程 delay） | 各 ~75 行 | 否（策略同，机制不同）→ **已消灭**（T05-C2：策略在 `app/infra/DebouncedTextStore`，两端只剩调度适配） |
@@ -282,10 +282,10 @@ include(":shared:app");       project(":shared:app").projectDir       = file("..
 | --- | --- | --- |
 | `AppViewModel.kt` (1165) | **拆三层** | 编排/状态/取消 → `shared/app`；视图派生 → `shared/domain`；剩 `UiState` 投影 + SAF + 缩略图 → 留 ~250 行 |
 | `PhotoRepository.kt` (47) | **删除** | 被 `shared/app/AnalysisPipeline` 取代（内部逻辑同构） |
-| `SettingsStore.kt` (353) | 平台（**编解码可选上移**） | 留（`SharedPreferences`），序列化逻辑见 D3 决策点 |
-| `ImageUtils.kt` (187) | 平台（**规格上移**） | 实现 `ImageEncoder` 端口；常量改引 `MediaSpec` |
-| `LogsTextStore.kt` (89) | **共享**（整份） | `app/infra/DebouncedTextStore`，Android 只提供 `persist` 回调 |
-| `Cancellable.kt` (33) | **共享** | `app/infra/Cancellation`，与 PC 的 `Operation` 合并 |
+| `SettingsStore.kt` (353) | 平台（**编解码可选上移**） | 留（`SharedPreferences`），序列化逻辑见 D3 决策点 → **T06 已落一半**：物理存储拆到 `data/storage/PrefsSettingsStorage`（key/编码/迁移），JSON 编解码与版本位判定仍留 `:app` |
+| `ImageUtils.kt` (187) | 平台（**规格上移**） | 实现 `ImageEncoder` 端口；常量改引 `MediaSpec` → **T06 已落地前半**：整体搬到 `data/image/BitmapImageEncoder.kt`，常量已引 `MediaSpec`；抽接口留给 T09 |
+| `LogsTextStore.kt` (89) | **共享**（整份） | `app/infra/DebouncedTextStore`，Android 只提供 `persist` 回调 → **已完成（T05-C2）** |
+| `Cancellable.kt` (33) | **共享** | `app/infra/Cancellation`，与 PC 的 `Operation` 合并 → **已完成（T05-C1）**，文件已删除 |
 | `ThumbnailCache.kt` (130) | 平台 | 留（P2） |
 | `ui/**` (10 文件, ~3800 行) | 平台 | **完全不动**（这是本方案最硬的验收条件） |
 

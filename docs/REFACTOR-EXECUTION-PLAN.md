@@ -440,7 +440,8 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | **T03 纯函数上移 A** | ✅ **已完成**（2026-11-03）：C1 `ExifTime`/`Sha256` + **17** 条单测；C2 PC 适配器改调纯函数（桌面基线升级并留档）；C3 安卓删私有实现、`FileHasher` 缩适配器。**真机复验全通过**：ZIP / 台账对基线 **0 差异**、V2 双跑 **0 差异**、59 张照片与素材逐字节相同、跨端 **D9 归零**（26 目录 0 处不一致）。执行细则与实测见 **§12.4** |
 | **T04 纯函数上移 B** | ✅ **已完成**（2026-11-03）：PC 删私有 4 后缀实现改调 `isDerivedPhotoName`；`MediaSpec` 收敛嵌图规格 400×300/JPEG50；删死代码 `derivedSuffix`、订正角标注释。新增 `DerivedNamesTest` 7 条（含"旧实现是子集"方向断言，反证旧实现必红 3 条）。桌面黄金样本 **0 差异**、真机 **0 差异**；用户可见变化仅 3 张照片白点从无到有。执行细则、三处口径订正与实测见 **§12.5** |
 | **T05 纯函数上移 C** | ✅ **已完成**（2026-11-03）：C1 `Json`（279 行上移）+ 取消信号收敛（两端统一为 JDK `CancellationException`）；C2 `DebouncedTextStore` 只留策略、两端变薄适配。**无用户可见变化**：桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）、`export.log` 62 行仍为合法 JSON、安卓 `LogsTextStoreTest`/`SetLogsTextWiringTest` **一行未改**即通过。执行细则与三处口径订正见 **§12.6** |
-| T06~T14 | 待开工（M2 收口见 §12.7；仅剩真机 V2 双跑一项待设备接入） |
+| **T06 安卓适配层归位** | ✅ **已完成**（2026-11-03）：C1 `ImageUtils` → `data/image/BitmapImageEncoder`（顺删 3 个转发别名，测试随迁）；C2 `SettingsStore` 介质段 → `data/storage/PrefsSettingsStorage`（key/编码/旧 key 迁移，JSON 与版本位判定留 `:app`）；C3 「打开台账」→ `data/shell/UriShellLauncher`（AR3：只持 `applicationContext`）。**无用户可见变化**：桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）；三个护栏测试（`BitmapImageEncoderOwnership` / `SettingsStoreLogs/ZoneMigration`）断言一行未改即通过。执行细则、边界判据与条数订正见 **§12.11** |
+| T07~T14 | 待开工（T07 domain 双跑可 ∥ T08；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项） |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
 CI 结构断言扩到"三模块两端都必须挂 + 禁 `android/shared`/`desktop/shared`"；`REPO-LAYOUT.md` 升 v2。
@@ -519,6 +520,7 @@ M2 之前仍然只做纯函数，不碰编排。
 | **T05-C1** | 上移 `Json`（279 行零改动）+ `Cancellation`（以安卓语义为基准） | **P1** | T04 | 0.5d | ✅ **11-03** | 2 共享文件 + 1 测试（实测 `dc8870d`） |
 | **T05-C2** | 上移 `DebouncedTextStore`（只留策略，持久化走端口） | **P1** | T05-C1 | 0.5d | ✅ **11-03** | 1 共享文件 + 1 测试；两端薄适配（实测 `873e10a`） |
 | **M2 收口** | 全量验证 + CHANGELOG + tag `shared-v0.1` | **P1** | T05 | 0.5d | **11-03 进行中** | 见 §12.7 检查单（10 项中 9 项已完成，仅真机 V2 待设备接入） |
+| **T06** | Android 适配层归位（A1）：`ImageUtils`→`data/image`、`SettingsStore` 介质段→`data/storage`、新增 `data/shell/UriShellLauncher` | **P1** | M2 | 1.0d | ✅ **11-03** | `:data` 源文件 3→6；`:app` 少 1 个平台类 + 1 个类变薄（实测 `17cfbe7`/`a6031bd`/`e13c9e3`） |
 | **P1-3** | GPS"部分剥离"复现定性（可滑动） | **P2** | — | 0.5d | **11-11 ~ 11-12 缓冲** | 复现记录 + 去重判据要求 |
 
 **关键节点**：`11-04` 首次出现"两端行为开始一致"的量化证据；`11-06` 唯一改语义点落地；`11-10` 抵达 M2；`11-12` 缓冲截止。
@@ -799,3 +801,83 @@ C2 之后必须**同时**更新 `docs/golden/desktop-baseline.json`（`meta.rebu
 | 标尺 | `desktop-baseline.json` v2（含 `rebuildReason`）+ `history/` 旧版存档；跨端差异表更新到"仅剩不可比项" |
 | 文档 | 本文档 §12 + 报告 §6.5 复测 + CHANGELOG 两条「已知行为变更」 |
 | 度量 | **跨端差异从 4 项（D-b/D-c/D-d/D-f）降到 0**（嵌图字节与 ZIP 形态除外）；共享率 13.8% → **~22%**（M2 判据） |
+
+---
+
+## 13. T06 执行记录（Android 适配层归位，2026-11-03）
+
+**一句话**：把散在 `:app` 的三处平台职责挪进 `:data`，让 `:app` 往"UI + 编排"再近一步。
+**用户可见变化：无。**
+
+| 提交 | 内容 |
+| --- | --- |
+| `17cfbe7` | **C1** `app/ImageUtils.kt` → `data/image/BitmapImageEncoder.kt`（只搬位置），测试随迁 |
+| `a6031bd` | **C2** `SettingsStore` 的物理存储拆到 `data/storage/PrefsSettingsStorage.kt` |
+| `e13c9e3` | **C3** 「打开导出台账」抽成 `data/shell/UriShellLauncher.kt`（AR3 落点） |
+
+### 13.1 拆 C2 的切口判据（本任务唯一需要判断的地方）
+
+T06 计划里写的是"介质段（prefs 读写）搬 `:data`，编解码留 `:app`"。这句话在 379 行的
+`SettingsStore` 上不够用 —— 它中间还夹着一段"业务映射压成 `42=1;43=2`"的字符串编码，
+既不像介质、也不像 JSON 编解码。**判据定为「换掉存储介质时哪部分要跟着改」**：
+
+| 归属 | 内容 | 换 SharedPreferences → DataStore/SQLite 时 |
+| --- | --- | --- |
+| `data/storage/PrefsSettingsStorage` | prefs 文件名、key 名、值类型、`overrideMap`/`markedMap` 的字符串编码、日志旧 key 迁移 | **全部要重写** → 介质层 |
+| `app/SettingsStore` | `LocalDate` / `DedupKeepMode` 类型往返、`ParsedLog`/`ClassifyResult`/`Photo` 的 JSON、缓存两个版本位判定 | **一行不用改** → 业务层 |
+
+推论：介质层**不认识任何业务类型**（无 `LocalDate`、无 `algorithm.model`、无 JSON）。
+`GEO_CACHE_VERSION` 因此留在业务层 —— 它描述"这批 GPS 是怎么读出来的"，存储层只当不透明字符串。
+
+**诚实记录**：`SettingsStore` 只从 379 行降到 345 行（−34）。这个任务的价值不在减行数，
+而在"将来换存储时改动面被关进一个文件"。别把"边界清楚了"写成"代码瘦了一半"。
+
+### 13.2 与计划的三处偏差
+
+| 计划原文 | 实际 | 原因 |
+| --- | --- | --- |
+| "`android/data` 4 → 7 文件" | **3 → 6**（源文件，不含测试） | 计划把 `data` 起点算成 4 个源文件，实测是 3 个（`ExifPhotoReader`/`FileHasher`/`MediaStorePhotoSourceProvider`）。加 C1/C2/C3 三个新文件 = 6 |
+| "`:app` 减少 3 个平台类" | **减 2**（`ImageUtils` 删除、`SettingsStore` 变薄）+ `openExportedFile` 的 Intent 逻辑搬走 | `UriShellLauncher` 是**新增到 `:data`**，不是从 `:app` 删掉一个类；`SettingsStore` 因为编解码留原地也不会整体消失 |
+| "`ImageUtilsOwnershipTest` 保持绿" | **必须随迁到 `:data` 才绿** | 它测的是 `internal processBitmap`，跨模块拿不到。为测试改成 `public` 等于把"契约只在本模块可验证"升级成公开 API —— 宁可搬测试 |
+
+### 13.3 一处口径错误（本次自己踩的）
+
+两个提交信息里的测试条数写错了：
+
+| 提交 | 写的 | 正确 | 错因 |
+| --- | --- | --- | --- |
+| `a6031bd`（C2） | `:data 21 → 26` | **19 → 24** | 跑测试时 C3 的 `UriShellLauncher.kt` 已在工作区，那 2 条被一起编译进去 |
+| `e13c9e3`（C3） | `:data 26 → 28` | **24 → 26** | 同上，把混合态当成了提交边界上的值 |
+
+**教训（与 T03 的"19→17"同类，但要更进一步）**：条数只认 JUnit XML 还不够，还必须
+**在干净工作区上取**。同一工作区里连着做两个子任务时，`gradlew` 会把后一个任务的文件一起编译，
+测出来的条数不属于任何一个提交。正确做法是每个子任务提交后 `git stash` 或单独检出再测。
+
+真实链路：`15`（T05 后）→ `19`（C1 +4 所有权用例）→ `24`（C2 +5 介质层用例）→ `26`（C3 +2 launcher 用例）；
+`:app` 全程 `56 → 52`（−4 随 C1 迁出）。合计 71 → 78。
+
+### 13.4 验证
+
+| 项 | 结果 |
+| --- | --- |
+| L2 安卓 | `:data` **26** / `:app` **52**，失败 0、错误 0 |
+| L2 桌面 | algorithm **335** / domain **17** / app(shared) **21** / core **40** / ui **123**，失败 0 |
+| L1 门禁 | 取消 **96** 文件 / 忽略策略 **46** / 时区 **50**，全 OK（新增 4 个安卓文件确实被扫到） |
+| L3 桌面黄金样本 | **0 差异**（72 行 / 504 单元格 / 50 嵌图），`--ignore '^meta'` |
+| L3 安卓黄金样本 | ⏳ **待设备接入**（与 §12.7 第 3 项同一阻塞）。本次改动不触编排与导出逻辑，预期 0 差异，但**未验不算过** |
+| 三个护栏测试 | `BitmapImageEncoderOwnership`（随迁）/ `SettingsStoreLogsMigration` / `SettingsStoreZoneMigration` —— 断言**一行未改**即通过；另有 `SettingsStoreGeoCacheTest` 一并绿 |
+
+### 13.5 本次新发现（不在计划里，已登记不修）
+
+| # | 发现 | 处置 |
+| --- | --- | --- |
+| 1 | `overrideMap` 的 `;` 编码把解码整体包在一个 `runCatching` 里 → **一条坏数据会让整张人工移动表归零** | 已写成 characterization 测试（`PrefsSettingsStorageTest`）。修法（逐条容错）属行为变更，要单独提交 + CHANGELOG，**不在归位任务里做** |
+| 2 | `sourceDirs` 底层是 `StringSet`，**顺序不保证** | 当前无逻辑依赖顺序，保留原行为并在代码注释里写明症状与修法。若将来要按用户添加先后展示，改 `PrefsSettingsStorage` 一处即可 |
+| 3 | `UriShellLauncher.Result.NO_VIEWER_APP` 在 Robolectric 下**构造不出来**（ShadowApplication 对 `startActivity` 一律记录成功） | 不写假测试，留给真机手工清单；已在测试文件头写明为什么不测 |
+| 4 | `:data` 少了 `androidx.core` 的显式声明，此前靠 `:app` 的传递依赖 | C3 已补 `implementation("androidx.core:core-ktx:1.12.0")` —— 模块自己 import 的 API 就该自己声明 |
+
+### 13.6 留给后续
+
+- **`ImageEncoder` 接口**：本步只搬位置，仍是 `object`。抽接口属 T09 的 `shared/app/port/`，
+  届时 `BitmapImageEncoder` 变成该接口的安卓实现。
+- **安卓黄金样本**：设备接入后补跑（`run_android_real.sh` + 台账比对），与 M2 的 V2 双跑一起做。

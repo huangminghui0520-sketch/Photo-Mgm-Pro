@@ -31,8 +31,8 @@ Photo-Mgm/
 │   ├── build.gradle.kts             插件版本统一声明（Kotlin 2.0.21 / AGP 8.7.3）
 │   ├── gradle.properties            android.useAndroidX 等
 │   ├── gradlew / gradlew.bat / gradle/wrapper/   安卓端专用 wrapper（腾讯云分发）
-│   ├── app/                         :app —— Compose Material3 UI（20 文件 / 5878 行 + 10 测试文件）
-│   ├── data/                        :data —— MediaStore / SAF / ExifInterface（4 文件 / 143 行）
+│   ├── app/                         :app —— Compose Material3 UI + 编排（19 文件 / 5761 行 + 11 测试文件）
+│   ├── data/                        :data —— MediaStore / SAF / ExifInterface / 图片编解码 / 设置存储 / 壳层（6 文件 / 637 行）
 │   └── keystore/                    ★ 正式签名（.gitignore 忽略，CI 运行时生成）
 │
 ├── desktop/                       ★ Windows 桌面端（独立 Gradle 工程，rootProject = desktop/）
@@ -262,7 +262,7 @@ CI 上的判定标准：
 | --- | --- | --- | --- |
 | 编译器/工具链 | Kotlin 2.0.21 + AGP 8.7.3 + D8/R8，jvmTarget 17 | Kotlin 2.0.21 + jpackage，jvmTarget 17 | 语义一致；字节码经 D8 处理后与 JVM 直跑有别，属正常 |
 | 核心产物目录 | `algorithm/build` | `desktop/build/external/algorithm` | 互不覆盖，可安全交替构建 |
-| 嵌入台账的图片 | `ImageUtils`：4:3 中心裁剪 → 400×300 → JPEG50 | `PcImageEmbedder`：4:3 中心裁剪 → 400×300 → JPEG50 | **值一致但是两份独立常量**（见风险 R2） |
+| 嵌入台账的图片 | `data/image/BitmapImageEncoder`：4:3 中心裁剪 → 400×300 → JPEG50 | `PcImageEmbedder`：4:3 中心裁剪 → 400×300 → JPEG50 | 规格已收敛到 `shared/algorithm/MediaSpec` 单点定义（T04）；安卓实现 T06 已搬进 `:data` |
 | 时区口径 | 显式 `AppZone.ID`（Asia/Shanghai） | 相同 `AppZone.ID`；导出目录命名另用 UTC `Clock` | 台账时间一致；仅目录名的时间戳语义不同 |
 
 ### 4.3 相互影响的风险矩阵
@@ -270,7 +270,7 @@ CI 上的判定标准：
 | 编号 | 风险 | 现状证据 | 等级 | 建议 |
 | --- | --- | --- | --- | --- |
 | R1 | **一改双端**：核心改动会同时改变 Android 与 PC 的行为，而只有一端做了回归 | 已实际发生：为 PC 台账加的 `hh:mm`、行高 81pt、`sheetViews`、照片格无字，同样改变了 Android 导出的 `ledger.xlsx`，当轮 App 未重打包验证 | 中 | 改 `algorithm` 的提交须在两端各跑一次真实素材导出；CHANGELOG 标注"影响两端" |
-| R2 | **图源契约靠约定**：`XlsxWriter` 以 `oneCellAnchor` 固定 3.81×2.8575cm（4:3），而 400×300 是两个模块各写一遍的常量；任一端改比例（如 16:9），台账里照片会被**拉伸且无告警** | `ImageUtils.TARGET_WIDTH=400` 与 `PcImageEmbedder.DEFAULT_WIDTH=400` 各自独立 | 中 | 核心侧对"宽高比偏离 4:3"记录告警或以实际比例算 ext；至少在一端加断言 |
+| R2 | **图源契约靠约定**：`XlsxWriter` 以 `oneCellAnchor` 固定 3.81×2.8575cm（4:3），而 400×300 曾是两个模块各写一遍的常量；任一端改比例（如 16:9），台账里照片会被**拉伸且无告警** | `ImageUtils.TARGET_WIDTH=400` 与 `PcImageEmbedder.DEFAULT_WIDTH=400` 各自独立 | 中 → **已消灭**（T04 收敛到 `MediaSpec`，两端只剩引用；T06 删掉安卓侧的三个转发别名） | 核心侧对"宽高比偏离 4:3"记录告警或以实际比例算 ext；至少在一端加断言 |
 | R3 | **平台 API 越界**：核心若引入 `java.awt` / `javax.imageio`，Android 侧编译能过、运行期崩 | 当前 0 处（已扫描） | 低（但无门禁） | 加一条静态门禁（类似现有三个脚本），把"核心只许用 java.io/time/util.zip"固化成规则 |
 | R4 | **版本线混淆**：Android 走 `v*`、桌面走 `desktop-v*`，若哪天给桌面打 `v2.0.0`，会误触发 APK 正式发布 | `build-apk.yml` 的 `tags: ['v*']` | 低 | 已用 `desktop-v` 前缀规避；标签规范写入本文 §3.1 |
 | R5 | **构建竞争**：两端同时构建会共用 Gradle 用户缓存 | `org.gradle.caching=true` 两端皆开 | 低 | 缓存本身有锁，可并发；只需避免同时写同一个产物目录（已隔离） |
