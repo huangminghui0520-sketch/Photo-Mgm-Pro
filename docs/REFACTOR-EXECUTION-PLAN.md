@@ -1585,5 +1585,12 @@ ZIP 写入在 `AndroidZipExportExecutor`，ViewModel 只剩「原子门禁 + 协
 ### 21.7 留给后续
 
 - 两处死代码（`ThumbCell` / `MoveTargetDialog`）的清理，作为独立小提交。
+  **★ 2026-11-03 已收口**：提交 `89a9bff`，删除两处死代码 + 7 个 unused import。
 - UI 层 4 处 `algorithm.*` 依赖（P5 棘轮锁定的）的真正清理，属「UI 目录重排」之后的收尾，
   需要先把 UI 层改成读 `app.api` 投影类型，比 T13 范围大。
+  **★ 2026-11-03 已出方案、暂缓执行**：见 `docs/UI-ALGORITHM-DECOUPLING-PLAN.md`。
+  结论——`LogEvent`→`EventSnapshot` 可先行（低风险）；`Photo`→`PhotoInfo` 需先解
+  `ThumbnailRefreshTest` 的时序护栏（T11 刻意回避的投影层时序难题），暂缓；
+  `DedupKeepMode`/`AppZone` 是 `app.api` 契约暴露类型，不消。
+- T15（`:ui` 模块拆分）：触发条件 `PhotoUiState`/`PhotoActions` 稳定一个版本周期，当前
+  代码中不存在这两个类型，计划「不排期」→ **跳过**（见方案文档 §6）。
