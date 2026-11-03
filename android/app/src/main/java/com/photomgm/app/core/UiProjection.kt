@@ -94,7 +94,7 @@ internal fun projectUiState(
     logsText = app.logText,
     parsed = projectParsed(app.logText, session.parsed),
     events = app.events,
-    photos = session.photos,
+    photos = session.photosInfo,
     classify = session.classify,
     ledger = app.ledger,
     // ★ busy 只认 ANALYZING：EXPORTING 时导出进度/结果各有专门的字段，

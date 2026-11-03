@@ -25,6 +25,7 @@ import algorithm.ParsedLog
 import algorithm.PhotoIngest
 import algorithm.groupDupContent
 import algorithm.model.Photo
+import app.api.PhotoInfo
 import domain.adjust.ManualState
 import domain.view.DerivedView
 import domain.view.ViewDerivation
@@ -53,6 +54,19 @@ class PhotoSession(
     var photosById: Map<Long, Photo> = emptyMap()
         private set
 
+    /**
+     * `photos` 的 [PhotoInfo] 投影缓存（供 UI 投影层读，替代直接暴露算法层 [Photo]）。
+     *
+     * ★ 引用相等语义与 [photos] 完全一致：只在 [setPhotos] 真正换照片时重投影，
+     *   两次 [setPhotos] 之间（切三态 / 移动照片 / 标记台账）引用稳定不变——
+     *   这保住了 `LogSection.remember(state.photos) { associateBy }` 的引用相等优化。
+     * ★ 投影逻辑不在这里（保持「数据容器」定位），由 [app.usecase.ViewPublisher] 经
+     *   [refreshPhotoInfos] 注入单张映射并触发重投影；本类只做「引用相等即复用」的缓存。
+     */
+    private var photosInfoCacheKey: List<Photo>? = null
+    var photosInfo: List<PhotoInfo> = emptyList()
+        private set
+
     /** 人工调整叠加层（移动 / 复制 / 台账标记）。 */
     var manual: ManualState = ManualState.EMPTY
 
@@ -78,6 +92,22 @@ class PhotoSession(
         photosById = list.associateBy { it.id }
         dupCacheRef = null
         dupCache = emptyMap()
+        photosInfoCacheKey = null
+        photosInfo = emptyList()
+    }
+
+    /**
+     * 刷新 `photos` 的 [PhotoInfo] 投影（由 [app.usecase.ViewPublisher] 调用）。
+     *
+     * @param project 单张 [Photo] → [PhotoInfo] 的映射（投影口径唯一真值在 ViewPublisher）。
+     *   引用未变则直接复用缓存（与 [dupGroups] 同模式），避免「切三态 / 移动照片」时
+     *   因重投影生成新 List 而让 UI 的 `remember(state.photos)` 失效重算。
+     */
+    fun refreshPhotoInfos(project: (Photo) -> PhotoInfo) {
+        val snapshot = photos
+        if (photosInfoCacheKey === snapshot) return
+        photosInfo = snapshot.map(project)
+        photosInfoCacheKey = snapshot
     }
 
     /** 清空照片（重新分析时调用；统计计数由 [resetCounters] 单独负责）。 */

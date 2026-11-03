@@ -26,7 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import algorithm.model.Photo
+import app.api.PhotoInfo
 
 // ──────────────────────────────────────────────────────────────────
 // 事件卡片
@@ -42,7 +42,7 @@ internal fun EventCard(
     photoCount: Int,
     marked: Pair<Long?, Long?>?,
     onOpenSheet: () -> Unit,
-    photoThumbs: List<Photo>? = null,
+    photoThumbs: List<PhotoInfo>? = null,
     unclear: Boolean = false,
 ) {
     val errorColor = MaterialTheme.colorScheme.error

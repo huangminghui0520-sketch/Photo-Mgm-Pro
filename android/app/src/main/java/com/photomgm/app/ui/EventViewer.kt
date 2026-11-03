@@ -65,7 +65,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.photomgm.app.ThumbnailSpec
-import algorithm.model.Photo
+import app.api.PhotoInfo
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
@@ -88,11 +88,11 @@ private val viewerTimeFmt = DateTimeFormatter.ofPattern("HH:mm:ss")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun EventViewer(
-    photos: List<Photo>,
+    photos: List<PhotoInfo>,
     initialIndex: Int,
     anomalies: Map<Long, PhotoAnomaly>,
     locationText: String,
-    onSetLedger: (Photo) -> Unit,
+    onSetLedger: (PhotoInfo) -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (photos.isEmpty()) return
@@ -129,12 +129,12 @@ internal fun EventViewer(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ViewerContent(
-    photos: List<Photo>,
+    photos: List<PhotoInfo>,
     pagerState: androidx.compose.foundation.pager.PagerState,
     scope: kotlinx.coroutines.CoroutineScope,
     anomalies: Map<Long, PhotoAnomaly>,
     locationText: String,
-    onSetLedger: (Photo) -> Unit,
+    onSetLedger: (PhotoInfo) -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (photos.isEmpty()) return

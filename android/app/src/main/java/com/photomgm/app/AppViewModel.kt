@@ -16,7 +16,6 @@ import algorithm.AppZone
 import algorithm.ClassifyResult
 import algorithm.DedupKeepMode
 import algorithm.ParsedLog
-import algorithm.model.Photo
 import android.app.Application
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -33,6 +32,7 @@ import app.api.ExportBlockedException
 import app.api.ExportListener
 import app.api.ExportProgress
 import app.api.ExportResult
+import app.api.PhotoInfo
 // T06：图片解码/裁剪/压缩是纯平台职责，已归位到 :data（原 app/ImageUtils.kt）。
 // T06：用系统应用打开导出文件（FileProvider + ACTION_VIEW + chooser）同属平台职责。
 import com.photomgm.data.shell.UriShellLauncher
@@ -82,7 +82,7 @@ data class UiState(
     val parsed: ParsedLog? = null,
     /** ★ 事件快照（`AppState.events` 投影，供 UI 渲染事件卡片/弹窗；替代读 `parsed.events` 的算法层对象）。 */
     val events: List<EventSnapshot> = emptyList(),
-    val photos: List<Photo> = emptyList(),
+    val photos: List<PhotoInfo> = emptyList(),
     val classify: ClassifyResult? = null,
     val ledger: List<LedgerRowInfo>? = null,
     val busy: Boolean = false,
@@ -110,7 +110,7 @@ data class UiState(
      *   null = 尚未判定（权限对话框还没回来）；
      *   false = 系统会剥离 EXIF GPS → 去重降级为「时间 + 文件名序号」、导出照片无定位。
      *   仅用于「说清降级口径」（设置页提示 / 权限回调提示），不参与算法分支：
-     *   算法侧看的是 [Photo.latitude] 本身是否为 null，这条只是让用户知道**为什么**。
+     *   算法侧看的是照片对象的 `latitude` 本身是否为 null，这条只是让用户知道**为什么**。
      */
     val geoAvailable: Boolean? = null,
 )
@@ -393,7 +393,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         //   一旦它排在预缓存之前，"取消旧扫描 + 开始新扫描"就有足够窗口插进来把 `photos` 清空，
         //   于是旧协程收尾时读到空列表 —— 预缓存白做一次，且 `ThumbnailRefreshTest` 会看到
         //   "预加载时照片数为 0"。旧实现把预缓存放在 EXIF 之后、publish 之前，正是同一个道理。
-        preloadThumbnailCache(core.session.photos)
+        preloadThumbnailCache(core.session.photosInfo)
         core.persistCache()
     }
 
@@ -404,7 +404,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun analyzeBlocking() {
         core.analyze(listener = null, isCancelled = { !viewModelScope.isActive })
         persistManual()
-        preloadThumbnailCache(core.session.photos)
+        preloadThumbnailCache(core.session.photosInfo)
         core.persistCache()
     }
 
@@ -438,7 +438,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * 时机：分析流水线之后（此时才知道本批照片的真实路径）。
      * 预加载在 Coil 内部异步进行，此处不阻塞流水线。
      */
-    private fun preloadThumbnailCache(photos: List<Photo>) {
+    private fun preloadThumbnailCache(photos: List<PhotoInfo>) {
         runCatching {
             thumbCache.preload(
                 refs = photos.map { it.sourceRef },

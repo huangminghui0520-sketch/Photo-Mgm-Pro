@@ -82,7 +82,8 @@ object ViewPublisher {
         val state = store.current()
         val view = session.deriveView(state.dedupMode)
         val events = buildEvents(parsed, view.eventPhotoMap, classify)
-        val photos = buildPhotoInfos(session)
+        refreshPhotoInfos(session)
+        val photos = session.photosInfo
         // ★ 命名模板取自当前设置：模板影响文件夹名 → 影响台账照片列前缀，切换后必须立刻重算
         val ledger = buildLedgerRows(session, parsed, view.eventPhotoMap, state.settings.namingTemplate)
         store.publish {
@@ -120,12 +121,13 @@ object ViewPublisher {
         session: PhotoSession,
         message: String? = null,
     ) {
+        refreshPhotoInfos(session)
         store.publish {
             it.copy(
                 status = CoreStatus.READY,
                 progress = null,
                 analysis = buildSummary(session, emptyList()),
-                photos = buildPhotoInfos(session),
+                photos = session.photosInfo,
                 events = emptyList(),
                 eventPhotoIds = emptyMap(),
                 unmatchedPhotoIds = emptyList(),
@@ -155,7 +157,17 @@ object ViewPublisher {
         }
     }
 
-    private fun buildPhotoInfos(session: PhotoSession): List<PhotoInfo> = session.photos.map { p ->
+    /**
+     * 刷新 `session.photosInfo` 投影缓存（引用相等即复用，见 [PhotoSession.refreshPhotoInfos]）。
+     *
+     * ★ 投影口径的单点真值：单张 [Photo] → [PhotoInfo] 的字段映射只在这里一份，
+     *   `PhotoSession` 不复制投影逻辑，只做缓存 —— 避免「两份必须人肉同步的投影」。
+     */
+    fun refreshPhotoInfos(session: PhotoSession) {
+        session.refreshPhotoInfos(::buildPhotoInfo)
+    }
+
+    private fun buildPhotoInfo(p: algorithm.model.Photo): PhotoInfo =
         PhotoInfo(
             id = p.id,
             displayName = p.displayName,
@@ -168,7 +180,6 @@ object ViewPublisher {
             //   用户选「仅保留不带水印」时，被选中的副本在界面上没有任何标记。
             isDerived = isDerivedPhotoName(p.displayName),
         )
-    }
 
     /**
      * 台账行（含 `文件夹名/文件名` 标签）。

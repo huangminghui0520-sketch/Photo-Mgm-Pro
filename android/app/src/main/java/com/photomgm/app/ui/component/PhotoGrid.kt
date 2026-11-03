@@ -38,7 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import algorithm.model.Photo
+import app.api.PhotoInfo
 import com.photomgm.app.ThumbnailSpec
 import com.photomgm.app.ui.PhotoAnomaly
 import com.photomgm.app.ui.model.tileTimeFmt
@@ -51,7 +51,7 @@ import java.time.Instant
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun PhotoTile(
-    p: Photo,
+    p: PhotoInfo,
     selected: Boolean,
     selectionMode: Boolean,
     markedSlot: Int?,
@@ -175,12 +175,12 @@ internal fun PhotoTile(
 // ──────────────────────────────────────────────────────────────────
 @Composable
 internal fun PhotoGrid(
-    photos: List<Photo>,
+    photos: List<PhotoInfo>,
     selected: Set<Long>,
     marked: Pair<Long?, Long?>?,
     anomalies: Map<Long, PhotoAnomaly>,
-    onTap: (Photo, Boolean) -> Unit,
-    onLongPress: (Photo) -> Unit,
+    onTap: (PhotoInfo, Boolean) -> Unit,
+    onLongPress: (PhotoInfo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
