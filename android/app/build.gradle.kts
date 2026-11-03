@@ -82,6 +82,8 @@ android {
 
 dependencies {
     implementation(project(":shared:algorithm"))
+    // T05-C1：`runCatchingCancellable` 上移到 :shared:app（取消信号两端同一类型）。
+    implementation(project(":shared:app"))
     implementation(project(":data"))
 
     // ★ 2026-10-01 升级 BOM 2024.02 → 2024.04（material3 1.1.2 → 1.2.0）：

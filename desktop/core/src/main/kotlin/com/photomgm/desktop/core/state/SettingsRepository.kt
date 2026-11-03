@@ -10,14 +10,14 @@ package com.photomgm.desktop.core.state
 import algorithm.DedupKeepMode
 import com.photomgm.desktop.core.api.Settings
 import com.photomgm.desktop.core.api.WindowState
-import com.photomgm.desktop.core.infra.Json
-import com.photomgm.desktop.core.infra.boolOrNull
-import com.photomgm.desktop.core.infra.intOrNull
-import com.photomgm.desktop.core.infra.json
-import com.photomgm.desktop.core.infra.asObj
-import com.photomgm.desktop.core.infra.objOrNull
-import com.photomgm.desktop.core.infra.strOrNull
-import com.photomgm.desktop.core.infra.stringList
+import app.infra.Json
+import app.infra.boolOrNull
+import app.infra.intOrNull
+import app.infra.json
+import app.infra.asObj
+import app.infra.objOrNull
+import app.infra.strOrNull
+import app.infra.stringList
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -84,7 +84,7 @@ internal class SettingsRepository(private val file: Path) {
                                 put("width", w.width)
                                 put("height", w.height)
                             }
-                        } ?: com.photomgm.desktop.core.infra.JsonValue.Null,
+                        } ?: app.infra.JsonValue.Null,
                     )
                 },
                 pretty = true,

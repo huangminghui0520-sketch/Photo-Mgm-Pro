@@ -1,4 +1,9 @@
-// desktop/core/infra/Json.kt —— 极简 JSON 读写（自包含，零三方依赖）
+// shared/app/infra/Json.kt —— 极简 JSON 读写（自包含，零三方依赖）
+//
+// ★ 2026-11-03（T05-C1）：从 desktop/core/infra/Json.kt 原样上移，正文 279 行**逐字未改**，
+//   只动了三处：package、可见性 internal→public（跨模块就必须公开）、以及本段说明。
+//   为什么现在上移：设置文件 / 导出清单 / 导出日志三处 JSON 两端都要写，
+//   留在桌面端等于让安卓再手写一遍（ZIP 内的 StateJson 就是那么来的）。
 //
 // 为什么自己写而不用 kotlinx-serialization / Gson：
 //   1. 本模块只需要「设置文件 + 导出清单 + 导出日志」三处极窄的 JSON 场景，
@@ -9,10 +14,10 @@
 //
 // ★ 行为约定：解析失败返回 null（不抛异常）——调用方（设置、清单）一律"读不出就当没有"，
 //   绝不让一个坏文件把整个程序卡死。
-package com.photomgm.desktop.core.infra
+package app.infra
 
 /** JSON 值模型。 */
-internal sealed interface JsonValue {
+sealed interface JsonValue {
     data class Obj(val fields: LinkedHashMap<String, JsonValue> = LinkedHashMap()) : JsonValue
 
     data class Arr(val items: List<JsonValue> = emptyList()) : JsonValue
@@ -28,18 +33,18 @@ internal sealed interface JsonValue {
 }
 
 /** 便捷构造。 */
-internal fun jsonNum(value: Long): JsonValue = JsonValue.Num(value.toString())
-internal fun jsonNum(value: Int): JsonValue = JsonValue.Num(value.toString())
-internal fun jsonNum(value: Double): JsonValue = if (value == value.toLong().toDouble()) {
+fun jsonNum(value: Long): JsonValue = JsonValue.Num(value.toString())
+fun jsonNum(value: Int): JsonValue = JsonValue.Num(value.toString())
+fun jsonNum(value: Double): JsonValue = if (value == value.toLong().toDouble()) {
     JsonValue.Num(value.toLong().toString())
 } else {
     JsonValue.Num(value.toString())
 }
 
 /** 对象构造 DSL：`json { put("a", 1); put("b", "x") }`。 */
-internal fun json(build: JsonObjBuilder.() -> Unit): JsonValue.Obj = JsonObjBuilder().apply(build).build()
+fun json(build: JsonObjBuilder.() -> Unit): JsonValue.Obj = JsonObjBuilder().apply(build).build()
 
-internal class JsonObjBuilder {
+class JsonObjBuilder {
     private val map = LinkedHashMap<String, JsonValue>()
 
     fun put(key: String, value: String?) {
@@ -79,21 +84,21 @@ internal class JsonObjBuilder {
 
 // ── 读侧访问器（类型不符一律返回 null，不做隐式转换） ──────────────────────────
 
-internal fun JsonValue.asObj(): JsonValue.Obj? = this as? JsonValue.Obj
-internal fun JsonValue.asArr(): List<JsonValue>? = (this as? JsonValue.Arr)?.items
-internal fun JsonValue.asStr(): String? = (this as? JsonValue.Str)?.value
+fun JsonValue.asObj(): JsonValue.Obj? = this as? JsonValue.Obj
+fun JsonValue.asArr(): List<JsonValue>? = (this as? JsonValue.Arr)?.items
+fun JsonValue.asStr(): String? = (this as? JsonValue.Str)?.value
 
-internal fun JsonValue.Obj.objOrNull(key: String): JsonValue.Obj? = fields[key]?.asObj()
-internal fun JsonValue.Obj.strOrNull(key: String): String? = fields[key]?.asStr()
-internal fun JsonValue.Obj.longOrNull(key: String): Long? = (fields[key] as? JsonValue.Num)?.raw?.toLongOrNull()
-internal fun JsonValue.Obj.intOrNull(key: String): Int? = (fields[key] as? JsonValue.Num)?.raw?.toIntOrNull()
-internal fun JsonValue.Obj.doubleOrNull(key: String): Double? = (fields[key] as? JsonValue.Num)?.raw?.toDoubleOrNull()
-internal fun JsonValue.Obj.boolOrNull(key: String): Boolean? = (fields[key] as? JsonValue.Bool)?.value
-internal fun JsonValue.Obj.arrOrNull(key: String): List<JsonValue>? = fields[key]?.asArr()
-internal fun JsonValue.Obj.stringList(key: String): List<String> =
+fun JsonValue.Obj.objOrNull(key: String): JsonValue.Obj? = fields[key]?.asObj()
+fun JsonValue.Obj.strOrNull(key: String): String? = fields[key]?.asStr()
+fun JsonValue.Obj.longOrNull(key: String): Long? = (fields[key] as? JsonValue.Num)?.raw?.toLongOrNull()
+fun JsonValue.Obj.intOrNull(key: String): Int? = (fields[key] as? JsonValue.Num)?.raw?.toIntOrNull()
+fun JsonValue.Obj.doubleOrNull(key: String): Double? = (fields[key] as? JsonValue.Num)?.raw?.toDoubleOrNull()
+fun JsonValue.Obj.boolOrNull(key: String): Boolean? = (fields[key] as? JsonValue.Bool)?.value
+fun JsonValue.Obj.arrOrNull(key: String): List<JsonValue>? = fields[key]?.asArr()
+fun JsonValue.Obj.stringList(key: String): List<String> =
     arrOrNull(key)?.mapNotNull { it.asStr() } ?: emptyList()
 
-internal object Json {
+object Json {
 
     /** 解析；失败返回 null。 */
     fun parse(text: String): JsonValue? {

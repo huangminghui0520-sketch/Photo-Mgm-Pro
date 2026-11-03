@@ -1,14 +1,9 @@
 // Json 单测：转义、大整数、坏输入（这三个点是自研 JSON 唯一会出事的地方）
-package com.photomgm.desktop.core
+//
+// ★ 2026-11-03（T05-C1）：随 Json.kt 一起上移到 :shared:app，5 条断言**一行未改**，
+//   只把包名换成与被测代码同包（因此 import 全部去掉）。
+package app.infra
 
-import com.photomgm.desktop.core.infra.Json
-import com.photomgm.desktop.core.infra.JsonValue
-import com.photomgm.desktop.core.infra.asObj
-import com.photomgm.desktop.core.infra.boolOrNull
-import com.photomgm.desktop.core.infra.json
-import com.photomgm.desktop.core.infra.longOrNull
-import com.photomgm.desktop.core.infra.strOrNull
-import com.photomgm.desktop.core.infra.stringList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull

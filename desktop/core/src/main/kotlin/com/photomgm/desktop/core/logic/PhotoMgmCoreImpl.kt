@@ -12,6 +12,7 @@
 package com.photomgm.desktop.core.logic
 
 import algorithm.AlgorithmApi
+import app.infra.checkCancelled
 import algorithm.ClassifyResult
 import algorithm.DedupConfig
 import algorithm.DedupKeepMode
@@ -58,6 +59,7 @@ import kotlinx.coroutines.flow.update
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
+import java.util.concurrent.CancellationException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Executor
@@ -227,7 +229,7 @@ internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
                 if (closed) return@synchronized
                 try {
                     runAnalysis(op, listener)
-                } catch (e: CancellationExceptionMarker) {
+                } catch (e: CancellationException) {
                     _state.update {
                         it.copy(status = CoreStatus.READY, progress = null, message = "分析已取消")
                     }
@@ -320,7 +322,7 @@ internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
         // EXIF 精读：分批调用核心函数（既复用核心实现，又能报进度与响应取消）
         val read = ArrayList<Photo>(withIds.size)
         withIds.chunked(EXIF_BATCH).forEachIndexed { index, batch ->
-            if (op.isCancelled) throw CancellationExceptionMarker()
+            checkCancelled { op.isCancelled }
             read += PhotoIngest.readExif(batch, exifReader)
             stage(
                 listener, CoreStatus.ANALYZING, "读取照片信息",
@@ -334,7 +336,7 @@ internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
         dupCacheRef = null
         dupCache = emptyMap()
 
-        if (op.isCancelled) throw CancellationExceptionMarker()
+        checkCancelled { op.isCancelled }
 
         stage(listener, CoreStatus.ANALYZING, "分类中", withIds.size, withIds.size)
         val g = AlgorithmApi.gpsGroup(finalPhotos)
@@ -747,9 +749,6 @@ internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
     }
 
     // ── 内部类型 ──────────────────────────────────────────────────────────
-
-    /** 取消信号：用私有异常而非 InterruptedException，避免与真实中断混淆。 */
-    private class CancellationExceptionMarker : RuntimeException("cancelled")
 
     private class Operation : OperationHandle {
         private val cancelled = AtomicBoolean(false)

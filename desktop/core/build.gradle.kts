@@ -22,6 +22,9 @@ dependencies {
     // T03-C2：EXIF 时间解析与 SHA-256 已收敛到 :shared:domain（纯函数），
     // 桌面端只保留"怎么读文件"的适配器，判定逻辑不再各写一套。
     api(project(":shared:domain"))
+    // T05-C1：JSON 读写与"取消信号不许被吞"的约定已收敛到 :shared:app，
+    // 桌面端只留自己的落盘/调度适配（scheduler、临时文件+原子改名）。
+    api(project(":shared:app"))
 
     // ★ api 而非 implementation：PhotoMgmCore.state 的类型是 StateFlow，
     //   任何消费者（未来的 UI、:cli）在编译期都要能解析该类型，否则调用方被迫自己声明版本。

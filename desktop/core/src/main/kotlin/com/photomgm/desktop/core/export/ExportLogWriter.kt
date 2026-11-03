@@ -7,8 +7,8 @@
 //   · 目的：机器可读（双端比对、排障脚本可直接 jq）+ 人可读（记事本打开就能看）。
 package com.photomgm.desktop.core.export
 
-import com.photomgm.desktop.core.infra.Json
-import com.photomgm.desktop.core.infra.json
+import app.infra.Json
+import app.infra.json
 import java.io.BufferedWriter
 import java.nio.file.Files
 import java.nio.file.Path
@@ -97,7 +97,7 @@ internal class ExportLogWriter(
 
     // 注意：参数不能命名为 build —— JsonObjBuilder 自带 build() 成员，会被解析成成员调用，
     // 导致外层传入的 lambda 从未执行（每行只剩 timestamp）。这类"静默空对象"坑过一次。
-    private fun line(emit: com.photomgm.desktop.core.infra.JsonObjBuilder.() -> Unit) {
+    private fun line(emit: app.infra.JsonObjBuilder.() -> Unit) {
         val w = writer() ?: return
         val obj = json {
             emit()
