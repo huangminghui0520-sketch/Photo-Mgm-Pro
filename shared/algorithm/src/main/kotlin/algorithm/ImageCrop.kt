@@ -1,6 +1,6 @@
 // algorithm/ImageCrop.kt —— 4:3 中心裁剪几何计算（纯数学，零 Android 依赖，可移植 PC）
 // ★ 导出Excel：照片以 4:3 缩略图嵌入（宽 3.8cm，高 2.85cm）。裁剪参数计算放核心（可移植、可单测），
-//   实际 Bitmap 裁剪由 Android 侧（app/ImageUtils）按本结果执行。
+//   实际 Bitmap 裁剪由安卓侧（data/image/BitmapImageEncoder，T06 前的 app/ImageUtils）按本结果执行。
 package algorithm
 
 object ImageCrop {

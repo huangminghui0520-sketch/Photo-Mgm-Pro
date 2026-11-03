@@ -303,7 +303,7 @@ object XlsxWriter {
      *
      * 这里只放行 Excel 明确支持的 JPEG / PNG。转码（WebP/HEIC → JPEG）不属于本层职责：
      * 核心层是纯 Kotlin（无平台解码器、需保持 PC 可移植），转码由调用方在 imageLoader 内完成
-     * （App 侧见 ImageUtils.decodeForThumbnail：ImageDecoder 解码后压 JPEG）。转码也失败的极少数
+     * （App 侧见 data/image/BitmapImageEncoder.decodeForThumbnail：ImageDecoder 解码后压 JPEG）。转码也失败的极少数
      * 情况（如 API<28 的 HEIC）退化为"单元格仅文件名"——这是最后一层兜底，不是新故障。
      */
     private fun imageFormat(bytes: ByteArray): Pair<String, String>? = when {

@@ -1,13 +1,17 @@
-// app/ImageUtilsOwnershipTest.kt —— S9「Bitmap 所有权」回归测试
+// data/image/BitmapImageEncoderOwnershipTest.kt —— S9「Bitmap 所有权」回归测试
 //
-// 由来：ImageUtils.process 会在**内部**解码一张 Bitmap 并在所有出口回收它。这个契约此前
+// 由来：BitmapImageEncoder.process 会在**内部**解码一张 Bitmap 并在所有出口回收它。这个契约此前
 // 只能靠读代码确认——2026-10-31 审查时发现原实现的两条提前返回路径（裁剪矩形为空 /
 // createBitmap 返回 null）漏了 recycle()，导出时逐张累积可达数百 MB。修完若没有测试，
 // 下一次重构（比如把裁剪抽成函数）会原样复现。
 //
 // 因此这里把"所有权"变成可断言的：Robolectric LEGACY 图形模式下位图由 ShadowBitmap 托管，
 // 可以①读取 isRecycled()；②改写宽高以注入"裁剪失败"这类平时难以触发的分支。
-package com.photomgm.app
+//
+// ★ T06：随 BitmapImageEncoder 从 `:app` 搬到 `:data`。**必须同模块**——测的是 `internal`
+//   的 processBitmap，跨模块拿不到（改成 public 只为测试放开可见性，等于把契约漏洞变成 API）。
+//   四条断言一行未改，只改了类名与包名。
+package com.photomgm.data.image
 
 import android.graphics.Bitmap
 import org.junit.Assert.assertNotNull
@@ -25,7 +29,7 @@ import org.robolectric.annotation.GraphicsMode
 //   既不提供可观测的 isRecycled 影子状态，也无法注入"宽高非法"这类裁剪失败前提。
 //   （Robolectric 4.12 的 @Config 没有 graphicsMode 属性，图形模式由本注解单独指定。）
 @GraphicsMode(GraphicsMode.Mode.LEGACY)
-class ImageUtilsOwnershipTest {
+class BitmapImageEncoderOwnershipTest {
 
     /**
      * 造一张指定宽高的影子位图。
@@ -62,7 +66,7 @@ class ImageUtilsOwnershipTest {
     @Test
     fun `正常路径_产出JPEG字节`() {
         val bmp = Bitmap.createBitmap(400, 300, Bitmap.Config.ARGB_8888)
-        val out = ImageUtils.processBitmap(bmp)
+        val out = BitmapImageEncoder.processBitmap(bmp)
         assertNotNull("400×300 恰好 4:3，应产出 JPEG 字节", out)
     }
 
@@ -74,7 +78,7 @@ class ImageUtilsOwnershipTest {
     @Test
     fun `裁剪失败_返回null且原图仍被回收`() {
         val bmp = bitmap(0, 0)
-        val out = ImageUtils.processBitmap(bmp)
+        val out = BitmapImageEncoder.processBitmap(bmp)
         assertTrue("裁剪矩形为空时应返回 null（该照片单元格只保留文件名）", out == null)
         assertTrue(
             "裁剪失败分支也必须回收原图——逐张导出时漏一张就是几十 MB",
@@ -96,7 +100,7 @@ class ImageUtilsOwnershipTest {
     @Test
     fun `裁剪阶段抛异常_异常不外泄_返回null且原图仍被回收`() {
         val bmp = bitmap(1000, 800)
-        val out = ImageUtils.processBitmap(bmp)   // 若此处抛异常，用例即失败
+        val out = BitmapImageEncoder.processBitmap(bmp)   // 若此处抛异常，用例即失败
         assertTrue("裁剪抛异常时应按『该照片留空』处理（不产出损坏字节）", out == null)
         assertTrue(
             "异常出口也必须回收原图——这是 try/finally 存在的全部意义",
@@ -108,7 +112,7 @@ class ImageUtilsOwnershipTest {
     @Test
     fun `非4比3图_同样产出字节且原图被回收`() {
         val bmp = Bitmap.createBitmap(1000, 800, Bitmap.Config.ARGB_8888)
-        val out = ImageUtils.processBitmap(bmp)
+        val out = BitmapImageEncoder.processBitmap(bmp)
         assertNotNull("1000×800（比例 1.25 < 4:3）应裁成 1000×750 再缩放，产出字节", out)
         assertTrue("原图必须已回收", bmp.isRecycled)
     }

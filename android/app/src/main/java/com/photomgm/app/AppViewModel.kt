@@ -27,6 +27,8 @@ import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+// T06：图片解码/裁剪/压缩是纯平台职责，已归位到 :data（原 app/ImageUtils.kt）。
+import com.photomgm.data.image.BitmapImageEncoder
 // T05-C1：取消语义上移到 :shared:app（`runCatchingCancellable` 原来在 app/Cancellable.kt）。
 import app.infra.runCatchingCancellable
 import kotlinx.coroutines.CancellationException
@@ -881,7 +883,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                 ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, p.id).toString()
                             else ref
                         } ?: ref
-                        val bytes = ImageUtils.process(ctx, readRef)
+                        val bytes = BitmapImageEncoder.process(ctx, readRef)
                         if (bytes != null && bytes.isNotEmpty()) ok.incrementAndGet() else {
                             fail.incrementAndGet()
                             failures.add("${ref.substringAfterLast('/')}(found=${photo != null},id=${photo?.id})")
@@ -1183,7 +1185,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** ★ 2026-10-31 审查：原「台账照片字节供给」段（readPhotoBytes / compressForExcel）已删除。
-     *  全仓库无任何调用方（台账图片实际走 prepareLedger → ImageUtils.process），属死代码；
+     *  全仓库无任何调用方（台账图片实际走 prepareLedger → BitmapImageEncoder.process），属死代码；
      *  且它与现行实现重复定义了一套压缩参数（480px JPEG85 vs 400×300 JPEG50），
      *  留着会误导后续维护者改错地方。 */
 

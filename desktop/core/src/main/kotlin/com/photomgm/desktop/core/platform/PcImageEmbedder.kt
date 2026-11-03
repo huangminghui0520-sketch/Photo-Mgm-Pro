@@ -1,6 +1,7 @@
 // desktop/core/platform/PcImageEmbedder.kt —— 台账嵌图（Android Bitmap 链路的桌面替代）
 //
-// 与 Android 端 app/ImageUtils 的规格必须**逐参数一致**（否则同一批数据两端"嵌了几张图"不同 → R8）：
+// 与安卓端 data/image/BitmapImageEncoder（T06 前的 app/ImageUtils）的规格必须**逐参数一致**
+// （否则同一批数据两端"嵌了几张图"不同 → R8）：
 //   4:3 中心裁剪 → 缩放 400×300 → JPEG 质量 50%
 // 裁剪几何复用核心 algorithm.ImageCrop（纯数学、可单测），不在桌面端重写一份。
 //

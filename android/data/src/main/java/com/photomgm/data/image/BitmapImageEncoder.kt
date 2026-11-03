@@ -1,7 +1,12 @@
-// app/ImageUtils.kt —— 导出Excel 2.0 方案 §3.4 图片处理
+// data/image/BitmapImageEncoder.kt —— 导出Excel 2.0 方案 §3.4 图片处理
 // content:// Uri 或本地路径 → 解码（采样降内存）→ 4:3 中心裁剪 → 缩放 400×300 → JPEG 质量 50%。
 // 裁剪几何计算复用 algorithm.ImageCrop（可移植、可单测）。
-package com.photomgm.app
+//
+// ★ T06：从 `:app`（原 app/ImageUtils.kt）原样搬入 `:data`。搬动理由不是"分层好看"：
+//   `:app` 要收敛成"UI + 编排"（T08/T09 的前提），而这里全是平台职责（Bitmap/ImageDecoder/
+//   ContentResolver）。搬到 `:data` 后 `:app` 不再直接依赖图形解码 API。
+//   **本步只搬位置**：仍是 object，未抽 `ImageEncoder` 接口（那是 T09 `shared/app/port/` 的事）。
+package com.photomgm.data.image
 
 import android.content.ContentUris
 import android.content.Context
@@ -17,20 +22,16 @@ import algorithm.MediaSpec
 import java.io.ByteArrayOutputStream
 import java.io.File
 
-object ImageUtils {
+object BitmapImageEncoder {
     /**
-     * 目标缩略图宽度（px，导出Excel 2.0 方案）。
+     * 目标缩略图尺寸与质量全部来自共享层 [MediaSpec]。
      *
-     * ★ T04：值来自共享层 [MediaSpec]，本文件不再写字面量。此前 PC 的 PcImageEmbedder 与这里
-     *   各写一份 400/300/50，注释互相声称"两端一致"，但没有任何机制保证 —— 改一边不会报错。
-     *   名字保留是为了不动这十几处调用点：真正的真值只有 MediaSpec 一处。
+     * ★ T04 起真值只有 [MediaSpec] 一处；此前 PC 的 PcImageEmbedder 与安卓这里各写一份
+     *   400/300/50，注释互相声称"两端一致"，但没有任何机制保证 —— 改一边不会报错。
+     * ★ T06：搬进 `:data` 时删掉了 `TARGET_WIDTH` / `TARGET_HEIGHT` / `JPEG_QUALITY` 三个转发别名。
+     *   它们当初存在的唯一理由是"不动 ImageUtils 之外的调用点"，而现在文件本身搬了、调用点
+     *   反正要改（全仓库只有 AppViewModel 一处），留着只会多一层需要同步的间接。
      */
-    const val TARGET_WIDTH = MediaSpec.EMBED_WIDTH
-    /** JPEG 压缩质量（导出Excel 2.0 方案，百分数） */
-    const val JPEG_QUALITY = MediaSpec.JPEG_QUALITY_PERCENT
-
-    /** 目标高度 = 400 × 3/4 = 300（4:3 比例，导出 Excel 宽 3.8cm） */
-    val TARGET_HEIGHT: Int = MediaSpec.EMBED_HEIGHT
 
     /**
      * 从引用（content:// 或本地物理路径）解码 Bitmap。
@@ -52,8 +53,8 @@ object ImageUtils {
             return null
         }
         var sample = 1
-        while (bounds.outWidth / (sample * 2) >= TARGET_WIDTH * 2 &&
-            bounds.outHeight / (sample * 2) >= TARGET_HEIGHT * 2
+        while (bounds.outWidth / (sample * 2) >= MediaSpec.EMBED_WIDTH * 2 &&
+            bounds.outHeight / (sample * 2) >= MediaSpec.EMBED_HEIGHT * 2
         ) sample *= 2
         val opts = BitmapFactory.Options().apply { inSampleSize = sample }
         decode(context, ref, opts)
@@ -117,7 +118,7 @@ object ImageUtils {
                 val decoded = runCatching {
                     // setTargetSize：解码结果"装入"该矩形（等比），避免全尺寸解码的峰值内存
                     ImageDecoder.decodeBitmap(src) { decoder, _, _ ->
-                        decoder.setTargetSize(TARGET_WIDTH * 2, TARGET_HEIGHT * 2)
+                        decoder.setTargetSize(MediaSpec.EMBED_WIDTH * 2, MediaSpec.EMBED_HEIGHT * 2)
                         // ★ 必须显式指定软件位图：默认分配器在部分机型/HEIC 上会给出
                         //   HARDWARE 位图，而 Bitmap.createBitmap(source…)/compress 只接受软件位图，
                         //   会在 centerCrop4to3 之后的 createBitmap 处抛 IllegalArgumentException。
@@ -176,9 +177,11 @@ object ImageUtils {
                     null
                 } else {
                     try {
-                        val scaled = Bitmap.createScaledBitmap(cropped, TARGET_WIDTH, TARGET_HEIGHT, true)
+                        val scaled = Bitmap.createScaledBitmap(
+                            cropped, MediaSpec.EMBED_WIDTH, MediaSpec.EMBED_HEIGHT, true
+                        )
                         val out = ByteArrayOutputStream()
-                        scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+                        scaled.compress(Bitmap.CompressFormat.JPEG, MediaSpec.JPEG_QUALITY_PERCENT, out)
                         // createScaledBitmap 在尺寸恰好相同时会返回同一对象，回收前先判断
                         if (scaled !== cropped) scaled.recycle()
                         out.toByteArray()
