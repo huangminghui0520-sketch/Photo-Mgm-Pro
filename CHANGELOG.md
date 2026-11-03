@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### 工程（跨端 · T14 门禁 + 契约常量收敛，**无用户可见变化**）
+- 新增 `scripts/check-shared-purity.py`（进 CI）：把「该放哪层」从口头约定变成红灯。五条规则——
+  P1 共享层禁 `android.*`/`java.awt`/`javax.*`/`javafx`/`com.photomgm.*`；P1b `shared/app` 禁
+  `java.io.File`；P2 无参时钟（与 check-timezone 有意重叠）；P3 禁 `System.getProperty/getenv`；
+  P4 四个契约常量（`99_未分类`/`ledger.xlsx`/`export.log`/`export-manifest.json`）只许一处定义；
+  P5 UI 层只许 `app.api.*`，`algorithm.*` 棘轮上限 9 只减不增
+  - 门禁自证通过：故意加违规 import → 报红，删掉 → 恢复全绿；18 组样例 + CRLF/LF + BOM 全过
+  - 顺手消灭实跑抓到的 3 处真实重复：`99_未分类`（`ZipExporter` 放开为公开，`ExportModels` 引用）、
+    `export.log`（上移 `ExportLogWriter.LOG_FILE_NAME`，两端执行器引用）、`LogParserReport` 的
+    `user.dir`（加 purity-ok 豁免，纯 JVM 诊断入口）
+  - `affects: android, desktop`；`verify:` 共享层 + 桌面 core 测试全绿、两端编译通过、五条门禁 0 问题
+
 ### 工程（安卓端 · T11 第一提交：ViewModel 交出分析/调整/设置，**无用户可见变化**）
 - 安卓 `AppViewModel`（1221 行）不再自己实现分析、人工调整、设置失效判定，改为委派 `shared/app`
   的 `AnalysisPipeline` / `AdjustUseCase` / `SettingsUseCase` —— 与桌面端**同一份实现**。

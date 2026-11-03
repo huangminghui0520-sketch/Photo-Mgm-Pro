@@ -285,6 +285,9 @@ CI 上的判定标准：
 | R3 | **平台 API 越界**：核心若引入 `java.awt` / `javax.imageio`，Android 侧编译能过、运行期崩 | 当前 0 处（已扫描） | 低（但无门禁） | 加一条静态门禁（类似现有三个脚本），把"核心只许用 java.io/time/util.zip"固化成规则 |
 | R4 | **版本线混淆**：Android 走 `v*`、桌面走 `desktop-v*`，若哪天给桌面打 `v2.0.0`，会误触发 APK 正式发布 | `build-apk.yml` 的 `tags: ['v*']` | 低 | 已用 `desktop-v` 前缀规避；标签规范写入本文 §3.1 |
 | R5 | **构建竞争**：两端同时构建会共用 Gradle 用户缓存 | `org.gradle.caching=true` 两端皆开 | 低 | 缓存本身有锁，可并发；只需避免同时写同一个产物目录（已隔离） |
+| R6 | **共享层越界引入平台 API**：`shared/*` 一旦 import `android.*`/`java.awt`/`javax.*` 或直接构造 `java.io.File`，一端能编、另一端运行期才崩 | T14 前靠人肉 grep，无机械拦截 | 中 → **已消灭**（T14 起 `check-shared-purity.py` 的 P1/P1b 拦截，进 CI） | 共享层只许用 JVM 通用 API（`java.io`/`java.nio.file.Path`/`java.time`/`java.util`）；路径与文档树经端口传入 |
+| R7 | **契约常量重复**：产物契约字符串（`99_未分类`、`export.log` 等）写两遍，改一处忘另一处 → "ZIP 里叫 A、台账里叫 B" | T14 前 `99_未分类` 在 `ZipExporter` 与 `ExportModels` 各写一份、`export.log` 在两端执行器各写一份 | 中 → **已消灭**（T14 收敛为各一处定义，P4 门禁保证只减不增） | 新契约常量只能有一处 `= "..."` 定义，其余全引用 |
+| R8 | **UI 层越层 import**：UI 直接 import `algorithm.model.*` / `app.usecase.*`，绕过契约层，改契约时 UI 静默漂移 | T14 实测 9 处 `import algorithm.*`（历史遗留） | 低 → **棘轮锁定**（P5 门禁：`app.usecase/state/port/export/infra` 与 `domain.*` 一律禁止；`algorithm.*` 上限锁 9，只减不增） | 跨端契约只在 `app.api`；UI 要数据经平台层投影，不直接摸算法层 |
 
 ### 4.4 结论
 
@@ -292,7 +295,8 @@ CI 上的判定标准：
    本次重组没有改变这一点（`algorithm/` 一个字节未动）。
 2. **风险不是"漂移"，而是"共变"**：改核心等于同时发布两端行为。R1 已经真实发生一次，属于流程问题而非代码问题，
    靠"改核心必跑两端"约定 + CHANGELOG 标注来控制。
-3. **真正需要机械化拦截的是 R2 / R3**：一个是跨模块的隐式尺寸契约，一个是平台 API 越界，两者都是
-   "编译期不报错、运行期才难看"的类型，建议后续各补一条门禁（本文件已列出判据，未在本次实施，避免动核心）。
+3. **真正需要机械化拦截的是 R2 / R3 / R6 / R7**：跨模块的隐式尺寸契约、平台 API 越界、契约常量重复，
+   都是"编译期不报错、运行期才难看"的类型。R2 已由 T04 的 `MediaSpec` 收敛、R3/R6/R7 已由 T14 的
+   `check-shared-purity.py` 机械拦截（R3 对应 P1/P1b，R6 与 R3 同门禁，R7 对应 P4），R8 由 P5 棘轮锁定。
 4. **隔离度评估**：`android/` 与 `desktop/` 之间没有任何直接依赖、没有共享构建脚本、产物目录分离 ——
    "互不影响"在**工程层面成立**；唯一的耦合点是刻意保留的 `algorithm/`，属设计选择而非事故。

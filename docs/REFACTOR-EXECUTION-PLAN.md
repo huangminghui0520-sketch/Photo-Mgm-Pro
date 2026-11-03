@@ -1442,3 +1442,70 @@ PY
   下一轮就可能有人加回一行 `import algorithm.AlgorithmApi`）。
 - `AppViewModel` 里 `openExportedFile` 的 32 行是"给结果一句人话"，可以并入 `UiProjection`；
   本轮没动它，因为真机尚未验证 —— 改它是纯粹的重排，收益低、回归面不为零。
+
+---
+
+## 20. T14 执行记录（门禁 + 文档 + CHANGELOG → **M5**）
+
+**一句话**：把「该放哪层」从口头约定变成 CI 红灯 —— 新增 `check-shared-purity.py`（5 条规则），
+顺手消灭了它第一次实跑就抓到的 3 处真实重复。
+
+### 20.1 新增门禁 `scripts/check-shared-purity.py`（5 条规则）
+
+| 规则 | 判据 | 与 §19.4 判据的对应 |
+| --- | --- | --- |
+| P1 | `shared/*/src/main` 不得 import `android.*`/`androidx.*`/`java.awt`/`javax.swing`/`javax.imageio`/`javafx`/`com.photomgm.*` | 判据③（`import android.` = 0）的**超集**：把桌面独有包也纳入 |
+| P1b | `shared/app` 不得 import `java.io.File`（`java.nio.file.Path` 豁免，JVM 通用、安卓 API 26+ 有） | 判据④ |
+| P2 | 无参时钟 / `systemDefault()`（与 `check-timezone.py` 的 T1/T2 **有意重叠**，豁免词共用 `tz-ok`） | 时间契约 |
+| P3 | `System.getProperty` / `System.getenv`（共享层不知道自己在谁的进程里） | 环境依赖 |
+| P4 | 登记表里的 4 个契约常量（`99_未分类`/`ledger.xlsx`/`export.log`/`export-manifest.json`）只许一处 `= "..."` 定义 | 常量重复 |
+| P5 | UI 层只许 `app.api.*`；`app.usecase/state/port/export/infra` 与 `domain.*` 禁止；`algorithm.*` 棘轮上限 9（实测 9，只减不增） | UI 越层 |
+
+判据②（`AppViewModel` 里 `AlgorithmApi` = 0）**没有**固化成门禁 —— 它是「单文件出现次数」，
+不是「该放哪层」，且已在 §19.4 用 `grep -c` 复算过；若将来要机械化，属另一条"单文件体检"脚本的职责。
+
+### 20.2 实跑抓到的 3 处真实违规（都修了）
+
+1. **`99_未分类` 两处定义**（`ZipExporter` private 常量 + `ExportModels` 常量）→ 放开
+   `ZipExporter.UNMATCHED_FOLDER` 为公开，`ExportModels` 改为引用（`val = ZipExporter.UNMATCHED_FOLDER`）。
+2. **`export.log` 两处硬编码**（安卓/桌面执行器各一个 `LOG_NAME = "export.log"`）→ 上移到
+   `ExportLogWriter.LOG_FILE_NAME`（companion 从 private 放开），两端执行器改为引用。
+3. **`LogParserReport` 读 `System.getProperty("user.dir")`** → 加 `purity-ok` 豁免并写清原因
+   （纯 JVM 诊断入口，仅经 `gradle :shared:algorithm:runLogParser` 跑，安卓不引用）。
+
+### 20.3 门禁自证（计划 T14 验证①：故意违规必须红）
+
+- 往 `shared/app` 临时加 `import java.io.File` → **P1b 报红**（exit 1），删掉 → 恢复全绿。
+- 自测 18 组样例 + P4/P5 判据 + CRLF/LF 等价性 + BOM，全过。
+- 踩到一个**假绿陷阱**并修掉：词法状态机初版没处理字符字面量 `'"'`，`ZipExporter.kt` 里的
+  `'"' -> sb.append('"')` 会把后面整段代码当字符串抹掉 → 永远绿。靠 P4 的行号错位暴露出来，
+  补了 `'` 状态分支。这正是「门禁自己也可能退化」的活例子，所以 `--selftest` 里加了回归样例。
+
+### 20.4 CI 与文档
+
+- `ci.yml`：`check-shared-purity.py` 加入「可重现性前提」断言 + 「判据自测」+ 「扫描源码」三步。
+- `REPO-LAYOUT.md`：风险矩阵补 R6（共享层平台 API 越界）/ R7（契约常量重复）/ R8（UI 越层 import），
+  结论 §4.4 同步。
+- `CHANGELOG.md`：见本节末的追加条目（affects: android, desktop）。
+
+### 20.5 验收口径（对照计划 T14）
+
+| 计划项 | 状态 |
+| --- | --- |
+| 新增 1 个门禁 | ✅ `check-shared-purity.py`，5 条规则 + 自测 + 反向验证 |
+| 2 个门禁扩容（`check-timezone`/`check-cancellation` 加 `shared/`） | ⚠️ **已天然覆盖**：两脚本默认扫描路径本就含 `shared/*/src/main`，无需改 |
+| CI `ci.yml` 结构断言扩到三模块 | ✅ 已存在（T02 加的），本轮未动 |
+| `REPO-LAYOUT.md` 补 R6~R8 | ✅ |
+| CHANGELOG 标注 affects + 已知行为变更 | ✅（见 CHANGELOG 追加条目） |
+| 门禁自证「故意违规必须红」 | ✅（§20.3） |
+| 两端全量测试 + 打包 | ✅ 共享层+桌面 core 测试全绿、两端编译通过；**未重新打包**（无行为变更，纯门禁+常量收敛） |
+
+### 20.6 留给后续
+
+- `check-timezone.py` 报的 1 处 `TimeZoneExplicitTest` 是**测试自己在测默认时区**（既有、合法），
+  不是生产违规 —— 但脚本把它和生产代码一起扫，属"误报但无害"。若要清干净，给该测试文件加
+  `tz-ok` 豁免即可，本轮未动（避免扩大改动面）。
+- UI 层 9 处 `import algorithm.*` 是历史遗留（`EventViewer`/`PreviewScreen`/`SettingsDialog` 读
+  `algorithm.model.Photo/LogEvent`、`algorithm.DedupKeepMode`）。P5 棘轮把它们锁在 9，真正的清理
+  属「UI 目录重排」（T13）后的收尾，不在 T14 范围。
+- **T15（`:ui` 模块拆分）仍默认不做**：`PhotoUiState`/`PhotoActions` 尚未稳定跑满一个版本周期。
