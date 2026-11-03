@@ -56,13 +56,13 @@ desktop/ui ──► desktop/core ──► algorithm ◄── android/app ◄�
 
 | # | 重复内容 | PC 位置 | Android 位置 | 规模 | 是否已分歧 |
 | --- | --- | --- | --- | --- | --- |
-| D1 | 分析流水线编排（粗筛→派生去重→EXIF→分组→分类） | `PhotoMgmCoreImpl.kt:247-353` | `AppViewModel.kt:506-643` | ~240 行 | 否（步骤一致） |
-| D2 | 人工调整后的有效归属 `effectiveMap` | `:442` | `:1143` | 各 ~20 行 | **是**：PC 支持"复制到多事件"(`copyMap`)，Android 没有 |
-| D3 | 三态展开 `expandedEventMap` | `:464` | `:684` | 各 ~22 行 | 否（逐行同构） |
-| D4 | 有效未匹配 `effectiveUnmatched` | `:479` | `:1159` | 各 ~8 行 | 否 |
-| D5 | 内容判重分组 + 缓存 `dupGroups` | `:486` | `:664` | 各 ~15 行 | 否（缓存机制不同：PC 用引用比较，Android 用原子引用） |
-| D6 | 台账行投影 `buildLedgerRows`/`buildRows` + `labelOf` | `:495`、`:514` | `:645` | 各 ~25 行 | 否 |
-| D7 | 人工移动 / 台账标记 / 重置 | `:355`、`:409`、`:420` | `:748`、`:1129`、`:769` | ~60 行 | **是**：PC 有 `copyPhotos`，Android 无对应功能 |
+| D1 | 分析流水线编排（粗筛→派生去重→EXIF→分组→分类） | `PhotoMgmCoreImpl.kt:247-353` | `AppViewModel.kt:506-643` | ~240 行 | 否（步骤一致）→ **已上移**（T09：`app/usecase/AnalysisPipeline`；两端待 T10/T11 切调用） |
+| D2 | 人工调整后的有效归属 `effectiveMap` | `:442` | `:1143` | 各 ~20 行 | **是**：PC 支持"复制到多事件"(`copyMap`)，Android 没有 → **已上移**（T07 `domain/view`；T09 `AdjustUseCase` 负责准入与提示；待 T12 切调用） |
+| D3 | 三态展开 `expandedEventMap` | `:464` | `:684` | 各 ~22 行 | 否（逐行同构）→ **已上移**（T07 `domain/view/ViewDerivation`；T09 由 `PhotoSession.deriveView` 统一调用） |
+| D4 | 有效未匹配 `effectiveUnmatched` | `:479` | `:1159` | 各 ~8 行 | 否 → **已上移**（T07 `domain/view/ViewDerivation`；T09 由 `PhotoSession.deriveView` 统一调用） |
+| D5 | 内容判重分组 + 缓存 `dupGroups` | `:486` | `:664` | 各 ~15 行 | 否（缓存机制不同：PC 用引用比较，Android 用原子引用）→ **部分上移**（分组算法本就在 `PhotoIngest.groupDupContent`；T09 把"按引用失效"的缓存骨架收进 `PhotoSession`，并发模型仍留本端） |
+| D6 | 台账行投影 `buildLedgerRows`/`buildRows` + `labelOf` | `:495`、`:514` | `:645` | 各 ~25 行 | 否 → **已上移**（T07 `domain/ledger/LedgerProjection`；T09 `project()` 一次算齐原始行与展示行） |
+| D7 | 人工移动 / 台账标记 / 重置 | `:355`、`:409`、`:420` | `:748`、`:1129`、`:769` | ~60 行 | **是**：PC 有 `copyPhotos`，Android 无对应功能 → **已上移**（T07 `domain/adjust/ManualAdjustment`；T09 `AdjustUseCase`；待 T12 切调用） |
 | D8 | 台账嵌图规格 400×300 / JPEG50 / 4:3 | `PcImageEmbedder.kt` 常量区 | `ImageUtils.kt:20-27` | 2 套常量 | 值一致，**两份定义** → **已消灭**（T04：真值收敛到 `shared/algorithm/MediaSpec`；T06：安卓实现搬至 `data/image/BitmapImageEncoder`，三个转发别名一并删除） |
 | D9 | EXIF 时间字符串解析 | `PcExifReader.kt` 的 `parseExifDateTime` | `ExifTimeParser.kt` 全文件 | ~30 行 | **是**：PC 只认 `yyyy:MM:dd`，Android 兼容 `-` 分隔 |
 | D10 | SHA-256 文件哈希 | `PcFileHasher.kt` | `FileHasher.kt` | ~25 行 | 否（PC 多两个重载） |
@@ -76,6 +76,7 @@ desktop/ui ──► desktop/core ──► algorithm ◄── android/app ◄�
 1. **`desktop/core` 一个模块干了五件事**：契约（api）、编排（logic）、平台（platform）、导出（export）、持久化（state）+ 手写 JSON（infra）。它的 `internal` 可见性让 UI 无法越层，这是优点；但它整体只能留在桌面端，导致 Android 无法复用其中真正通用的 60%。
 2. **Android 端没有"层"**：`android/app` 20 个文件里，`AppViewModel` 同时是编排器、状态容器、导出器、SAF 适配器、缩略图调度器。1165 行里约 700 行与平台无关，却因为和 `Context` 缠在一起而搬不动。
 3. **共享契约里混进了平台概念**：`Settings` 带 `window: WindowState`（窗口几何，Android 无意义）、`ExportRequest` 带 `ResumeVerifyMode`（文件夹断点校验，Android 走 ZIP 状态文件）。这说明"契约"当初是照着 PC 写的，不是照两端写的。
+   → **T09 已修**：`window` 留在桌面侧；`Path` 全部换成不透明 `String`；`ResumeVerifyMode` 单独成文件且不挂在请求上（细则见 `REFACTOR-EXECUTION-PLAN.md` §15.1）。**契约里现在出现 `window`/`Path`/`Uri` 即视为失败。**
 
 ---
 

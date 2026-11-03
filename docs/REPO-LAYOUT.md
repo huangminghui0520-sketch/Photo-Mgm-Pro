@@ -17,17 +17,22 @@
 ```
 Photo-Mgm/
 ├── shared/                        ★ 共享层（纯 Kotlin JVM，零 Android / 零桌面依赖）
-│   ├── algorithm/                   算法内核：18 文件 / 2564 行（日志解析、GPS 分组、事件分类、
+│   ├── algorithm/                   算法内核：21 文件 / 2666 行（日志解析、GPS 分组、事件分类、
 │   │    │                            三态去重、台账 LedgerEngine、XlsxWriter、ZipExporter、AlgorithmApi）
 │   │    ├── build.gradle.kts             kotlin("jvm") + toolchain 17（零 implementation 依赖）
-│   │    └── src/test/kotlin/algorithm/   22 文件（含 POI 读回、真实素材端到端）
-│   ├── domain/                      ★ 业务规则：6 文件 / 596 行（T03 起填充）
+│   │    └── src/test/kotlin/algorithm/   23 文件（含 POI 读回、真实素材端到端）
+│   ├── domain/                      ★ 业务规则：6 文件 / 629 行（T03 起填充）
 │   │    │                            view/ 视图派生 + 照片顺序、adjust/ 人工调整、
 │   │    │                            ledger/ 台账投影、exif/ 时间、hash/ SHA-256
 │   │    ├── build.gradle.kts             EXIF 时间 / SHA-256 / 媒体规格 / 派生命名
-│   │    └── src/test/kotlin/domain/      6 文件 / 835 行（T07 后 67 条用例）
-│   └── app/                         ★ 应用层（T09 起填充）：用例编排 / 端口定义 / 跨端契约
-│       └── build.gradle.kts             api(domain)，不依赖任何平台 SDK
+│   │    └── src/test/kotlin/domain/      6 文件 / 857 行（T09 后 68 条用例）
+│   └── app/                         ★ 应用层：25 文件 / 2389 行（T09）
+│       │                            api/ 跨端契约（门面/状态快照/导出计划/设置）、
+│       │                            port/ 7 个端口、state/ 会话与快照发布、
+│       │                            usecase/ 分析·调整·设置·导出、export/ 导出计划、
+│       │                            infra/ JSON / 取消 / 防抖 / 文本解码
+│       ├── build.gradle.kts             api(domain) + coroutines-core（StateFlow），零平台 SDK
+│       └── src/test/kotlin/app/         11 文件 / 1698 行 / 91 条用例（全假端口，纯 JVM）
 │
 ├── android/                       ★ Android 端（独立 Gradle 工程，rootProject = android/）
 │   ├── settings.gradle.kts          挂载 ../shared/{algorithm,domain,app}（不复制）
@@ -42,7 +47,7 @@ Photo-Mgm/
 │   ├── settings.gradle.kts          :core / :cli / :ui + 挂载 ../shared/{algorithm,domain,app}
 │   ├── build.gradle.kts             插件版本 + 把 :shared:* 产物重定向到 desktop/build/external/shared-*
 │   ├── gradle.properties / gradlew / gradle/wrapper/    桌面端专用 wrapper
-│   ├── core/                        纯逻辑核心（17 文件 / 2927 行）
+│   ├── core/                        纯逻辑核心（17 文件 / 2660 行）
 │   ├── cli/                         无头命令行入口（1 文件 / 383 行）
 │   ├── ui/                          Compose Multiplatform 界面（38 文件 / 6689 行 + 13 测试文件）
 │   ├── packaging/                   jpackage / MSI / 便携版打包脚本与 dist 产物（不入库）

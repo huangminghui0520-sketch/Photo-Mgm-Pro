@@ -442,7 +442,8 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | **T05 纯函数上移 C** | ✅ **已完成**（2026-11-03）：C1 `Json`（279 行上移）+ 取消信号收敛（两端统一为 JDK `CancellationException`）；C2 `DebouncedTextStore` 只留策略、两端变薄适配。**无用户可见变化**：桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）、`export.log` 62 行仍为合法 JSON、安卓 `LogsTextStoreTest`/`SetLogsTextWiringTest` **一行未改**即通过。执行细则与三处口径订正见 **§12.6** |
 | **T06 安卓适配层归位** | ✅ **已完成**（2026-11-03）：C1 `ImageUtils` → `data/image/BitmapImageEncoder`（顺删 3 个转发别名，测试随迁）；C2 `SettingsStore` 介质段 → `data/storage/PrefsSettingsStorage`（key/编码/旧 key 迁移，JSON 与版本位判定留 `:app`）；C3 「打开台账」→ `data/shell/UriShellLauncher`（AR3：只持 `applicationContext`）。**无用户可见变化**：桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）；三个护栏测试（`BitmapImageEncoderOwnership` / `SettingsStoreLogs/ZoneMigration`）断言一行未改即通过。执行细则、边界判据与条数订正见 **§12.11** |
 | **T07 视图派生上移** | ✅ **已完成**（2026-11-03）：`ViewDerivation`（effectiveMap / 三态展开 / 未匹配池 / ownersOf）、`ManualAdjustment`（move/copy/mark/reset）、`LedgerProjection`（台账行 + 照片列标签）、`PhotoOrder`（时间→文件名口径，**未启用**）四个文件进 `:shared:domain`。**双跑证明等价**：PC 侧 400 轮随机组合扫描（固定种子）+ 两条分辨力反证 + 安卓侧 6 条真实路径对比。**未切调用**，桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）。执行细则、两处计划偏差与一条"反证用例本身没有分辨力"的弯路见 **§14** |
-| T08~T14 | 待开工（T08 安卓契约层可 ∥ T09；T12 负责切调用 + 启用 PhotoOrder；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项） |
+| **T09 共享层编排** | ✅ **已完成**（2026-11-03）：`shared/app` 从 3 个 infra 文件长到 **25 文件 / 2389 行** —— `api/`（门面、状态快照、导出计划/结果、设置、`ExportBlockedException`）、`port/`（7 个端口）、`state/`（`PhotoSession` + `AppStateStore` 锁内一次性发布）、`usecase/`（分析/调整/设置/导出 + 视图组装）、`export/ExportPlanner`。**两端调用一行未改**，故用户可见变化为零；桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图）。单测 **21 → 91**（全用假端口、纯 JVM）。契约里彻底不含 `window`/`Path`/`Uri`：`Settings.window` 留在桌面侧、`ExportRequest.outputDir: Path` → `target: String`、`ResumeVerifyMode` 单独成文件且不挂在请求上。执行细则、三处减法与两个顺手修掉的既有缺陷见 **§15** |
+| T08、T10~T14 | 待开工（T08 安卓契约层与 T09 编译面隔离，可并行；T12 负责切调用 + 启用 PhotoOrder；M2 的安卓 V2 双跑仍待设备接入，见 §12.7 第 3 项） |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
 CI 结构断言扩到"三模块两端都必须挂 + 禁 `android/shared`/`desktop/shared`"；`REPO-LAYOUT.md` 升 v2。
@@ -945,3 +946,79 @@ T06 计划里写的是"介质段（prefs 读写）搬 `:data`，编解码留 `:a
   两端改调 `domain.view.ViewDerivation`；同一提交里启用 `PhotoOrder` 并重采两端黄金样本基线。
 - **T09 端口**：`ManualAdjustment` 目前是纯函数，切调用时要由 `AdjustUseCase` 持有，
   状态发布（`StateFlow`）留在平台层。
+
+
+---
+
+## 15. T09 执行记录（shared/app：契约 + 端口 + 用例编排，2026-11-03）
+
+**一句话**：把「一遍流水线」收成一份实现，两端各留端口适配。**两端调用一行未改** —— T10/T11 才切。
+**用户可见变化：无。** 桌面黄金样本 0 差异。
+
+| 提交 | 内容 |
+| --- | --- |
+| `9947808` | **C1** 契约与端口：`api/` 6 文件 + `port/` 7 文件 + `infra/TextDecoding`（+13 条契约测试） |
+| `e15af83` | **C2** 会话状态与三个用例：`PhotoSession` / `AppStateStore` / `ViewPublisher` / `AnalysisPipeline` / `AdjustUseCase` / `SettingsUseCase`（+36 条） |
+| `b77e2eb` | **C3** 导出：`ExportPlanner` / `ExportUseCase` / `ExportBlockedException` / `LedgerProjection.project`（+22 条） |
+| 本次 | 文档收口 + §15.4 检查单 |
+
+### 15.1 契约里的三处「减法」
+
+计划里那句"`shared/app/api` 里出现 `window`/`Path`/`Uri` 即视为失败"，落地时是三件事：
+
+| 减法 | 原来 | 现在 | 不这么做会怎样 |
+| --- | --- | --- | --- |
+| 窗口几何 | `Settings.window: WindowState?` | **留在桌面侧**（T10 由 `PcSettingsStorage` 自己存取） | 安卓的状态快照长期背一个恒为 null 的字段，每处读 `settings` 都要解释"这个 null 不是我漏填" |
+| 平台路径 | `ExportRequest(outputDir: Path)`、`ExportResult` 四个 `Path` 字段、`readLogFile(Path)` | `target: String` / 四个不透明字符串 / `readLogText(ref: String)` | 安卓无法实现该端口（它的输出目标是 SAF 树 URI），只能被迫造一个假 `Path` |
+| 断点续传校验 | `ExportRequest.verifyMode: ResumeVerifyMode` | 单独成文件，**不挂在请求上**；由桌面执行器构造时收下 | 安卓端携带一个永远是默认值的字段，且读代码的人会以为 ZIP 导出也有 manifest 续传 |
+
+另外两处是**加法**，但同样是为了不让另一端丢信息：
+
+- `ShellLauncher` 从 `Boolean` 升级成三态（`STARTED` / `UNAVAILABLE` / `NO_VIEWER`）。桌面原来只有 true/false，安卓要区分"拿不到 URI"与"系统没有能打开的应用"——两种情况给用户的提示完全不同。
+- `app.api.LedgerRowInfo` 改成 `domain.ProjectedLedgerRow` 的 **typealias**。两者字段完全一致（T07 上移时留下的两处定义），继续并存就是共享层内部又一份要人肉同步的重复。
+
+### 15.2 与计划的三处偏差
+
+| 计划原文 | 实际 | 原因 |
+| --- | --- | --- |
+| 端口清单：`ImageEncoder`/`SettingsStorage`/`LogTextStorage`/`ShellLauncher`/`ExportExecutor` | 另补 **`PhotoIdSource`** 与 **`FileBytesReader`** | ① id 分配两端手段不同（安卓用 MediaStore `_ID`，桌面必须哈希 + 碰撞探测），而"id 必须稳定且 >0、必须在 EXIF/分类之前分配"是业务约束 —— 不抽端口就得把平台造 id 的代码搬进共享层；② 读日志文件要返回**字节**而不是字符串，解码（UTF-8 优先 / BOM / GBK 回落）才只有一份 |
+| "`ExportExecutor`，后两者标明'计划上移、执行留平台'" | 为了让端口有类型可传，显式定义 **`ExportPlan`**（相对路径 + 源引用 + 台账行） | 端口签名里不可能只写"计划"两个字。计划必须是纯数据：一旦含 `Path`，另一端就实现不了 |
+| "`state/AppStateStore`（锁内一次性发布）" | 多加一条**运行期断言**：`publish` 在锁外调用直接抛 `IllegalStateException` | 这条纪律如果只写在注释里，写错了表现为"UI 偶发闪一帧半成品状态"——本地不复现、CI 看不见、用户偶尔报"台账闪了一下"。断言本身也有用例钉住，防止哪天被悄悄删掉 |
+
+### 15.3 顺手修掉的两个既有缺陷（两端尚未调用，故用户暂不可见）
+
+`ViewPublisher` 的早退分支（"还没有分类结果"）原样搬过来时发现了两个问题，都在桌面端既有实现里存在：
+
+1. **提示语被吞**：`republishViews(READY, message = "已解析 3 条事件；未选择源目录，暂不扫描照片")` 在 `classifyResult == null` 时直接 return，`message` 丢掉。用户点了分析，界面一片空白且**没有任何解释** —— 而"没选源目录"正是唯一的原因。
+2. **旧视图残留**：重新分析时若源目录被清空，`photos` / `eventPhotoIds` 仍是上一批，状态却是 READY。表现为"照片还在，只是没分类"，比空界面更容易误导。
+
+两处都补在早退分支里（顺带清空 `events`/`photos`/`ledger`/`analysis`），各有一条用例。**T09 不切调用，所以这两条修复要等 T10 才可见** —— 记在这里，免得到时候被当成"T10 引入的回归"。
+
+### 15.4 M3 停止点检查单
+
+| # | 判据 | 状态 |
+| --- | --- | --- |
+| 1 | `shared/app` 可独立测试（纯 JVM，不依赖 Robolectric / AWT / 真机） | ✅ **91 条**，全部用假端口；无 `@Ignore` |
+| 2 | "一遍流水线"只有一处实现：分析 / 调整 / 设置 / 导出四个入口都指向 `app/usecase/*` | ✅ 视图组装也收在 `ViewPublisher`（四个入口共用） |
+| 3 | 契约零平台概念（无 `window` / `Path` / `Uri` / `android.*` / `java.nio.file`） | ✅ 手工预演脚本口径 grep：`api/` 下 0 命中（命中的都在注释里） |
+| 4 | 静态门禁把 `shared/app/src/main` 纳入扫描 | ✅ 时区 **74** 文件 / 取消 **131** 文件 / 忽略策略 **57** 文件，0 问题 |
+| 5 | 两端未切调用 → 黄金样本必须全等 | ✅ 桌面 **0 差异**（72 行 / 504 单元格 / 50 嵌图，`--ignore '^meta'`）；`export.log` 62 行全为合法 JSON |
+| 6 | 两端全量测试 | ✅ 桌面 `core` 44 / `ui` 123；安卓 `app` 58 / `data` 26；`shared` algorithm 335 / domain **68** / app 91。失败 0 |
+| 7 | 安卓 V2 双跑 | ⏳ **设备未接入**（与 §12.7 第 3 项同一阻塞；本步不动安卓生产代码，预期 0 差异，但未验不算过） |
+| 8 | tag `shared-v0.1` | ⏳ 待第 7 项 |
+
+共享率（主源码行数，实测）：`shared/` 5684 行 / 全仓 21811 行 = **26.1%**（M2 结算是 ~22%，T07/T09 各贡献一段；M4 才会跳到目标值）。
+
+### 15.5 一条没有走的捷径：不写"共享层 Facade 实现"
+
+`PhotoMgmCore` 接口进了 `shared/app/api`，但**没有**共享的 `PhotoMgmCoreImpl`。理由：
+
+- 门面里剩下的东西全是平台形态 —— `analyze()` 要返回 `OperationHandle`（桌面用执行器、安卓用 `viewModelScope`）、`close()` 要释放执行器、状态发布要接平台生命周期。这些在共享层写一遍，等于把"线程/协程二选一"硬塞进一个两边都不像的实现。
+- 真正的业务编排已经在 `usecase/` 里，而且是**阻塞式**的：桌面在自己的执行器上跑，安卓在协程里跑。门面只负责"什么时候调用 + 怎么把结果变成句柄" —— 这部分两端各 ~60 行，比硬抽象一份更便宜。
+
+### 15.6 留给 T10 / T11 / T12 / T14
+
+- **T10（PC 收窄）**：`PhotoMgmCoreFactory` 改为组装根（7 个 `Pc*` 适配器 + 3 个用例）；`Settings.window` 由 `PcSettingsStorage` 自己存取（`settings.json` 的 `window` 键不变，老配置照读）；`ExportResult` 的路径字段从 `Path` 变 `String`，UI 侧 62 处 import 替换时一并处理。
+- **T11（安卓瘦身）**：`AppViewModel` 委派四个用例；日志 flush 已经在流水线内部（开始分析前），不必在 VM 里再补一次。
+- **T12**：`ExportPlanner` 与 `ZipExporter` 内部的命名逻辑二选一 —— 安卓切 ZIP 时应改用共享计划，并把 `ZipExporter.export` 的文件夹/重名段删掉。
+- **T14 门禁**：`99_未分类` 目前有两处定义（`ExportPlan.UNMATCHED_FOLDER` 与 `ZipExporter` 的 private 常量），属"常量重复"规则要扫的目标；`api/` 的禁用词表也要写进脚本（本次是手工 grep 预演）。

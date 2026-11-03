@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+### 工程（跨端共用 · T09 编排上移，**无用户可见变化**）
+- 「一遍流水线」第一次有了唯一实现，位于 `shared/app`（25 文件 / 2389 行）：
+  - `usecase/AnalysisPipeline`：解析日志 → 扫描 → 文件名日期粗筛 → 派生去重 → 分配稳定 id → EXIF 精读 → GPS 分组 → 分类 → 发布视图。三步顺序被明确写进注释并各有用例：id 必须早于 EXIF/分类、派生去重必须早于 id 分配、清空人工调整必须在解析之后
+  - `usecase/AdjustUseCase`：移动 / 复制 / 台账标记 / 重置。返回值口径为「**真正改变了归属**的张数」而不是「传进来几张」——目标本来就是它的家时不再谎报"已移动 1 张"
+  - `usecase/SettingsUseCase`：改巡查日期/源目录 → 既有结果失效并提示重新分析；改命名模板 → 立即重算；切三态 → **同步**重算（避免"快速连切 A→B→A"时晚到的任务覆盖新口径）
+  - `usecase/ExportUseCase` + `export/ExportPlanner`：导出计划（文件夹编号、重名 `_2`、`99_未分类`、空事件不建文件夹、同一照片多事件各一份）上移；"怎么把字节写到磁盘"仍是平台执行器
+  - `state/AppStateStore`：锁内组装、一次性发布。`publish` 在锁外调用会**直接抛异常**——这条纪律若只写在注释里，写错了只表现为 UI 偶发闪一帧半成品状态
+  - **本步不切调用**：两端生产代码一行未改，新实现只被测试调用。T10（桌面）/ T11（安卓）才切换
+- 契约里的平台概念被清了出去：`Settings` 不再带 `window`（窗口几何，安卓无意义）、`ExportRequest.outputDir: Path` 改为不透明 `target: String`、`ExportResult` 的四个路径字段同样改为字符串、`ResumeVerifyMode` 单独成文件且不再挂在请求上。**契约里出现 `window`/`Path`/`Uri` 即视为失败**
+- 日志文本解码（UTF-8 优先 / 剥 BOM / 回落 GBK）上移为 `app/infra/decodeText`：两端各写一份的话，GBK 回落迟早只在一端生效，表现为"同一份日志 PC 能解析、安卓满屏问号"
+- `heicCount` 判定收进 `algorithm/isHeicPhotoName`：HEIC 是"台账里有格子只写文件名"的唯一原因，两端该看到同一句解释（此前只有桌面端统计）
+- 顺带修掉两处既有缺陷（要等 T10 切调用后才可见）：没有分类结果时提示语被吞（"未选择源目录，暂不扫描照片"原本传进去又丢掉）、重新分析清空源目录后旧照片视图残留
+  - `affects:` 无（未切调用；导出产物、界面、设置文件格式全部不变）
+  - `verify:` 桌面黄金样本 **0 差异**（72 行 / 504 单元格 / 50 嵌图，`--ignore '^meta'`），`export.log` 62 行全为合法 JSON；`shared:app` **91 条**（21 → 91，全部假端口、纯 JVM）、`shared:domain` 68、`core` 44、`ui` 123、安卓 `app` 58 / `data` 26，失败 0；三条静态门禁 0 问题（74 / 131 / 57 文件）
+
 ### 工程（跨端共用 · T07 视图派生上移，**无用户可见变化**）
 - 「人工调整后的有效归属」这套规则第一次有了**唯一实现**，位于 `shared/domain`：
   - `view/ViewDerivation`：`effectiveMap`（移动 + 复制合并）、`expandedEventMap`（三态展开）、`effectiveUnmatched`（未匹配池）、`ownersOf`。这三段此前在 PC 与安卓各有一份逐行抄写，注释互相写着"与另一端一致"但没有任何机制保证
