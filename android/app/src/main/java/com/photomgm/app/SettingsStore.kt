@@ -1,6 +1,14 @@
-// app/SettingsStore.kt —— 设置持久化（§8.4 自动保存：设置即存）
+// app/SettingsStore.kt —— 设置持久化的**业务语义层**
 // ★ 2026-10-07 新增：状态缓存（事件列表 ParsedLog / 分类 ClassifyResult / 照片 Photo），
 //   打开 App 时恢复关闭前的解析与分类结果，无需重跑流水线。
+//
+// ★ T06（A1）：物理存储拆到 `:data` 的 `PrefsSettingsStorage`。本文件只剩"业务类型 ↔ 存储形状"
+//   这一层转换：
+//     · LocalDate / DedupKeepMode 的类型转换与默认值；
+//     · ParsedLog / ClassifyResult / Photo 的 JSON 编解码（依赖 algorithm.model，属业务模型）；
+//     · 派生缓存"可信不可信"的判定（两个版本位：业务时区 + GPS 语义）。
+//   构造函数与全部属性名**一字未改** —— 两个迁移测试（logs / zone）是本次搬动的护栏，
+//   它们的断言一行不动就必须照样绿。
 package com.photomgm.app
 
 import algorithm.AppZone
@@ -12,96 +20,74 @@ import algorithm.ParsedLog
 import algorithm.model.LogEvent
 import algorithm.model.Photo
 import android.content.Context
+import com.photomgm.data.storage.PrefsSettingsStorage
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 
-/** SharedPreferences 轻量持久化：日期 / 多源目录 / 输出目录 / 命名模板 / 日志文本 / 标记 / 状态缓存。 */
+/** 设置项的业务视图：日期 / 多源目录 / 输出目录 / 命名模板 / 日志文本 / 标记 / 状态缓存。 */
 class SettingsStore(context: Context) {
-    private val prefs = context.getSharedPreferences("photo_mgm_settings", Context.MODE_PRIVATE)
-
-    /**
-     * 日志文本专用 prefs（W3 / issue #4）。
-     * 独立文件的意义：`apply()` 全量重写的是**本文件**的 XML，本文件只有日志这一个 key，
-     * 所以写日志的代价与主 prefs 里 MB 级的照片缓存彻底解耦。
-     */
-    private val logsPrefs = context.getSharedPreferences("photo_mgm_logs", Context.MODE_PRIVATE)
+    private val storage = PrefsSettingsStorage(context)
 
     var date: LocalDate
-        get() = prefs.getString(KEY_DATE, null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        get() = storage.dateText?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
             ?: LocalDate.now(AppZone.ID)
-        set(v) = prefs.edit().putString(KEY_DATE, v.toString()).apply()
+        set(v) {
+            storage.dateText = v.toString()
+        }
 
     var sourceDirs: List<String>
-        get() = prefs.getStringSet(KEY_DIRS, emptySet())?.toList() ?: emptyList()
-        set(v) = prefs.edit().putStringSet(KEY_DIRS, v.toSet()).apply()
+        get() = storage.sourceDirs
+        set(v) {
+            storage.sourceDirs = v
+        }
 
     var outputDir: String?
-        get() = prefs.getString(KEY_OUTPUT, null)
-        set(v) = prefs.edit().putString(KEY_OUTPUT, v).apply()
+        get() = storage.outputDir
+        set(v) {
+            storage.outputDir = v
+        }
 
     var namingTemplate: Int
-        get() = prefs.getInt(KEY_TEMPLATE, 1)
-        set(v) = prefs.edit().putInt(KEY_TEMPLATE, v).apply()
+        get() = storage.namingTemplate ?: 1
+        set(v) {
+            storage.namingTemplate = v
+        }
 
     /** ★ 2026-10-24 B1：重复照片保留策略（带水印 / 不带水印 / 都保留），默认仅保留带水印。 */
     var dedupKeepMode: DedupKeepMode
-        get() = prefs.getString(KEY_DEDUP_MODE, null)?.let { raw ->
+        get() = storage.dedupKeepModeName?.let { raw ->
             runCatching { DedupKeepMode.valueOf(raw) }.getOrNull()
         } ?: DedupKeepMode.KEEP_WATERMARKED
-        set(v) = prefs.edit().putString(KEY_DEDUP_MODE, v.name).apply()
+        set(v) {
+            storage.dedupKeepModeName = v.name
+        }
 
     /**
      * 日志文本（W3 / issue #4）。
      *
-     * ★ 单独存一个 prefs 文件（[logsPrefs]），不与主 prefs 混放：主 prefs 的 XML 里含
-     *   MB 级的 `cache_photos`，而 SharedPreferences 的 `apply()` 是**全量重写整个 XML**。
-     *   以前日志文本存在主 prefs 里，输入框每敲一个字符就触发一次 MB 级写盘 —— 卡顿 + 闪存磨损。
-     *   隔离到独立文件后，写日志只重写「只有这一个 key」的小文件；再叠加
-     *   [LogsTextStore] 的防抖，连打时只落一次盘。
-     *
-     * 读侧兼容旧数据：新版 key 缺失时回落到主 prefs 的旧 [KEY_LOGS]，读到就**迁移**到新文件
-     * 并把旧 key 从主 prefs 删除（一次性瘦身，之后主 XML 不再被日志文本撑大）。
+     * 存储侧（独立 prefs 文件、旧 key 兼容迁移）见 [PrefsSettingsStorage.logsText]；
+     * 本层只是转发。分开的理由：那边是"存哪儿"，这边是"业务上它是什么"。
      */
     var logsText: String
-        get() {
-            logsPrefs.getString(KEY_LOGS_TEXT, null)?.let { return it }
-            val legacy = prefs.getString(KEY_LOGS, null) ?: return ""
-            logsPrefs.edit().putString(KEY_LOGS_TEXT, legacy).apply()
-            prefs.edit().remove(KEY_LOGS).apply()
-            return legacy
+        get() = storage.logsText
+        set(v) {
+            storage.logsText = v
         }
-        set(v) = logsPrefs.edit().putString(KEY_LOGS_TEXT, v).apply()
 
     /** 人工标记 photoId → 目标事件（§8.3 人工移动） */
     var overrideMap: Map<Long, Int>
-        get() = prefs.getString(KEY_OVERRIDE, null)?.let { raw ->
-            runCatching {
-                raw.split(';').mapNotNull { seg ->
-                    val kv = seg.split('=')
-                    if (kv.size == 2) kv[0].toLong() to kv[1].toInt() else null
-                }.toMap()
-            }.getOrElse { emptyMap() }
-        } ?: emptyMap()
-        set(v) = prefs.edit()
-            .putString(KEY_OVERRIDE, v.entries.joinToString(";") { "${it.key}=${it.value}" }).apply()
+        get() = storage.overrideMap
+        set(v) {
+            storage.overrideMap = v
+        }
 
     /** 台账照片标记：eventId → (照片1, 照片2)；空侧用 null 表示"默认最早+最晚"（§7/§8.2） */
     var markedMap: Map<Int, Pair<Long?, Long?>>
-        get() = prefs.getString(KEY_MARKED, null)?.let { raw ->
-            runCatching {
-                raw.split(';').mapNotNull { seg ->
-                    val kv = seg.split('=')
-                    if (kv.size != 2) return@mapNotNull null
-                    val ids = kv[1].split(',')
-                    kv[0].toInt() to (ids.getOrNull(0)?.toLongOrNull() to ids.getOrNull(1)?.toLongOrNull())
-                }.toMap()
-            }.getOrElse { emptyMap() }
-        } ?: emptyMap()
-        set(v) = prefs.edit().putString(
-            KEY_MARKED,
-            v.entries.joinToString(";") { (k, p) -> "${k}=${p.first ?: ""},${p.second ?: ""}" }
-        ).apply()
+        get() = storage.markedMap
+        set(v) {
+            storage.markedMap = v
+        }
 
     // ──────────────────────────────────────────────────────────────
     // ★ 2026-10-07 状态缓存：打开 App 恢复关闭前的事件列表 + 分类 + 照片
@@ -110,36 +96,36 @@ class SettingsStore(context: Context) {
 
     /** 事件列表缓存（ParsedLog JSON）。 */
     var parsedCache: ParsedLog?
-        get() = if (!cacheUsable()) null else prefs.getString(KEY_PARSED_CACHE, null)?.let { raw ->
+        get() = if (!cacheUsable()) null else storage.parsedCacheRaw?.let { raw ->
             runCatching { parseParsed(raw) }.getOrNull()
         }
-        set(v) = prefs.edit()
-            .putString(KEY_PARSED_CACHE, v?.let { serializeParsed(it) }).apply()
+        set(v) {
+            storage.parsedCacheRaw = v?.let { serializeParsed(it) }
+        }
 
     /** 分类结果缓存（ClassifyResult JSON）。 */
     var classifyCache: ClassifyResult?
-        get() = if (!cacheUsable()) null else prefs.getString(KEY_CLASSIFY_CACHE, null)?.let { raw ->
+        get() = if (!cacheUsable()) null else storage.classifyCacheRaw?.let { raw ->
             runCatching { parseClassify(raw) }.getOrNull()
         }
-        set(v) = prefs.edit()
-            .putString(KEY_CLASSIFY_CACHE, v?.let { serializeClassify(it) }).apply()
+        set(v) {
+            storage.classifyCacheRaw = v?.let { serializeClassify(it) }
+        }
 
     /** 照片元数据缓存（Photo[] JSON；分类的 photoId 需映射回 Photo 供导出/查看器使用）。 */
     var photosCache: List<Photo>
-        get() = if (!cacheUsable()) emptyList() else prefs.getString(KEY_PHOTOS_CACHE, null)?.let { raw ->
+        get() = if (!cacheUsable()) emptyList() else storage.photosCacheRaw?.let { raw ->
             runCatching { parsePhotos(raw) }.getOrNull()
         } ?: emptyList()
-        set(v) = prefs.edit().putString(KEY_PHOTOS_CACHE, serializePhotos(v)).apply()
+        set(v) {
+            storage.photosCacheRaw = serializePhotos(v)
+        }
 
     /** 粗筛数量缓存（恢复后 ensurePipeline 视为已粗筛，跳过重扫）。 */
     var coarseCountCache: Int?
-        get() {
-            if (!cacheUsable()) return null
-            return if (prefs.contains(KEY_COARSE_CACHE)) prefs.getInt(KEY_COARSE_CACHE, 0) else null
-        }
+        get() = if (!cacheUsable()) null else storage.coarseCount
         set(v) {
-            if (v == null) prefs.edit().remove(KEY_COARSE_CACHE).apply()
-            else prefs.edit().putInt(KEY_COARSE_CACHE, v).apply()
+            storage.coarseCount = v
         }
 
     /**
@@ -152,7 +138,7 @@ class SettingsStore(context: Context) {
      *   读侧发现版本位与当前业务时区不一致 → 当作没有缓存（返回 null / 空列表），
      *   流水线随即重跑并调用本方法把版本位刷新成新值。
      *
-     * ★ P0（2026-11-02）追加第二个版本位 [KEY_CACHE_GEO]：
+     * ★ P0（2026-11-02）追加第二个版本位 [GEO_CACHE_VERSION]：
      *   旧版本 APK 缺 `ACCESS_MEDIA_LOCATION`，读到的 `latitude/longitude` 恒为 null——那是
      *   **系统剥离的结果**，不是照片本来没有定位。修好权限后这些 null 仍躺在 cache_photos 里，
      *   而"打开 App 从缓存恢复"不会重读 EXIF，于是修复对老用户完全无效。
@@ -172,38 +158,36 @@ class SettingsStore(context: Context) {
      *   不会删除任何用户数据；回滚后缓存会按旧时区重新生成，App 仍可用。
      */
     fun markCacheVersion() {
-        prefs.edit()
-            .putString(KEY_CACHE_ZONE, AppZone.ID.id)
-            .putString(KEY_CACHE_GEO, GEO_CACHE_VERSION)
-            .apply()
+        storage.markCacheVersion(AppZone.ID.id, GEO_CACHE_VERSION)
     }
 
-    /** 派生缓存是否按当前业务时区算出（版本位缺失 = 旧版本数据 → 不可信）。 */
-    private fun cacheZoneMatches(): Boolean = prefs.getString(KEY_CACHE_ZONE, null) == AppZone.ID.id
-
-    /** 派生缓存是否由"能读到 GPS"的那版读取逻辑算出（★ P0：旧包没写过 → 不可信）。 */
-    private fun cacheGeoMatches(): Boolean = prefs.getString(KEY_CACHE_GEO, null) == GEO_CACHE_VERSION
-
-    /** 四份派生缓存是否可用：时区与 GPS 语义两个版本位**都**要对上（全有或全无）。 */
-    private fun cacheUsable(): Boolean = cacheZoneMatches() && cacheGeoMatches()
+    /**
+     * 派生缓存是否可用：时区与 GPS 语义两个版本位**都**要对上（全有或全无）。
+     *
+     * 判定留在业务层而不是介质层的理由：`AppZone.ID` 与 [GEO_CACHE_VERSION] 都是**业务语义**
+     * （"按北京时间解释挂钟" / "这批 GPS 是在申请了 ACCESS_MEDIA_LOCATION 之后读的"），
+     * 存储层不该知道它们是什么，只负责把两个字符串原样存下来。
+     */
+    private fun cacheUsable(): Boolean =
+        storage.cacheZoneVersion() == AppZone.ID.id && storage.cacheGeoVersion() == GEO_CACHE_VERSION
 
     /** 解析时刻的日志文本快照：用于判断"日志是否被修改"——未修改时点解析只清人工移动。 */
     var parsedLogsText: String
-        get() = prefs.getString(KEY_PARSED_LOGS_TEXT, "") ?: ""
-        set(v) = prefs.edit().putString(KEY_PARSED_LOGS_TEXT, v).apply()
+        get() = storage.parsedLogsText
+        set(v) {
+            storage.parsedLogsText = v
+        }
 
     /** 清空全部状态缓存（日期/源目录变更、清空日志时调用）。 */
     fun clearStateCache() {
-        parsedCache = null
-        classifyCache = null
-        photosCache = emptyList()
-        coarseCountCache = null
-        parsedLogsText = ""
+        storage.clearDerivedCaches()
         // 清空后版本位与新写入保持一致，避免"刚清完又被判为旧版本"的反复失效
         markCacheVersion()
     }
 
     // ── JSON 序列化（Android 内置 org.json，零新依赖） ──
+    //  留在本层而不是介质层：结构体是 algorithm.model 的类型，属业务模型；
+    //  换存储介质（SharedPreferences → DataStore/SQLite）时这套编解码一行都不用改。
 
     private fun serializeParsed(p: ParsedLog): String {
         val o = JSONObject()
@@ -349,30 +333,12 @@ class SettingsStore(context: Context) {
     )
 
     private companion object {
-        const val KEY_DATE = "date"
-        const val KEY_DIRS = "source_dirs"
-        const val KEY_OUTPUT = "output_dir"
-        const val KEY_TEMPLATE = "naming_template"
-        const val KEY_DEDUP_MODE = "dedup_keep_mode"
-        /** 旧位置（主 prefs，MB 级 XML）：仅用于读侧兼容迁移，见 [logsText]。 */
-        const val KEY_LOGS = "logs_text"
-        /** 新位置（[logsPrefs] 独立文件内的 key）。 */
-        const val KEY_LOGS_TEXT = "logs_text"
-        const val KEY_OVERRIDE = "photo_override"
-        const val KEY_MARKED = "photo_marked"
-        const val KEY_PARSED_CACHE = "cache_parsed"
-        const val KEY_CLASSIFY_CACHE = "cache_classify"
-        const val KEY_PHOTOS_CACHE = "cache_photos"
-        const val KEY_COARSE_CACHE = "cache_coarse_count"
-        const val KEY_PARSED_LOGS_TEXT = "cache_parsed_logs_text"
-        /** 派生缓存所用的业务时区版本位（issue #2 迁移用，见 [markCacheVersion]）。 */
-        const val KEY_CACHE_ZONE = "cache_zone"
-        /** 派生缓存所用的「GPS 语义版本」位（★ P0 修复用，见 [markCacheVersion]）。 */
-        const val KEY_CACHE_GEO = "cache_geo_version"
         /**
          * GPS 语义版本：`media-location-v1` = 已声明并申请 `ACCESS_MEDIA_LOCATION` 之后读出的结果。
          * 旧版本 APK 没写这个位（读不到 GPS，却把 `latitude=null` 当真值缓存了下来）→ 一律作废重算。
          * 将来若再改 GPS 读取方式（如改用 `MediaStore.setRequireOriginal`），改这里的值即可让旧缓存失效。
+         *
+         * 定义放业务层而非介质层：它描述的是"这批 GPS 是怎么读出来的"，存储层只把它当不透明字符串。
          */
         const val GEO_CACHE_VERSION = "media-location-v1"
     }
