@@ -357,7 +357,7 @@ class AndroidZipExportExecutor(
 
     companion object {
         private const val TAG = "PM_Export"
-        private const val LOG_NAME = "export.log"
+        private const val LOG_NAME = ExportLogWriter.LOG_FILE_NAME
         private const val BUFFER_BYTES = 32 * 1024
         private val DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
         private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HHmmss")

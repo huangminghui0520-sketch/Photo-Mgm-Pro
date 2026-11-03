@@ -362,9 +362,15 @@ class ZipExporter(private val zone: ZoneId = AppZone.ID) {
         }
     }
 
-    private companion object {
+    companion object {
         val BASIC_DATE: DateTimeFormatter = DateTimeFormatter.BASIC_ISO_DATE
-        /** 未匹配照片的固定文件夹（P2-4：99_ 前缀保证按名称排序时始终最后）。 */
+        /**
+         * 未匹配照片的固定文件夹（P2-4：99_ 前缀保证按名称排序时始终最后）。
+         *
+         * ★ T14：从 `private companion` 放开为公开常量 —— 它同时是 ZIP 目录名和台账照片列
+         *   的标签，属「产物契约」，两端与共享 `app/export/ExportPlanner` 都必须引用**同一处**，
+         *   否则改一边忘另一边，症状是"ZIP 里叫 A、台账里叫 B"（`check-shared-purity.py` 的 P4 扫它）。
+         */
         const val UNMATCHED_FOLDER = "99_未分类"
         /** 开头时间前缀：上午/下午可选 + 时点 + 可选"至终点" + 尾随空格 */
         val LEADING_TIME_RE = Regex("""^(?:上午|下午)?\d{1,2}[点时:：]\d{0,2}(?:分)?(?:至\d{1,2}[点时:：]\d{0,2}(?:分)?)?\s*""")

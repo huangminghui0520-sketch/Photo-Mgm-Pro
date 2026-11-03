@@ -51,8 +51,11 @@ object LogParserReport {
         val out = sb.toString()
         println(out)
 
-        // 落盘到项目根目录，方便逐条审核
-        val outFile = File(System.getProperty("user.dir"), "parse_report.txt")
+        // 落盘到项目根目录，方便逐条审核。
+        // purity-ok: 本类仅经 gradle :shared:algorithm:runLogParser 在 JVM 上跑（main 入口，
+        //   非两端共享的生产逻辑，安卓不引用它）。user.dir 在这里有明确语义：把诊断报告写到
+        //   工程根供人逐条审，属开发者工具而非业务代码。
+        val outFile = File(System.getProperty("user.dir"), "parse_report.txt") // purity-ok: 开发者诊断入口（JVM-only，见上）
         outFile.writeText(out, Charsets.UTF_8)
         println("报告已保存: ${outFile.absolutePath}")
     }

@@ -15,6 +15,7 @@
 //   ZIP 里会出现 `\`，解压后变成文件名的一部分（Windows 之外的解压器不认识它）。
 package app.api
 
+import algorithm.ZipExporter
 import algorithm.model.LedgerRow
 
 /**
@@ -61,15 +62,13 @@ data class ExportPlan(
 
     companion object {
         /**
-         * 未匹配照片的固定文件夹名。
+         * 未匹配照片的固定文件夹名（= [algorithm.ZipExporter.UNMATCHED_FOLDER]）。
          *
-         * ★ 与 `algorithm.ZipExporter` 里的同名常量必须同值，但那个是 `private`
-         *   （`ZipExporter.kt` 的 private companion），共享层引用不到，只能在这里再写一次。
-         *   这是**已知的单点重复**，不是疏忽：T14 的门禁会扫「常量重复」，
-         *   届时要么把 algorithm 里那个放开、要么让安卓也改用本常量。
-         *   在那之前，`ExportPlannerTest` 用字面量 `99_未分类` 断言，改动时至少会红一次。
+         * ★ T14：不再在这里**另写一份**字面量 —— 之前是「已知的单点重复」，因为
+         *   `ZipExporter.UNMATCHED_FOLDER` 是 private 引用不到；现已放开为公开常量，
+         *   本处改为引用，`check-shared-purity.py` 的 P4 会保证它始终只有一处定义。
          */
-        const val UNMATCHED_FOLDER: String = "99_未分类"
+        val UNMATCHED_FOLDER: String = ZipExporter.UNMATCHED_FOLDER
 
         /** 台账默认文件名（桌面端；安卓按请求换成带日期的名字，见 [ExportPlan.ledgerFileName]）。 */
         const val DEFAULT_LEDGER_NAME: String = "ledger.xlsx"

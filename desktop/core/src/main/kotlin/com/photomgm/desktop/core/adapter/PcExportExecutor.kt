@@ -386,7 +386,8 @@ internal class PcExportExecutor(
 
         /** 兼容别名：实际名字由 [ExportPlan.ledgerFileName] 带入，见该字段的说明。 */
         const val LEDGER_NAME = ExportPlan.DEFAULT_LEDGER_NAME
-        const val LOG_NAME = "export.log"
+        /** 导出日志文件名（= [ExportLogWriter.LOG_FILE_NAME]，不再另写一份字面量）。 */
+        const val LOG_NAME = ExportLogWriter.LOG_FILE_NAME
 
         /** Windows 单段长路径硬约束（留余量，不是 260 逼近线）。 */
         const val MAX_PATH_LENGTH = 240

@@ -134,7 +134,15 @@ class ExportLogWriter(
         writer = null
     }
 
-    private companion object {
+    companion object {
         val ISO_OFFSET: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
+        /**
+         * 导出日志文件名（两端产物里一致的名字）。
+         *
+         * ★ T14：从两端执行器各自硬编码的 `LOG_NAME` 收上来 —— 日志是「两端产物对拍」的基准，
+         *   文件名属于产物契约，只该有一处定义（`check-shared-purity.py` 的 P4 扫它）。
+         *   companion 不能是 private：两端执行器要引用 `LOG_FILE_NAME`（private 会让它们访问不到）。
+         */
+        const val LOG_FILE_NAME: String = "export.log"
     }
 }
