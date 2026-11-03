@@ -7,9 +7,9 @@
 //   改一次口径要翻遍界面代码，最终必然出现"事件列表说有 3 个问题、导出时却是 4 个"。
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.EventSnapshot
-import com.photomgm.desktop.core.api.PhotoInfo
+import app.api.AppState
+import app.api.EventSnapshot
+import app.api.PhotoInfo
 
 object WorkQueue {
 
@@ -163,6 +163,6 @@ object WorkQueue {
     fun exportBlockers(state: AppState): List<String> = buildList {
         if (state.events.isEmpty()) add("还没有解析出任何事件，先导入巡查日志")
         if (state.settings.outputDir == null) add("还没有选择导出目录")
-        if (state.status != com.photomgm.desktop.core.api.CoreStatus.READY) add("当前状态不可导出（${state.status}）")
+        if (state.status != app.api.CoreStatus.READY) add("当前状态不可导出（${state.status}）")
     }
 }

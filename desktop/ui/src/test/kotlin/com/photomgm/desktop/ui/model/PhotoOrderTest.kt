@@ -5,8 +5,8 @@
 // 这里把"显示顺序 = 拍摄时间升序"这条口径钉死（只影响界面，不改导出序号）。
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.EventSnapshot
-import com.photomgm.desktop.core.api.PhotoInfo
+import app.api.EventSnapshot
+import app.api.PhotoInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

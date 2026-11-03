@@ -20,7 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.photomgm.desktop.core.api.AppState
+import app.api.AppState
 import com.photomgm.desktop.ui.app.Actions
 import com.photomgm.desktop.ui.component.ButtonKind
 import com.photomgm.desktop.ui.component.PmButton

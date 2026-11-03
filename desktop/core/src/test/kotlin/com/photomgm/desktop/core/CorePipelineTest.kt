@@ -9,21 +9,22 @@ package com.photomgm.desktop.core
 
 import algorithm.AppZone
 import algorithm.DedupKeepMode
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.CoreConfig
-import com.photomgm.desktop.core.api.CoreStatus
-import com.photomgm.desktop.core.api.ExportListener
-import com.photomgm.desktop.core.api.ExportProgress
-import com.photomgm.desktop.core.api.ExportRequest
-import com.photomgm.desktop.core.api.ExportResult
-import com.photomgm.desktop.core.api.PhotoMgmCore
-import com.photomgm.desktop.core.api.PhotoMgmCoreFactory
-import com.photomgm.desktop.core.api.ShellLauncher
+import app.api.AppState
+import com.photomgm.desktop.core.DesktopCoreConfig
+import app.api.CoreStatus
+import app.api.ExportListener
+import app.api.ExportProgress
+import app.api.ExportRequest
+import app.api.ExportResult
+import app.api.PhotoMgmCore
+import com.photomgm.desktop.core.DesktopCore
+import app.port.ShellLauncher
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.io.TempDir
 import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.Executor
@@ -67,8 +68,8 @@ class CorePipelineTest {
     }
 
     private fun newCore(dataDir: Path = tmp.resolve("data")): PhotoMgmCore =
-        PhotoMgmCoreFactory.create(
-            CoreConfig(
+        DesktopCore.create(
+            DesktopCoreConfig(
                 dataDir = dataDir,
                 zone = AppZone.ID,
                 executor = Executor { it.run() }, // 同步执行器：测试确定性
@@ -228,13 +229,15 @@ class CorePipelineTest {
                 override fun onFailed(error: Throwable) { failure = error }
             }
 
-            core.export(ExportRequest(outDir), listener)
+            // ★ T10：ExportRequest(target: String) —— 共享层不认 Path（安卓那边是树 URI）
+            core.export(ExportRequest(target = outDir.toAbsolutePath().toString()), listener)
 
             assertNull(failure, "导出不应失败：${failure?.message}")
             val r = assertNotNull(finished, "同步执行器下应已回调 onFinished")
-            assertTrue(Files.isRegularFile(r.exportDir.resolve("ledger.xlsx")))
-            assertTrue(Files.isRegularFile(r.exportDir.resolve("export.log")))
-            assertTrue(Files.isRegularFile(r.exportDir.resolve("export-manifest.json")))
+            val dir = Paths.get(r.exportDir)
+            assertTrue(Files.isRegularFile(dir.resolve("ledger.xlsx")))
+            assertTrue(Files.isRegularFile(dir.resolve("export.log")))
+            assertTrue(Files.isRegularFile(dir.resolve("export-manifest.json")))
 
             val s: AppState = core.state.value
             assertEquals(CoreStatus.READY, s.status)

@@ -5,7 +5,7 @@
 // core 什么都没做时报了成功，那是系统拒绝执行时装作成功 —— 比沉默更糟。
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.CoreStatus
+import app.api.CoreStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull

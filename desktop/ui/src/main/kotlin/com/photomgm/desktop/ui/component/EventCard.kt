@@ -86,8 +86,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import com.photomgm.desktop.core.api.EventSnapshot
-import com.photomgm.desktop.core.api.PhotoInfo
+import app.api.EventSnapshot
+import app.api.PhotoInfo
 import com.photomgm.desktop.ui.format.hhmm
 import com.photomgm.desktop.ui.format.timeRange
 import com.photomgm.desktop.ui.image.rememberPhotoImage

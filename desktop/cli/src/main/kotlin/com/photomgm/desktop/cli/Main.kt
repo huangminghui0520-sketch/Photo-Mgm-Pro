@@ -11,16 +11,16 @@ package com.photomgm.desktop.cli
 
 import algorithm.AppZone
 import algorithm.DedupKeepMode
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.CoreStatus
-import com.photomgm.desktop.core.api.ExportListener
-import com.photomgm.desktop.core.api.ExportProgress
-import com.photomgm.desktop.core.api.ExportRequest
-import com.photomgm.desktop.core.api.ExportResult
-import com.photomgm.desktop.core.api.PhotoMgmCore
-import com.photomgm.desktop.core.api.PhotoMgmCoreFactory
-import com.photomgm.desktop.core.api.Progress
-import com.photomgm.desktop.core.api.ProgressListener
+import app.api.AppState
+import app.api.CoreStatus
+import app.api.ExportListener
+import app.api.ExportProgress
+import app.api.ExportRequest
+import app.api.ExportResult
+import app.api.PhotoMgmCore
+import com.photomgm.desktop.core.DesktopCore
+import app.api.Progress
+import app.api.ProgressListener
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.PrintStream
@@ -195,8 +195,8 @@ private class Runner(private val opts: Options) {
     fun run(): Int {
         opts.dataDir?.let { Files.createDirectories(it) }
 
-        val core = PhotoMgmCoreFactory.create(
-            com.photomgm.desktop.core.api.CoreConfig(
+        val core = DesktopCore.create(
+            com.photomgm.desktop.core.DesktopCoreConfig(
                 dataDir = opts.dataDir,
                 zone = AppZone.ID,
             ),
@@ -207,7 +207,8 @@ private class Runner(private val opts: Options) {
                 opts.logText != null -> opts.logText
                 opts.logFile != null -> {
                     if (!Files.isRegularFile(opts.logFile)) return usageError("日志文件不存在：${opts.logFile}")
-                    core.readLogFile(opts.logFile)
+                    // ★ T10：共享层只认不透明引用（String），不认 Path。
+                    core.readLogText(opts.logFile.toString())
                 }
                 else -> return usageError("必须提供 --log 或 --log-text")
             }
@@ -286,7 +287,8 @@ private class Runner(private val opts: Options) {
             // 注意：产物目录里除照片外还有 ledger.xlsx / export.log / export-manifest.json，
             //   必须按"导出根直属元文件"精确排除，否则会把清单算成照片（这里曾被 "export." 前缀坑过）。
             val metaNames = setOf("ledger.xlsx", "export.log", "export-manifest.json")
-            val photoCount = Files.walk(result.exportDir).use { s ->
+            // ★ T10：ExportResult 的路径字段是不透明字符串（桌面=绝对路径，安卓=URI）。
+            val photoCount = Files.walk(Paths.get(result.exportDir)).use { s ->
                 s.filter { Files.isRegularFile(it) }
                     .filter { it.fileName.toString() !in metaNames }
                     .count().toInt()
@@ -335,8 +337,9 @@ private class Runner(private val opts: Options) {
         val holder = arrayOfNulls<ExportResult>(1)
         var failure: Throwable? = null
         core.export(
+            // ★ T10：ExportRequest 的 outputDir: Path 变成 target: String（安卓那边是树 URI）。
             ExportRequest(
-                outputDir = Paths.get(core.state.value.settings.outputDir!!),
+                target = core.state.value.settings.outputDir!!,
                 includeLedger = opts.includeLedger,
             ),
             object : ExportListener {

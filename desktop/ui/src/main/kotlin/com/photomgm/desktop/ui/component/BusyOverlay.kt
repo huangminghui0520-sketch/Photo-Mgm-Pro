@@ -29,7 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.photomgm.desktop.core.api.AppState
+import app.api.AppState
 import com.photomgm.desktop.ui.model.Busy
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius

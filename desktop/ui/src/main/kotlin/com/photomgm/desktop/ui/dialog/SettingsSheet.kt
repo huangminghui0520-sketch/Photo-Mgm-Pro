@@ -37,8 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.ResumeVerifyMode
+import app.api.AppState
+import app.api.ResumeVerifyMode
 import com.photomgm.desktop.ui.app.Actions
 import com.photomgm.desktop.ui.component.ButtonKind
 import com.photomgm.desktop.ui.component.Field

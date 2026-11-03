@@ -13,9 +13,9 @@
 //   凡是能从 AppState 算出来的一律现算（统计、分组、台账、卡片里的照片），不存副本。
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.CoreStatus
-import com.photomgm.desktop.core.api.ResumeVerifyMode
+import app.api.AppState
+import app.api.CoreStatus
+import app.api.ResumeVerifyMode
 
 /** 长任务的两种情形。取消语义不同，见 BusyOverlay 里的说明文案。 */
 enum class Busy(val label: String) {
@@ -236,7 +236,7 @@ fun initialUi(state: AppState): UiState {
 }
 
 /** 导出结果条应当显示的那次结果；null = 不显示。 */
-fun resultToShow(ui: UiState, state: AppState): com.photomgm.desktop.core.api.ExportResult? {
+fun resultToShow(ui: UiState, state: AppState): app.api.ExportResult? {
     val key = state.exportKey ?: return null
     if (key == ui.dismissedResultKey) return null
     // seenExportKey 是"界面已经识别过的"，dismissedResultKey 是"用户收起的"；

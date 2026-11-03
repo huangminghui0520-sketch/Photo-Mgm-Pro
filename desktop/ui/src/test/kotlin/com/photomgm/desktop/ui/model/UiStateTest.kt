@@ -6,8 +6,8 @@
 //   · 同一次导出弹两次结果条（→ 用户以为导了两遍）
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.CoreStatus
-import com.photomgm.desktop.core.api.ResumeVerifyMode
+import app.api.CoreStatus
+import app.api.ResumeVerifyMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

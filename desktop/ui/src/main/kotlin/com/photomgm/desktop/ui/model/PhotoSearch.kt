@@ -6,7 +6,7 @@
 //   以及"无时间"这个状态词。搜索框是为"找到那一张"服务的，多命中一条的代价远小于漏掉。
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.PhotoInfo
+import app.api.PhotoInfo
 import com.photomgm.desktop.ui.format.hhmm
 
 /** 无时间的照片用这个词能被搜到（它们是真实的一类，用户会专门去找）。 */

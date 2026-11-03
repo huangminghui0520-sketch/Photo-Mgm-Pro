@@ -6,7 +6,7 @@
 package com.photomgm.desktop.ui.format
 
 import algorithm.AppZone
-import com.photomgm.desktop.core.api.PhotoInfo
+import app.api.PhotoInfo
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime

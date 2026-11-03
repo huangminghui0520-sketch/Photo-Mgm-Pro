@@ -57,8 +57,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.CoreStatus
+import app.api.AppState
+import app.api.CoreStatus
 import com.photomgm.desktop.ui.component.BusyOverlay
 import com.photomgm.desktop.ui.component.ButtonKind
 import com.photomgm.desktop.ui.component.Hairline

@@ -1,13 +1,12 @@
 // ui/test/Fixtures.kt —— 用例用的最小快照构造
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.CoreStatus
-import com.photomgm.desktop.core.api.EventSnapshot
-import com.photomgm.desktop.core.api.ExportResult
-import com.photomgm.desktop.core.api.PhotoInfo
-import com.photomgm.desktop.core.api.Settings
-import java.nio.file.Paths
+import app.api.AppState
+import app.api.CoreStatus
+import app.api.EventSnapshot
+import app.api.ExportResult
+import app.api.PhotoInfo
+import app.api.Settings
 
 fun photo(
     id: Long,
@@ -48,11 +47,13 @@ fun event(
     hints = hints,
 )
 
+// ★ T10：ExportResult 的路径字段是不透明字符串（桌面=绝对路径，安卓=content URI），
+//   所以这里直接给字符串，不再 Paths.get。
 fun exportResult(dir: String = "/out/1101_120000"): ExportResult = ExportResult(
-    exportDir = Paths.get(dir),
-    ledgerFile = Paths.get("$dir/ledger.xlsx"),
-    logFile = Paths.get("$dir/export.log"),
-    manifestFile = Paths.get("$dir/export-manifest.json"),
+    exportDir = dir,
+    ledgerFile = "$dir/ledger.xlsx",
+    logFile = "$dir/export.log",
+    manifestFile = "$dir/export-manifest.json",
     totalTargets = 10,
     copied = 10,
     skipped = 0,

@@ -14,8 +14,8 @@
 //   否则"已移动 1 张照片"和"已把 1 张照片移到 事件 03"会并排出现，重复且互相稀释。
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.CoreStatus
+import app.api.AppState
+import app.api.CoreStatus
 
 /** 提示条的语气。与 component 的 Tone 一一对应（model 层不认识 Compose）。 */
 enum class NoticeTone {

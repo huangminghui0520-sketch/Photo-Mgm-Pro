@@ -35,7 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.photomgm.desktop.core.api.ExportResult
+import app.api.ExportResult
 import com.photomgm.desktop.ui.app.Actions
 import com.photomgm.desktop.ui.component.ButtonKind
 import com.photomgm.desktop.ui.component.PmButton

@@ -11,9 +11,9 @@
 //   配对失败不是错误：返回 null，界面就不显示台账列，而不是显示错行。
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.LedgerRowInfo
-import com.photomgm.desktop.core.api.PhotoInfo
+import app.api.AppState
+import app.api.LedgerRowInfo
+import app.api.PhotoInfo
 
 fun ledgerByEvent(state: AppState): Map<Int, LedgerRowInfo> {
     if (state.ledger.isEmpty() || state.events.isEmpty()) return emptyMap()

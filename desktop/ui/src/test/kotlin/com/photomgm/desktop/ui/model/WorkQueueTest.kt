@@ -4,7 +4,7 @@
 // 否则同一件事（比如"无照片"）会在列表、筛选、导出提示里各算一遍，然后不一致。
 package com.photomgm.desktop.ui.model
 
-import com.photomgm.desktop.core.api.CoreStatus
+import app.api.CoreStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

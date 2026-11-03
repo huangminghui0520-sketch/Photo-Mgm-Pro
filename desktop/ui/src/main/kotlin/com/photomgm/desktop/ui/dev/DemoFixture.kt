@@ -7,8 +7,8 @@
 package com.photomgm.desktop.ui.dev
 
 import algorithm.AppZone
-import com.photomgm.desktop.core.api.CoreStatus
-import com.photomgm.desktop.core.api.PhotoMgmCore
+import app.api.CoreStatus
+import com.photomgm.desktop.core.DesktopCore
 import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
 object DemoFixture {
 
     /** 返回 true 表示演示数据已就绪（分析完成）。 */
-    fun install(core: PhotoMgmCore, dataDir: Path): Boolean {
+    fun install(core: DesktopCore, dataDir: Path): Boolean {
         val day = LocalDate.now(AppZone.ID)
         val root = dataDir.resolve("demo")
         val srcA = root.resolve("src-a")
@@ -81,9 +81,11 @@ object DemoFixture {
                 sourceDirs = listOf(normalize(srcA), normalize(srcB)),
                 outputDir = normalize(out),
                 namingTemplate = 1,
-                window = null,
             )
         }
+        // ★ T10：窗口几何不在共享 Settings 上了，但仍要重置 —— 否则演示会沿用上次的窗口大小，
+        //   截图走查就失去可比性。忘掉它 = 让 WindowGeometry.initial 走默认尺寸。
+        core.saveWindow(null)
         core.setLogText(LOG)
 
         core.analyze()

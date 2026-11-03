@@ -30,14 +30,14 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import algorithm.DedupKeepMode
-import com.photomgm.desktop.core.api.CoreConfig
-import com.photomgm.desktop.core.api.ExportListener
-import com.photomgm.desktop.core.api.ExportProgress
-import com.photomgm.desktop.core.api.ExportRequest
-import com.photomgm.desktop.core.api.ExportResult
-import com.photomgm.desktop.core.api.OperationHandle
-import com.photomgm.desktop.core.api.PhotoMgmCore
-import com.photomgm.desktop.core.api.PhotoMgmCoreFactory
+import com.photomgm.desktop.core.DesktopCoreConfig
+import app.api.ExportListener
+import app.api.ExportProgress
+import app.api.ExportRequest
+import app.api.ExportResult
+import app.api.OperationHandle
+import com.photomgm.desktop.core.DesktopCore
+import com.photomgm.desktop.core.WindowState
 import com.photomgm.desktop.ui.app.Actions
 import com.photomgm.desktop.ui.app.AppShell
 import com.photomgm.desktop.ui.app.UiLog
@@ -90,7 +90,7 @@ fun main(args: Array<String>) {
     UiLog.line("启动 options=$opts")
 
     val dataDir = opts.dataDir ?: defaultDataDir()
-    val core = PhotoMgmCoreFactory.create(CoreConfig(dataDir = dataDir))
+    val core = DesktopCore.create(DesktopCoreConfig(dataDir = dataDir))
 
     if (opts.demo) {
         val ok = DemoFixture.install(core, dataDir)
@@ -98,7 +98,9 @@ fun main(args: Array<String>) {
     }
 
     val area = workArea()
-    val savedWindow = core.state.value.settings.window
+    // ★ T10：窗口几何不再是 Settings 的字段（安卓没有窗口，不该背这个 null），
+    //   改由 DesktopCore 的桌面独有成员读 —— 同一份 settings.json，同一个 window 键。
+    val savedWindow = core.windowState
     val saved = savedWindow?.let { WindowGeometry.fromSaved(it.x, it.y, it.width, it.height) }
     val bounds = opts.size?.let { (w, h) -> WindowGeometry.Bounds(area.x + 40, area.y + 40, w, h) }
         ?: WindowGeometry.initial(area, saved)
@@ -192,7 +194,7 @@ fun main(args: Array<String>) {
 
 @Composable
 private fun rememberActions(
-    core: PhotoMgmCore,
+    core: DesktopCore,
     ui: () -> UiState,
     setUi: (UiState) -> Unit,
     setHandle: (OperationHandle?) -> Unit,
@@ -219,7 +221,9 @@ private fun rememberActions(
         importLogFile = {
             val file = NativeDialogs.pickLogFile()
             if (file != null) {
-                runCatching { core.readLogFile(Paths.get(file)) }
+                // ★ T10：readLogFile(Path) → readLogText(String)。共享层不认 Path，
+                //   UI 手里本来就是 String（NativeDialogs 返回的），少一次 Paths.get 往返。
+                runCatching { core.readLogText(file) }
                     .onSuccess { text ->
                         core.setLogText(text)
                         setUi(ui().copy(logRevision = ui().logRevision + 1))
@@ -238,10 +242,12 @@ private fun rememberActions(
             if (out == null) {
                 setUi(ui().copy(notice = LocalNotice("还没有选择导出目录", NoticeTone.WARN)))
             } else {
+                // ★ T10：verifyMode 不在共享 ExportRequest 上了（安卓没有 manifest 续传）。
+                //   它变成桌面导出执行器的旋钮，由门面转交；target 是不透明字符串。
+                core.setVerifyMode(ui().exportOptions.verifyMode)
                 val request = ExportRequest(
-                    outputDir = Paths.get(out),
+                    target = out,
                     includeLedger = ui().exportOptions.includeLedger,
-                    verifyMode = ui().exportOptions.verifyMode,
                 )
                 setUi(ui().copy(busy = Busy.EXPORT, sheet = null))
                 setHandle(
@@ -271,23 +277,23 @@ private fun rememberActions(
 private fun saveGeometry(
     size: DpSize,
     position: WindowPosition,
-    core: PhotoMgmCore,
+    core: DesktopCore,
 ) {
     runCatching {
         val w = size.width.value.toInt()
         val h = size.height.value.toInt()
         if (w <= 0 || h <= 0) return
         val absolute = position as? WindowPosition.Absolute ?: return
-        core.updateSettings {
-            it.copy(
-                window = com.photomgm.desktop.core.api.WindowState(
-                    x = absolute.x.value.toInt(),
-                    y = absolute.y.value.toInt(),
-                    width = w,
-                    height = h,
-                ),
-            )
-        }
+        // ★ T10：窗口几何不走 updateSettings —— 它已不是共享 Settings 的一部分，
+        //   仍写同一份 settings.json 的 window 键，但由 PcSettingsStorage 自己保管。
+        core.saveWindow(
+            WindowState(
+                x = absolute.x.value.toInt(),
+                y = absolute.y.value.toInt(),
+                width = w,
+                height = h,
+            ),
+        )
         UiLog.line("记忆窗口 ${w}×${h}")
     }
 }

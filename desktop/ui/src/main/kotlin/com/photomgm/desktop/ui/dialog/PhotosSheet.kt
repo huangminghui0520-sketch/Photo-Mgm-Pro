@@ -73,9 +73,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.photomgm.desktop.core.api.AppState
-import com.photomgm.desktop.core.api.EventSnapshot
-import com.photomgm.desktop.core.api.PhotoInfo
+import app.api.AppState
+import app.api.EventSnapshot
+import app.api.PhotoInfo
 import com.photomgm.desktop.ui.app.Actions
 import com.photomgm.desktop.ui.component.ButtonKind
 import com.photomgm.desktop.ui.component.Dash
