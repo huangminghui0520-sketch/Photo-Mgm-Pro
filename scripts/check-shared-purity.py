@@ -106,8 +106,9 @@ CONTRACT_LITERALS = [
 
 # P5：UI 层禁止 import 的包（跨端契约 app.api / 平台自己的包不在此列）
 P5_FORBIDDEN = ('app.usecase', 'app.state', 'app.port', 'app.export', 'app.infra', 'domain')
-# 棘轮：UI 层直接 import algorithm.* 的处数上限（实测值，只减不增）
-MAX_UI_ALGORITHM_IMPORTS = 9
+# 棘轮：UI 层直接 import algorithm.* 的**去重类型数**上限（实测值，只减不增）。
+# ★ 2026-11-03 T13 修正：从「import 语句条数(9)」改为「去重 FQCN 数(4)」——见 check_ui_layer 注释。
+MAX_UI_ALGORITHM_IMPORTS = 4
 
 UI_ROOTS = [
     'android/app/src/main/java/com/photomgm/app/ui',
@@ -310,9 +311,16 @@ def check_contract_literals(files: list) -> list:
 
 
 def check_ui_layer(files: list) -> tuple:
-    """P5：UI 层越界 import。返回 (硬违规列表, algorithm 处数)。"""
+    """P5：UI 层越界 import。返回 (硬违规列表, algorithm 类型集合)。
+
+    ★ 棘轮按**去重的 algorithm 类型 FQCN**计数，而不是「import 语句条数」：
+      UI 层依赖多少个 algorithm 类型，是「越层程度」的正确度量；而 import 语句条数
+      会被文件拆分虚增（同一个 `algorithm.model.Photo` 在 N 个文件里各 import 一次，
+      就会被算成 N 处）。T13 把 1209 行的 PreviewScreen 拆成 6 文件后，正是这个原因
+      让条数从 9 涨到 13，而实际依赖类型始终是 4 种。"""
     problems: list = []
-    algorithm_hits: list = []
+    algorithm_hits: list = []          # 明细（文件:行: FQCN），供报错展示
+    algorithm_types: set = set()       # 去重后的 FQCN，供棘轮判定
     for f in files:
         raw = read_source(f)
         code = strip_noise(raw)
@@ -324,6 +332,7 @@ def check_ui_layer(files: list) -> tuple:
                 continue
             if fqcn.split('.')[0] == 'algorithm':
                 algorithm_hits.append(f'{f.as_posix()}:{line_no}: {fqcn}')
+                algorithm_types.add(fqcn)
                 continue
             for bad in P5_FORBIDDEN:
                 if fqcn == bad or fqcn.startswith(bad + '.'):
@@ -332,7 +341,7 @@ def check_ui_layer(files: list) -> tuple:
                         f'跨端契约只在 app.api，实现细节留在平台层'
                     )
                     break
-    return problems, algorithm_hits
+    return problems, algorithm_types
 
 
 # ── 自测 ────────────────────────────────────────────────────────────────────
@@ -546,15 +555,15 @@ def main(argv: list) -> int:
 
     if len(algorithm_hits) > MAX_UI_ALGORITHM_IMPORTS:
         problems.append(
-            f'[P5] UI 层 import algorithm.* 增至 {len(algorithm_hits)} 处，超过棘轮上限 '
-            f'{MAX_UI_ALGORITHM_IMPORTS} 处（只减不增）：\n        '
-            + '\n        '.join(algorithm_hits)
+            f'[P5] UI 层 import algorithm.* 的去重类型增至 {len(algorithm_hits)} 种，超过棘轮上限 '
+            f'{MAX_UI_ALGORITHM_IMPORTS} 种（只减不增）：\n        '
+            + '\n        '.join(sorted(algorithm_hits))
         )
     elif len(algorithm_hits) < MAX_UI_ALGORITHM_IMPORTS:
-        print(f'  提示：UI 层 algorithm.* 已降到 {len(algorithm_hits)} 处，'
+        print(f'  提示：UI 层 algorithm.* 已降到 {len(algorithm_hits)} 种，'
               f'可把 MAX_UI_ALGORITHM_IMPORTS 下调到 {len(algorithm_hits)}')
     else:
-        print(f'  UI 层 algorithm.* = {len(algorithm_hits)} 处（棘轮上限 {MAX_UI_ALGORITHM_IMPORTS}，持平）')
+        print(f'  UI 层 algorithm.* = {len(algorithm_hits)} 种（棘轮上限 {MAX_UI_ALGORITHM_IMPORTS}，持平）')
 
     if problems:
         print('\n共享层纯度违规：\n')
