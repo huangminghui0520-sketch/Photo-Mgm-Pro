@@ -32,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.photomgm.app.AppViewModel
+import com.photomgm.app.ui.component.EventCard
+import com.photomgm.app.ui.model.FilterMode
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 

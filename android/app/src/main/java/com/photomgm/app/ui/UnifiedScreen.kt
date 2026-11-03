@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.photomgm.app.AppViewModel
+import com.photomgm.app.ui.dialog.EventPhotosSheet
+import com.photomgm.app.ui.dialog.UnmatchedPhotosSheet
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
