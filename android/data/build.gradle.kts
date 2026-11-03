@@ -30,6 +30,10 @@ dependencies {
     implementation(project(":shared:domain"))
     // EXIF 精读（§4.3）：androidx ExifInterface（国内镜像 maven.aliyun.com/repository/google）
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    // T06：UriShellLauncher 直接用 FileProvider（在 androidx.core 里）。
+    //   显式声明而不是吃上游 :app 的传递依赖——本模块自己 import 了这个 API，
+    //   就不该假设"恰好有人带我"。版本与 :app 侧一致，避免合成时出现两份 core。
+    implementation("androidx.core:core-ktx:1.12.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("org.junit.platform:junit-platform-launcher:1.10.2")

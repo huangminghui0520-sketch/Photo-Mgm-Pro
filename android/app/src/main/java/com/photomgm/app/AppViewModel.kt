@@ -29,6 +29,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 // T06：图片解码/裁剪/压缩是纯平台职责，已归位到 :data（原 app/ImageUtils.kt）。
 import com.photomgm.data.image.BitmapImageEncoder
+// T06：用系统应用打开导出文件（FileProvider + ACTION_VIEW + chooser）同属平台职责。
+import com.photomgm.data.shell.UriShellLauncher
 // T05-C1：取消语义上移到 :shared:app（`runCatchingCancellable` 原来在 app/Cancellable.kt）。
 import app.infra.runCatchingCancellable
 import kotlinx.coroutines.CancellationException
@@ -109,6 +111,16 @@ private const val THUMB_PRELOAD_MAX = 500
 private const val THUMB_DECODE_CONCURRENCY = 4
 
 /**
+ * 台账 xlsx 的 MIME（T06）：「打开台账」要告诉系统用哪类应用。
+ *
+ * 这个值留在 `:app` 而不进 `UriShellLauncher` 的原因：它是**业务决定**
+ * （"我们导出的这个文件是 Excel"），而 UriShellLauncher 只负责"把给它的 MIME 交给系统"。
+ * 两端（PC 导出器 / 安卓导出器）都认这个格式，将来若增加 PDF 导出，MIME 也是调用方选。
+ */
+private const val XLSX_MIME_TYPE =
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+/**
  * ★ 构造函数必须**只有 (Application) 一个参数**。
  *
  * 原因：框架的 `AndroidViewModelFactory` 通过反射查找恰好为 `(Application)` 的构造函数。
@@ -121,6 +133,12 @@ private const val THUMB_DECODE_CONCURRENCY = 4
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = SettingsStore(app)
     private val repo = PhotoRepository(app)
+
+    /**
+     * 用系统应用打开导出文件（T06：平台壳层职责已归位到 `:data`）。
+     * 本类只决定"要不要开"，不再关心 FileProvider authority / ACTION_VIEW / chooser。
+     */
+    private val shellLauncher = UriShellLauncher(app)
 
     /**
      * 日志文本落盘器（W3 / issue #4）：输入时只更新内存态，落盘防抖 400ms。
@@ -909,33 +927,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** ★ 打开最近导出的台账文件（导出Excel 2.0 方案 §4.4：成功后提供「打开」）。
-     *  用 Toast 直接提示（不依赖页面滚动位置），用 createChooser 不预检 resolveActivity。 */
+     *  用 Toast 直接提示（不依赖页面滚动位置）。
+     *  ★ T06：FileProvider / ACTION_VIEW / chooser 全部移到 `:data` 的 [UriShellLauncher]，
+     *    本方法只剩"按结果给用户一句话"——平台细节不再漏进编排层。 */
     fun openExportedFile() {
         val shown = state.value.lastExport ?: return
-        val app = getApp()
-        val type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        val uri = if (shown.startsWith("content://")) {
-            Uri.parse(shown)
-        } else {
-            runCatching {
-                androidx.core.content.FileProvider.getUriForFile(
-                    app, "${app.packageName}.fileprovider", File(shown)
-                )
-            }.getOrNull()
-        }
-        if (uri == null) {
-            android.widget.Toast.makeText(app, "无法打开：$shown", android.widget.Toast.LENGTH_LONG).show()
-            return
-        }
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, type)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        runCatching {
-            app.startActivity(Intent.createChooser(intent, "打开台账"))
-        }.onFailure {
-            android.widget.Toast.makeText(app, "未找到可打开表格的应用", android.widget.Toast.LENGTH_LONG).show()
+        when (shellLauncher.openDocument(shown, XLSX_MIME_TYPE, "打开台账")) {
+            UriShellLauncher.Result.STARTED -> Unit
+            UriShellLauncher.Result.URI_UNAVAILABLE ->
+                android.widget.Toast.makeText(
+                    getApp(), "无法打开：$shown", android.widget.Toast.LENGTH_LONG
+                ).show()
+            UriShellLauncher.Result.NO_VIEWER_APP ->
+                android.widget.Toast.makeText(
+                    getApp(), "未找到可打开表格的应用", android.widget.Toast.LENGTH_LONG
+                ).show()
         }
     }
 
