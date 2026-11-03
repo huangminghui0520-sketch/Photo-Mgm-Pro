@@ -43,6 +43,7 @@ import com.photomgm.app.core.adapter.AndroidSettingsStorage
 import com.photomgm.data.ExifPhotoReader
 import com.photomgm.data.FileHasher
 import com.photomgm.data.MediaStorePhotoSourceProvider
+import domain.adjust.ManualState
 import domain.view.ViewDerivation
 import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
@@ -358,8 +359,19 @@ class AndroidCore(
      *
      * ★ 不重跑流水线：恢复的意义就是"打开就能看"，重扫 MediaStore + 重读 EXIF 要好几秒。
      *   照片增删的感知交给调用方（ViewModel 启动后做一次 id 集合校验）。
+     *
+     * ★ 人工调整（移动 / 台账标记）**必须在此处、且在任何 early-return 之前**载入。
+     *   它是独立于分析结果的叠加层，落盘在 `photo_override` / `photo_marked` 两个 key 里。
+     *   T11 第一提交搬运恢复逻辑时漏了这一段（旧实现在 `AppViewModel.init` 里无条件读回），
+     *   真机 12 项清单第 ⑪ 项当场抓到：杀进程重开后移动与标记全部失效、界面回到自动分类，
+     *   而 prefs 里的数据其实还在 —— 属于**静默丢用户操作**，比崩溃更难发现。
+     *   `copyMap` 不落盘（与旧实现一致），恢复后为 empty。
      */
     private fun restoreFromCache() {
+        session.manual = ManualState(
+            overrideMap = runCatching { settingsStore.overrideMap }.getOrNull().orEmpty(),
+            marked = runCatching { settingsStore.markedMap }.getOrNull().orEmpty(),
+        )
         val parsed = runCatching { settingsStore.parsedCache }.getOrNull() ?: return
         val classify = runCatching { settingsStore.classifyCache }.getOrNull()
         val photos = runCatching { settingsStore.photosCache }.getOrNull().orEmpty()
