@@ -1,5 +1,5 @@
 {
- "bytes": 239210,
+ "bytes": 270810,
  "file": "ledger.xlsx",
  "media": [
   {
@@ -13,49 +13,49 @@
    "sha256": "18b653ec6537a410d72a39d3fbf2c967a486abbaa72c697abdd29344a7157825"
   },
   {
-   "bytes": 10653,
+   "bytes": 10847,
    "name": "image11.jpg",
+   "sha256": "4015dae085d9c9dbddf345a4abb8661d56617228bd682b6866870ce6d1f910a7"
+  },
+  {
+   "bytes": 10785,
+   "name": "image12.jpg",
+   "sha256": "ab550fa61161a0a5d8ba3295b86767123668be76d72d938d6de487a653e92914"
+  },
+  {
+   "bytes": 10653,
+   "name": "image13.jpg",
    "sha256": "86f73e7b27fa96373e86d5a6bfb9e3ff0854025b071d7b4e12c2319e3d58bf70"
   },
   {
    "bytes": 10653,
-   "name": "image12.jpg",
+   "name": "image14.jpg",
    "sha256": "86f73e7b27fa96373e86d5a6bfb9e3ff0854025b071d7b4e12c2319e3d58bf70"
   },
   {
    "bytes": 10593,
-   "name": "image13.jpg",
+   "name": "image15.jpg",
    "sha256": "cb0a008157491a0fa1bcdeaefae903fe831b7901144603ac0bc02708d8133ecb"
   },
   {
    "bytes": 10288,
-   "name": "image14.jpg",
+   "name": "image16.jpg",
    "sha256": "436a09a67a2a695a2547997c8276bc77cff1bddb2cf9545ca873abf59683c98c"
   },
   {
    "bytes": 10838,
-   "name": "image15.jpg",
+   "name": "image17.jpg",
    "sha256": "d48d600601d9748ddc5957ff2a417aa8bb03e921133221fdd7404ad0409fcce5"
   },
   {
    "bytes": 10766,
-   "name": "image16.jpg",
+   "name": "image18.jpg",
    "sha256": "5ef83df4ff54271a27d66b0bfd333d52ea49534a8494c73cde32359555f0305a"
   },
   {
    "bytes": 10538,
-   "name": "image17.jpg",
-   "sha256": "90b4d20f5ee52a5376d04f0d33b427516df8d59683eb55089c61ff61a6447f73"
-  },
-  {
-   "bytes": 10538,
-   "name": "image18.jpg",
-   "sha256": "90b4d20f5ee52a5376d04f0d33b427516df8d59683eb55089c61ff61a6447f73"
-  },
-  {
-   "bytes": 10425,
    "name": "image19.jpg",
-   "sha256": "52d311983f29811e9380343b9d654997fdc29c5a3d3d1e239cf132d437831054"
+   "sha256": "90b4d20f5ee52a5376d04f0d33b427516df8d59683eb55089c61ff61a6447f73"
   },
   {
    "bytes": 10839,
@@ -63,54 +63,54 @@
    "sha256": "074ef3c3fdf925ffd94c7b96012cda0fc5334810a70e8ebda03114385b32cd14"
   },
   {
-   "bytes": 10686,
+   "bytes": 10538,
    "name": "image20.jpg",
+   "sha256": "90b4d20f5ee52a5376d04f0d33b427516df8d59683eb55089c61ff61a6447f73"
+  },
+  {
+   "bytes": 10425,
+   "name": "image21.jpg",
+   "sha256": "52d311983f29811e9380343b9d654997fdc29c5a3d3d1e239cf132d437831054"
+  },
+  {
+   "bytes": 10686,
+   "name": "image22.jpg",
    "sha256": "74b69f40d23a3667062d10c716519ff447cf9887dae8fa44836f2648fc533a8e"
   },
   {
+   "bytes": 10497,
+   "name": "image23.jpg",
+   "sha256": "f0c9411bc88eb0e1f5645dc22137458e6340014c87c12728ba91ef04c32559f0"
+  },
+  {
+   "bytes": 10389,
+   "name": "image24.jpg",
+   "sha256": "f18db0b1e267e214355944645de349374331b21780be04497b6e77d06650f0d6"
+  },
+  {
    "bytes": 10439,
-   "name": "image21.jpg",
+   "name": "image25.jpg",
    "sha256": "53c8a7175da01b16d7aae95a18430b6cfbb32d3454845766f35b44f07789540b"
   },
   {
    "bytes": 10279,
-   "name": "image22.jpg",
+   "name": "image26.jpg",
    "sha256": "fa0978009c4e27481f61d8414eb8dfb1757b9f6cccd07f50bb31c0ce9f256e02"
   },
   {
    "bytes": 10853,
-   "name": "image23.jpg",
+   "name": "image27.jpg",
    "sha256": "41a2a768184c2ddecc43d77379b447c763b940b9c40cdb305be26ec87faf1fc9"
   },
   {
    "bytes": 10689,
-   "name": "image24.jpg",
+   "name": "image28.jpg",
    "sha256": "9224b81e95082625ec5ff9a9d8697cb24c7f799c0c7e29884550253a015cc61f"
   },
   {
    "bytes": 10451,
-   "name": "image25.jpg",
-   "sha256": "f79ba971c8daf4ad97279413e1978d3740288e7607fffc23e0531caad8f8508e"
-  },
-  {
-   "bytes": 10451,
-   "name": "image26.jpg",
-   "sha256": "f79ba971c8daf4ad97279413e1978d3740288e7607fffc23e0531caad8f8508e"
-  },
-  {
-   "bytes": 10662,
-   "name": "image27.jpg",
-   "sha256": "66d326a30580be09f27b3efd2a1aedb9de507f3995cc372034e9e04533346299"
-  },
-  {
-   "bytes": 10562,
-   "name": "image28.jpg",
-   "sha256": "eaf556d2844185dcdb50a26684d03c472406a575c413bfb66413cdcc193139d5"
-  },
-  {
-   "bytes": 10479,
    "name": "image29.jpg",
-   "sha256": "d6bc39c9a007a8d1407593135e54470d809d897a898094a98636c459da379c82"
+   "sha256": "f79ba971c8daf4ad97279413e1978d3740288e7607fffc23e0531caad8f8508e"
   },
   {
    "bytes": 10737,
@@ -118,54 +118,54 @@
    "sha256": "dd1cc1dfbac81f2dbe7fc06efbbd2b219a1e9e44b57e931813e033e43642b578"
   },
   {
-   "bytes": 10738,
+   "bytes": 10451,
    "name": "image30.jpg",
+   "sha256": "f79ba971c8daf4ad97279413e1978d3740288e7607fffc23e0531caad8f8508e"
+  },
+  {
+   "bytes": 10662,
+   "name": "image31.jpg",
+   "sha256": "66d326a30580be09f27b3efd2a1aedb9de507f3995cc372034e9e04533346299"
+  },
+  {
+   "bytes": 10562,
+   "name": "image32.jpg",
+   "sha256": "eaf556d2844185dcdb50a26684d03c472406a575c413bfb66413cdcc193139d5"
+  },
+  {
+   "bytes": 10479,
+   "name": "image33.jpg",
+   "sha256": "d6bc39c9a007a8d1407593135e54470d809d897a898094a98636c459da379c82"
+  },
+  {
+   "bytes": 10738,
+   "name": "image34.jpg",
    "sha256": "5a033856abf29703d95da5ad77069af7c60fdeebb855b83fcc68024ad5c0f412"
   },
   {
    "bytes": 10636,
-   "name": "image31.jpg",
+   "name": "image35.jpg",
    "sha256": "4184af512a48906422afcd6b099a73298cc4315adad38988107b5a99c576acb8"
   },
   {
    "bytes": 10567,
-   "name": "image32.jpg",
+   "name": "image36.jpg",
    "sha256": "bfb05b6bcd69b3450f3b8ee8f7fd5afe03544d36eaa3373c4790dd8e50cc7648"
   },
   {
    "bytes": 10355,
-   "name": "image33.jpg",
+   "name": "image37.jpg",
    "sha256": "638364b80cdc43080be1d19aabb5862482ea2b7f2c1e8d7249e0c9d67507c229"
   },
   {
    "bytes": 10698,
-   "name": "image34.jpg",
+   "name": "image38.jpg",
    "sha256": "355186cc321069609415dda2b7dd1094d06d28a99761296fff25517fe4f62acf"
   },
   {
-   "bytes": 10427,
-   "name": "image35.jpg",
-   "sha256": "02ea98bc40e7c44fd713c630b0e5a433d5467c64dc088db3934986ed93dab6d7"
-  },
-  {
-   "bytes": 10657,
-   "name": "image36.jpg",
-   "sha256": "5d693181ae3f4b8507a92cab26b025e149f85049614fedc022fa3f6603366aa6"
-  },
-  {
-   "bytes": 10686,
-   "name": "image37.jpg",
-   "sha256": "3a79c032f08eba14f5360ed29e1fcb9ff2f4f48bef0e2ad614c8e3d5dad5e961"
-  },
-  {
-   "bytes": 10570,
-   "name": "image38.jpg",
-   "sha256": "f973bfa57d1d6b5395c428ba736177328a2ff8ac4d9a0480f56563e3f378d905"
-  },
-  {
-   "bytes": 10319,
+   "bytes": 10503,
    "name": "image39.jpg",
-   "sha256": "be0dcddd88b125c306ab49dc4ea6b0c36d71ad5f57273068fef295d9bb49e331"
+   "sha256": "77e5a2710a4ddbbf556179937b1ac604aa8b9dfeee85c65763cb2fe637737b98"
   },
   {
    "bytes": 10737,
@@ -173,34 +173,64 @@
    "sha256": "dd1cc1dfbac81f2dbe7fc06efbbd2b219a1e9e44b57e931813e033e43642b578"
   },
   {
-   "bytes": 10319,
+   "bytes": 10419,
    "name": "image40.jpg",
+   "sha256": "49741834c9764da731db8467b094ce01204ee73daf33f06fadca42ded9ae37ed"
+  },
+  {
+   "bytes": 10427,
+   "name": "image41.jpg",
+   "sha256": "02ea98bc40e7c44fd713c630b0e5a433d5467c64dc088db3934986ed93dab6d7"
+  },
+  {
+   "bytes": 10657,
+   "name": "image42.jpg",
+   "sha256": "5d693181ae3f4b8507a92cab26b025e149f85049614fedc022fa3f6603366aa6"
+  },
+  {
+   "bytes": 10686,
+   "name": "image43.jpg",
+   "sha256": "3a79c032f08eba14f5360ed29e1fcb9ff2f4f48bef0e2ad614c8e3d5dad5e961"
+  },
+  {
+   "bytes": 10570,
+   "name": "image44.jpg",
+   "sha256": "f973bfa57d1d6b5395c428ba736177328a2ff8ac4d9a0480f56563e3f378d905"
+  },
+  {
+   "bytes": 10319,
+   "name": "image45.jpg",
+   "sha256": "be0dcddd88b125c306ab49dc4ea6b0c36d71ad5f57273068fef295d9bb49e331"
+  },
+  {
+   "bytes": 10319,
+   "name": "image46.jpg",
    "sha256": "be0dcddd88b125c306ab49dc4ea6b0c36d71ad5f57273068fef295d9bb49e331"
   },
   {
    "bytes": 10969,
-   "name": "image41.jpg",
+   "name": "image47.jpg",
    "sha256": "95c2405cc4ff696129fbfb6be80387d2ddc323dddc7d67faf57c298abcca7c19"
   },
   {
    "bytes": 10969,
-   "name": "image42.jpg",
+   "name": "image48.jpg",
    "sha256": "95c2405cc4ff696129fbfb6be80387d2ddc323dddc7d67faf57c298abcca7c19"
   },
   {
    "bytes": 10538,
-   "name": "image43.jpg",
-   "sha256": "1183e823b452bf47d60d484989f89569f9cdcc184d91ed5c8867ecc5bd6eb456"
-  },
-  {
-   "bytes": 10538,
-   "name": "image44.jpg",
+   "name": "image49.jpg",
    "sha256": "1183e823b452bf47d60d484989f89569f9cdcc184d91ed5c8867ecc5bd6eb456"
   },
   {
    "bytes": 10628,
    "name": "image5.jpg",
    "sha256": "25a7ccc1df0febc2d1675b9b6f6ed97ced319fa23c8f1abe2f7ad348fc3ac308"
+  },
+  {
+   "bytes": 10538,
+   "name": "image50.jpg",
+   "sha256": "1183e823b452bf47d60d484989f89569f9cdcc184d91ed5c8867ecc5bd6eb456"
   },
   {
    "bytes": 10561,
@@ -224,9 +254,9 @@
   }
  ],
  "meta": {
-  "commit": "d16ec95",
+  "commit": "08f5882",
   "generator": "run_desktop.sh",
-  "rebuildReason": "合成素材补 3 张 <1s 连拍（66→69 张）：11:05 事件的照片2 由「与照片1同一张」变为连拍最晚张，实测仅 media[14]（image22.jpg）字节变化 + xlsx 总字节 239356→239210，行数 72 / 单元格 504 / 嵌图 44 / 锚点 44 全部不变",
+  "rebuildReason": "T03-C2：PC 改用 :shared:domain 的 ExifTime 并集解析，首次认出 8 张短横 EXIF 照片。实测差异 = 3 个事件各新增 2 张嵌图（media 44→50，编号整体顺移）、xlsx 总字节 239210→270810；72 行 / 504 非空单元格 / 50 锚点，行与单元格文本零变化；共同 22 个事件行的 44 处嵌图字节逐列比对全等",
   "sampleManifest": "80764d2bdf32f198"
  },
  "sheetCount": 1,
@@ -319,7 +349,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image11.jpg",
-     "row": 7
+     "row": 6
     },
     {
      "anchor": "oneCellAnchor",
@@ -327,7 +357,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image12.jpg",
-     "row": 7
+     "row": 6
     },
     {
      "anchor": "oneCellAnchor",
@@ -335,7 +365,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image13.jpg",
-     "row": 8
+     "row": 7
     },
     {
      "anchor": "oneCellAnchor",
@@ -343,7 +373,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image14.jpg",
-     "row": 8
+     "row": 7
     },
     {
      "anchor": "oneCellAnchor",
@@ -351,7 +381,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image15.jpg",
-     "row": 9
+     "row": 8
     },
     {
      "anchor": "oneCellAnchor",
@@ -359,7 +389,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image16.jpg",
-     "row": 9
+     "row": 8
     },
     {
      "anchor": "oneCellAnchor",
@@ -367,7 +397,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image17.jpg",
-     "row": 10
+     "row": 9
     },
     {
      "anchor": "oneCellAnchor",
@@ -375,7 +405,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image18.jpg",
-     "row": 10
+     "row": 9
     },
     {
      "anchor": "oneCellAnchor",
@@ -383,7 +413,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image19.jpg",
-     "row": 11
+     "row": 10
     },
     {
      "anchor": "oneCellAnchor",
@@ -391,7 +421,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image20.jpg",
-     "row": 11
+     "row": 10
     },
     {
      "anchor": "oneCellAnchor",
@@ -399,7 +429,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image21.jpg",
-     "row": 13
+     "row": 11
     },
     {
      "anchor": "oneCellAnchor",
@@ -407,7 +437,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image22.jpg",
-     "row": 13
+     "row": 11
     },
     {
      "anchor": "oneCellAnchor",
@@ -415,7 +445,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image23.jpg",
-     "row": 14
+     "row": 12
     },
     {
      "anchor": "oneCellAnchor",
@@ -423,7 +453,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image24.jpg",
-     "row": 14
+     "row": 12
     },
     {
      "anchor": "oneCellAnchor",
@@ -431,7 +461,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image25.jpg",
-     "row": 15
+     "row": 13
     },
     {
      "anchor": "oneCellAnchor",
@@ -439,7 +469,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image26.jpg",
-     "row": 15
+     "row": 13
     },
     {
      "anchor": "oneCellAnchor",
@@ -447,7 +477,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image27.jpg",
-     "row": 17
+     "row": 14
     },
     {
      "anchor": "oneCellAnchor",
@@ -455,7 +485,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image28.jpg",
-     "row": 17
+     "row": 14
     },
     {
      "anchor": "oneCellAnchor",
@@ -463,7 +493,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image29.jpg",
-     "row": 18
+     "row": 15
     },
     {
      "anchor": "oneCellAnchor",
@@ -471,7 +501,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image30.jpg",
-     "row": 18
+     "row": 15
     },
     {
      "anchor": "oneCellAnchor",
@@ -479,7 +509,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image31.jpg",
-     "row": 19
+     "row": 17
     },
     {
      "anchor": "oneCellAnchor",
@@ -487,7 +517,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image32.jpg",
-     "row": 19
+     "row": 17
     },
     {
      "anchor": "oneCellAnchor",
@@ -495,7 +525,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image33.jpg",
-     "row": 20
+     "row": 18
     },
     {
      "anchor": "oneCellAnchor",
@@ -503,7 +533,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image34.jpg",
-     "row": 20
+     "row": 18
     },
     {
      "anchor": "oneCellAnchor",
@@ -511,7 +541,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image35.jpg",
-     "row": 23
+     "row": 19
     },
     {
      "anchor": "oneCellAnchor",
@@ -519,7 +549,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image36.jpg",
-     "row": 23
+     "row": 19
     },
     {
      "anchor": "oneCellAnchor",
@@ -527,7 +557,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image37.jpg",
-     "row": 24
+     "row": 20
     },
     {
      "anchor": "oneCellAnchor",
@@ -535,7 +565,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image38.jpg",
-     "row": 24
+     "row": 20
     },
     {
      "anchor": "oneCellAnchor",
@@ -543,7 +573,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image39.jpg",
-     "row": 25
+     "row": 21
     },
     {
      "anchor": "oneCellAnchor",
@@ -551,7 +581,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image40.jpg",
-     "row": 25
+     "row": 21
     },
     {
      "anchor": "oneCellAnchor",
@@ -559,7 +589,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image41.jpg",
-     "row": 26
+     "row": 23
     },
     {
      "anchor": "oneCellAnchor",
@@ -567,7 +597,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image42.jpg",
-     "row": 26
+     "row": 23
     },
     {
      "anchor": "oneCellAnchor",
@@ -575,7 +605,7 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image43.jpg",
-     "row": 27
+     "row": 24
     },
     {
      "anchor": "oneCellAnchor",
@@ -583,6 +613,54 @@
      "cx": 1371600,
      "cy": 1028700,
      "media": "image44.jpg",
+     "row": 24
+    },
+    {
+     "anchor": "oneCellAnchor",
+     "col": 5,
+     "cx": 1371600,
+     "cy": 1028700,
+     "media": "image45.jpg",
+     "row": 25
+    },
+    {
+     "anchor": "oneCellAnchor",
+     "col": 6,
+     "cx": 1371600,
+     "cy": 1028700,
+     "media": "image46.jpg",
+     "row": 25
+    },
+    {
+     "anchor": "oneCellAnchor",
+     "col": 5,
+     "cx": 1371600,
+     "cy": 1028700,
+     "media": "image47.jpg",
+     "row": 26
+    },
+    {
+     "anchor": "oneCellAnchor",
+     "col": 6,
+     "cx": 1371600,
+     "cy": 1028700,
+     "media": "image48.jpg",
+     "row": 26
+    },
+    {
+     "anchor": "oneCellAnchor",
+     "col": 5,
+     "cx": 1371600,
+     "cy": 1028700,
+     "media": "image49.jpg",
+     "row": 27
+    },
+    {
+     "anchor": "oneCellAnchor",
+     "col": 6,
+     "cx": 1371600,
+     "cy": 1028700,
+     "media": "image50.jpg",
      "row": 27
     }
    ],
