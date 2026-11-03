@@ -20,6 +20,7 @@
 | `compare.py` | 两份快照逐路径 diff，定位到"哪一行哪一格" |
 | `sample/` | 素材本体（入库，1.2MB）——素材变了等于换了基线 |
 | `../../docs/golden/desktop-baseline.json` | PC 端基线快照（入库） |
+| `../../docs/golden/history/` | **旧版基线存档**：基线因素材或行为变化而升级时，旧版必存这里，规则见 `history/README.md` |
 
 ## 2. 标准用法
 

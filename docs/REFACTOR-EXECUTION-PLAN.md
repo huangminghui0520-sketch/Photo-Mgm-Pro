@@ -437,7 +437,7 @@ docs(audit): 更新 REPO-LAYOUT 风险矩阵，新增 R6~R8
 | **T02 shared 骨架 + 迁移** | ✅ **已完成 → 抵达 M1**（42 文件纯 rename，两端编译/测试/门禁/黄金样本全绿） |
 | **P-2b P0 修复（GPS 被系统剥离）** | ✅ **已完成**（真机正向实测通过；文档 `docs/P0-GPS-MEDIA-LOCATION-FIX.md`；安卓基线已同轮重建，见提交 `8b8664b`）。**遗留**：负向"部分剥离"待复现 → 已编号 **P1-3**，处置见 §12.8 R12 |
 | **P0-2 修复（连拍 <1s 误删真实照片）** | ✅ **已完成**（2026-11-02，真实素材首次端到端暴露）：`groupDupContent` 改「锚点 + 派生就近附着」；真机导出 **54 → 55 张**、55/55 逐字节一致；两端黄金样本零回归。文档 `docs/DEDUP-ADJACENT-BURST-FIX.md`。**遗留已清**：合成素材的 <1s 连拍用例已补（`d16ec95`，66→69 张），两端基线同轮重建并双跑验证 0 差异 |
-| **T03 纯函数上移 A** | 🚧 **进行中**：C1 ✅（`shared/domain` 新增 `ExifTime`/`Sha256` + **19** 条单测，纯新增未切调用）、C2 ✅（PC 两个适配器改调纯函数，桌面基线已升级；实测差异严格等于 §12.4(4) 清单）；C3（安卓删副本 + 安卓侧 V2 双跑复验）待做。执行细则见 **§12.4** |
+| **T03 纯函数上移 A** | 🚧 **代码完成，待真机复验**：C1 ✅ 新增 `ExifTime`/`Sha256` + **19** 条单测；C2 ✅ PC 两个适配器改调纯函数，桌面基线已升级并留档（`docs/golden/history/`）；C3 ✅ 安卓删私有实现、`FileHasher` 缩适配器。本地全绿：桌面/共享层单测、`:data` 15 条、`:app:assembleDebug`、三道静态门禁。**唯一待办**：真机 V2 双跑 0 差异 + 跨端 D9 复测（设备当前未连接，接上即跑）。执行细则见 **§12.4** |
 | T04~T14 | 待开工（T04/T05 排期见 §12.3） |
 
 **M1 交付**：`shared/{algorithm,domain,app}` 三模块就位；两端以 `:shared:*` 挂载；
@@ -635,7 +635,16 @@ refactor(desktop): EXIF 时间与哈希改委派 shared；PC 首次识别短横 
 refactor(android): 删除 ExifTimeParser 副本、FileHasher 缩为适配器，改委派 shared
 ```
 
-C2 之后必须**同时**更新 `docs/golden/desktop-baseline.json`（`meta.rebuildReason` 写明"T03 让 8 张短横 EXIF 归位"），并把旧版存到 `docs/golden/history/`——**基线换了却不留旧版，等于把"为什么变了"永久丢失**。
+**实际落成（2026-11-03）**：
+
+| 提交 | 内容 |
+| --- | --- |
+| `5321f15` | C1 纯新增 `ExifTime`/`Sha256` + 19 条单测（不含调用点改动） |
+| `08f5882` | C2 桌面两个适配器改调纯函数；实测差异严格等于 §12.4(4) 清单 |
+| `9438dc0` | 桌面基线升级 + 旧版存档 `docs/golden/history/desktop-baseline.d16ec95.json` |
+| `315f8b2` | C3 安卓删 `ExifTimeParser` / `ExifTimeParserTest`，`FileHasher` 缩适配器 |
+
+C2 之后必须**同时**更新 `docs/golden/desktop-baseline.json`（`meta.rebuildReason` 写明"T03 让 8 张短横 EXIF 归位"），并把旧版存到 `docs/golden/history/`——**基线换了却不留旧版，等于把"为什么变了"永久丢失**。存档规则见 `docs/golden/history/README.md`。
 
 ### 12.5 T04 执行细则（唯一改语义，留足评审）
 
