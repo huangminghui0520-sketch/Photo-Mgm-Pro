@@ -43,7 +43,4 @@ fun photoMeta(p: PhotoInfo): String {
     return "$time · $gps"
 }
 
-/** 派生文件（_original / _compressed）在文件名上通常已带后缀，UI 再加角标避免认错"重复照片"。 */
-fun derivedSuffix(p: PhotoInfo): String? = if (p.isDerived) "派生" else null
-
 fun clockText(): String = LocalDateTime.now(AppZone.ID).format(DateTimeFormatter.ofPattern("HH:mm:ss"))

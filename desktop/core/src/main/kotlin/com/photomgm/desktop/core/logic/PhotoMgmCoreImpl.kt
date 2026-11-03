@@ -19,6 +19,7 @@ import algorithm.ParsedLog
 import algorithm.PhotoIngest
 import algorithm.expandForKeepMode
 import algorithm.groupDupContent
+import algorithm.isDerivedPhotoName
 import algorithm.model.LogEvent
 import algorithm.model.Photo
 import com.photomgm.desktop.core.api.AnalysisSummary
@@ -552,7 +553,10 @@ internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
                 captureTimeMs = ph.captureTimeMs,
                 latitude = ph.latitude,
                 longitude = ph.longitude,
-                isDerived = isDerivedName(ph.displayName),
+                // ★ T04：改调共享层的公开门面。此前这里调的是本文件内的私有拷贝（只认 4 个后缀），
+                //   于是 `_optimized`/`_resized`/`_缩略` 三类文件「核心判派生、界面判不派生」——
+                //   用户选「仅保留不带水印」时，被选中的副本在界面上没有任何标记。清单只有一处：DerivedNames。
+                isDerived = isDerivedPhotoName(ph.displayName),
             )
         }
         val ledger = buildLedgerRows(c, eventMap)
@@ -600,13 +604,6 @@ internal class PhotoMgmCoreImpl(private val config: CoreConfig) : PhotoMgmCore {
         vehicle = p.vehicle,
         notices = p.notices,
     )
-
-    /** 派生后缀判定（与核心 DerivedNames 同口径的最小实现，仅用于给 UI 打角标）。 */
-    private fun isDerivedName(name: String): Boolean {
-        val lower = name.lowercase()
-        return lower.contains("_original") || lower.contains("_compressed") ||
-            lower.contains("_edited") || lower.contains("_modified")
-    }
 
     private fun stage(
         listener: ProgressListener?,

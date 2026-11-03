@@ -13,17 +13,24 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import algorithm.ImageCrop
+import algorithm.MediaSpec
 import java.io.ByteArrayOutputStream
 import java.io.File
 
 object ImageUtils {
-    /** 目标缩略图宽度（px，导出Excel 2.0 方案） */
-    const val TARGET_WIDTH = 400
-    /** JPEG 压缩质量（导出Excel 2.0 方案） */
-    const val JPEG_QUALITY = 50
+    /**
+     * 目标缩略图宽度（px，导出Excel 2.0 方案）。
+     *
+     * ★ T04：值来自共享层 [MediaSpec]，本文件不再写字面量。此前 PC 的 PcImageEmbedder 与这里
+     *   各写一份 400/300/50，注释互相声称"两端一致"，但没有任何机制保证 —— 改一边不会报错。
+     *   名字保留是为了不动这十几处调用点：真正的真值只有 MediaSpec 一处。
+     */
+    const val TARGET_WIDTH = MediaSpec.EMBED_WIDTH
+    /** JPEG 压缩质量（导出Excel 2.0 方案，百分数） */
+    const val JPEG_QUALITY = MediaSpec.JPEG_QUALITY_PERCENT
 
     /** 目标高度 = 400 × 3/4 = 300（4:3 比例，导出 Excel 宽 3.8cm） */
-    val TARGET_HEIGHT: Int = (TARGET_WIDTH * ImageCrop.RATIO_H / ImageCrop.RATIO_W).toInt()
+    val TARGET_HEIGHT: Int = MediaSpec.EMBED_HEIGHT
 
     /**
      * 从引用（content:// 或本地物理路径）解码 Bitmap。

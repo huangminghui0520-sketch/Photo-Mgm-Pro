@@ -9,6 +9,7 @@
 package com.photomgm.desktop.core.platform
 
 import algorithm.ImageCrop
+import algorithm.MediaSpec
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
@@ -19,9 +20,11 @@ import javax.imageio.ImageIO
 import javax.imageio.ImageWriteParam
 
 internal class PcImageEmbedder(
-    private val targetWidth: Int = DEFAULT_WIDTH,
-    private val targetHeight: Int = DEFAULT_HEIGHT,
-    private val jpegQuality: Float = DEFAULT_QUALITY,
+    // ★ T04：规格来自共享层 MediaSpec（与安卓同一真值）。此前这里各写一份字面量，
+    //   注释写着"与 Android 一致"，但改一边不会报错 —— 那种"一致性"只存在于注释里。
+    private val targetWidth: Int = MediaSpec.EMBED_WIDTH,
+    private val targetHeight: Int = MediaSpec.EMBED_HEIGHT,
+    private val jpegQuality: Float = MediaSpec.JPEG_QUALITY_FRACTION,
 ) {
 
     /**
@@ -109,16 +112,5 @@ internal class PcImageEmbedder(
         } finally {
             writer.dispose()
         }
-    }
-
-    companion object {
-        /** 目标宽（px）：导出 Excel 2.0 方案固定值，与 Android 端 ImageUtils.TARGET_WIDTH 一致。 */
-        const val DEFAULT_WIDTH = 400
-
-        /** 目标高 = 400 × 3/4。 */
-        const val DEFAULT_HEIGHT = 300
-
-        /** JPEG 质量 50%。 */
-        const val DEFAULT_QUALITY = 0.5f
     }
 }

@@ -70,7 +70,14 @@ data class PhotoInfo(
     val captureTimeMs: Long?,
     val latitude: Double?,
     val longitude: Double?,
-    /** 是否派生文件（_original/_compressed 等），UI 可据此显示"无水印备份"角标。 */
+    /**
+     * 是否派生副本（`_original`/`_compressed`/`_optimized`/`_缩略` 等，清单唯一真值见
+     * `algorithm.DerivedNames`）。UI 据此在缩略图右上角画一个 5dp 白点（EventCard）。
+     *
+     * ★ 措辞教训：这里原本写"无水印备份角标"，但白点是**派生副本**标记，不专指 `_original`。
+     *   这句错注释让 T04 的判断一度走偏（按"无水印备份"去论证，方向全错）。
+     *   改注释时请对照 EventCard 的实际渲染，别凭名字猜。
+     */
     val isDerived: Boolean,
 ) {
     val hasGps: Boolean get() = latitude != null && longitude != null
