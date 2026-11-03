@@ -1211,7 +1211,9 @@ id 分配只要**前 8 字节**（而 `Sha256` 只返回十六进制串）。
    共用它，且共用同一组 provider/hasher 实例（此前 `PhotoRepository` 自己 new 了一套）。
    `AppViewModelTest` 第 147 行的 setup 随之换成同一个入口，**断言一行未改**。
 4. **12 项手工清单本轮未执行**（⑪ 杀进程重开、⑫ 时区切换这两项尤其需要真机）。
-   原因是当前没有设备接入（`adb devices` 为空）。逻辑面已被自动化覆盖的部分：
+   原因是当时没有设备接入（`adb devices` 为空）。**补测方案已单独成文：
+   `docs/ANDROID-REAL-DEVICE-TEST-PLAN.md`（49 条用例，12 项清单是其子集，见该文附录 A）。**
+   逻辑面已被自动化覆盖的部分：
    ④ 三态 → `SettingsUseCase` + `ViewDerivationParityTest`；⑤⑥ 移动 → `AdjustUseCase` + 双跑护栏；
    ⑦ 台账标记 → `AdjustUseCase.markLedgerPhoto`；⑧⑨⑩ 导出/取消/重入 → `ExportGateTest` 三条；
    ⑫ 时区 → 缓存版本位用例。**但"UI 真的还能点"这件事，只有人点过才算数**，登记为待办。
