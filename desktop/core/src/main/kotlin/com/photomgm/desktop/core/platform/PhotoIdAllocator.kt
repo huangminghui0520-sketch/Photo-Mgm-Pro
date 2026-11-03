@@ -9,9 +9,15 @@
 //        → 同一路径永远得到同一 id（跨进程、跨扫描稳定），无需持久化映射表
 //   + 会话内 HashMap<Long, String> 守卫：id 已存在但路径不同 → **线性探测 +1** 直至空闲，并计数
 //     → 因为 `dedupById` 对 id 碰撞是「静默丢照片」，必须先于它消解碰撞
+//
+// ★ T10：哈希改走 `domain.hash.Sha256`。此前这里自建 `MessageDigest`，是为了"只取前 8 字节"
+//   而懒得把十六进制串转回去 —— 但那条理由的代价是同一套算法在仓库里有四份拷贝。
+//   现在改成取前 16 个十六进制字符再 `toULong(16)` 还原成 64 位，位模式与原先逐位相同
+//   （原先是大端拼字节后清符号位，这里还原出的就是同一个大端 64 位整数）。
+//   ★ 稳定性是硬要求：id 一变，用户上一轮做的人工调整会整体错位到别的照片上。
 package com.photomgm.desktop.core.platform
 
-import java.security.MessageDigest
+import domain.hash.Sha256
 
 internal class PhotoIdAllocator(
     /**
@@ -74,16 +80,17 @@ internal class PhotoIdAllocator(
         /**
          * 纯函数：规范化路径 → 正数 id。
          * 单测直接验证"同一路径稳定"、"不同路径不撞"、"碰撞探测生效"。
+         *
+         * ★ 取哈希的**前 8 字节**（= 前 16 个十六进制字符），不是后 8 字节、也不是整个串的 hashCode：
+         *   前 8 字节已经是完整 SHA-256 的均衡切片，碰撞率与其他切片相同，但"取哪一段"一旦写定
+         *   就不能改 —— 改了全部照片换 id，人工调整整体错位。
          */
         fun hashToPositiveId(normalizedRef: String): Long {
-            val digest = MessageDigest.getInstance("SHA-256")
-                .digest(normalizedRef.toByteArray(Charsets.UTF_8))
-            var v = 0L
-            for (i in 0 until 8) {
-                v = (v shl 8) or (digest[i].toLong() and 0xFF)
-            }
-            v = v and Long.MAX_VALUE       // 清符号位 → 恒 > 0（0 除外）
-            return if (v == 0L) 1L else v   // 0 会让 dedupById 走"全保留"分支，置 1 兜底
+            val hex = Sha256.ofBytes(normalizedRef.toByteArray(Charsets.UTF_8))
+            // toULong 而非 toLong：64 位全 1 时 toLong(16) 会抛 NumberFormatException（超出有符号范围）
+            val v = hex.substring(0, 16).toULong(16).toLong()
+            val positive = v and Long.MAX_VALUE  // 清符号位 → 恒 > 0（0 除外）
+            return if (positive == 0L) 1L else positive // 0 会让 dedupById 走"全保留"分支，置 1 兜底
         }
     }
 }

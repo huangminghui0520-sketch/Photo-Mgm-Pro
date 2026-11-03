@@ -11,6 +11,7 @@ package domain.hash
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayInputStream
 import java.io.InputStream
@@ -117,5 +118,50 @@ class Sha256Test {
         assertTrue(!closed, "ofStream 关闭了调用方传入的流，违反所有权约定")
         // 流仍可继续读（未关闭）
         assertEquals(-1, stream.read())
+    }
+
+    // ───────────────────────── ④ 增量摘要（T10） ─────────────────────────
+
+    /**
+     * 分块方式不得影响结果：这是"边复制边算"能与"整体算"等价的唯一前提。
+     * 覆盖 1 字节小块（最坏的分块）与 64 KB ± 1（缓冲区边界）。
+     */
+    @Test
+    fun `增量摘要在任意分块下与整体一致`() {
+        val rnd = Random(20261103)
+        for (size in listOf(0, 1, 2, Sha256.BUFFER_SIZE - 1, Sha256.BUFFER_SIZE + 3)) {
+            val bytes = rnd.nextBytes(size)
+            val expected = Sha256.ofBytes(bytes)
+            for (chunk in listOf(1, 7, 1024, Sha256.BUFFER_SIZE)) {
+                val d = Sha256.digester()
+                var off = 0
+                while (off < bytes.size) {
+                    val n = minOf(chunk, bytes.size - off)
+                    d.update(bytes, off, n)
+                    off += n
+                }
+                assertEquals(expected, d.finish(), "size=$size chunk=$chunk 时分块结果与整体不一致")
+            }
+        }
+    }
+
+    /** `finish()` 必须幂等：`MessageDigest.digest()` 会把状态清空，第二次调用会得到空内容的哈希。 */
+    @Test
+    fun `增量摘要finish幂等且结束后拒绝update`() {
+        val d = Sha256.digester()
+        d.update("abc".toByteArray())
+        val first = d.finish()
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", first)
+        assertEquals(first, d.finish(), "第二次 finish 返回了不同值（状态被 digest() 清空了）")
+        assertThrows(IllegalStateException::class.java, { d.update("x".toByteArray()) }, "结束后再 update 必须报错，而不是静默算错")
+    }
+
+    /** 空摘要器 == 空内容的哈希（"零字节文件"要能算出标准向量，而不是抛异常）。 */
+    @Test
+    fun `空摘要器得到空内容向量`() {
+        assertEquals(
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            Sha256.digester().finish(),
+        )
     }
 }
