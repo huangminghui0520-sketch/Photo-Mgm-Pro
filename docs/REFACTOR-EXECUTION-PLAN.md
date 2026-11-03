@@ -1509,3 +1509,81 @@ ZIP 写入在 `AndroidZipExportExecutor`，ViewModel 只剩「原子门禁 + 协
   `algorithm.model.Photo/LogEvent`、`algorithm.DedupKeepMode`）。P5 棘轮把它们锁在 9，真正的清理
   属「UI 目录重排」（T13）后的收尾，不在 T14 范围。
 - **T15（`:ui` 模块拆分）仍默认不做**：`PhotoUiState`/`PhotoActions` 尚未稳定跑满一个版本周期。
+
+---
+
+## 21. T13 执行记录（安卓 UI 目录重排 + PreviewScreen 拆分）
+
+**一句话**：1209 行的 `PreviewScreen.kt` 拆成 6 个文件，`ui/` 从平铺 10 文件变成
+`component/dialog/model` 三层，对齐 PC 的 `ui/` 分层粒度。
+
+### 21.1 拆分结果
+
+| 文件 | 行数 | 内容 |
+| --- | --- | --- |
+| `ui/component/EventCard.kt` | 187 | 事件卡片 |
+| `ui/component/PhotoGrid.kt` | 212 | 照片网格 + 瓦片 `PhotoTile` |
+| `ui/component/Thumb.kt` | 157 | 缩略图主体 + `ThumbCell` |
+| `ui/dialog/PhotosSheet.kt` | 364 | `EventPhotosSheet` + `UnmatchedPhotosSheet` |
+| `ui/dialog/MoveDialogs.kt` | 394 | `MoveTargetDialog`(WithSearch) + `MarkLedgerDialog` |
+| `ui/model/FilterMode.kt` | 6 | 筛选枚举 |
+| `ui/model/PhotoSelection.kt` | 32 | `LongSetSaver` + `fmtRange` + `tileTimeFmt` |
+
+最大文件从 **1209 → 394** 行。纯机械搬移：Composable 实现一字未改，仅把跨文件的
+`private` 顶层符号提升为 `internal`（Kotlin `internal` 是模块级可见，跨包访问不受影响），
+`LogSection` / `UnifiedScreen` 各补 2 行 import。
+
+### 21.2 行数偏差（如实记录，不强行凑「<5%」）
+
+计划写「总行数不变（±5% 以内）」。实测 **1209 → 1352（+11.8%）**，超了预算。但拆开看：
+
+- 6 个文件各自的 `package` + `import` + 文件头注释 = **244 行**（原文件只有 1 份，约 87 行）；
+- **净逻辑行 = 1108 行**（原文件净逻辑约 1122，还少了 14 行——删掉了几处重复的 section 注释）。
+
+所以增量**全部来自 import 区从 1 份变 6 份**，逻辑代码是净减的。这是文件拆分的固有成本，
+计划的「<5%」口径没算这笔账。**没有**为了让数字好看而把 6 个文件塞回 1 个（那等于没拆）。
+
+### 21.3 两处死代码（保留未动，待单独决策）
+
+拆分时发现两个**零调用点**的 Composable，先原样搬走、**没有顺手删**：
+
+1. `ThumbCell`（157 行文件里的 `component/Thumb.kt`）—— 被 `PhotoTile` 取代；
+2. `MoveTargetDialog`（无搜索版）—— 被 `MoveTargetDialogWithSearch` 取代。
+
+保留的理由：删死代码是独立决策，混在「机械拆分」里会让 diff 难 review；且它们可能是
+「预留的备选实现」。已在提交信息里点明，供后续单独清理。
+
+### 21.4 P5 门禁度量修复（拆分暴露的真实缺陷）
+
+拆分后 `check-shared-purity.py` 的 P5 报「UI 层 import algorithm.* 增至 13 处，超棘轮上限 9」。
+排查发现是**假阳性**：P5 用「import 语句条数」当「越层程度」的代理，而文件拆分会让同一个
+`algorithm.model.Photo` 在多个文件里各 import 一次，条数虚增。
+
+实际 UI 层依赖的 algorithm 类型始终是 **4 种**（`AppZone` / `DedupKeepMode` / `LogEvent` /
+`Photo`），拆分前后没变。修复：P5 改为按**去重 FQCN 计数**，上限从 9 调到 4。反向验证
+（故意加 `import algorithm.AlgorithmApi` → 报「增至 5 种」）确认棘轮「只减不增」语义不变。
+
+### 21.5 验证
+
+- 编译 `:app:compileDebugKotlin` 通过，无 unused import 警告。
+- `:app:testDebugUnitTest` 全绿（测试文件不引用任何被拆符号，拆分零破坏）。
+- 门禁：cancel 231 文件 / @Ignore 84 文件 / shared-purity 全绿；时区仍 1 处（既有）。
+- 真机冒烟：装机冷启动 → 事件卡片列表正常（边框/红框/筛选标签/解析状态）→
+  `EventPhotosSheet`（「主线巡查 · 0 张」空态 + 底部提示）→ `UnmatchedPhotosSheet`
+  （「未匹配照片 · 3 张」+ 批量移动按钮 + 3 张网格 + 底部提示）全部正常打开与交互。
+  缩略图内容异常是测试素材本身（HEIC/占位图），与拆分无关。
+
+### 21.6 与计划的偏差
+
+1. **「Theme.kt 拆三类（Color/Type/Theme）」没做**：`Theme.kt` 实际在 `app/theme/` 独立包
+   （不在 `ui/`），且约 230 行、还没到非拆不可的程度。拆它是纯重排、零收益，本轮跳过。
+2. **「新建 ui/model/ 3 个纯函数」做了 2 个文件**（`FilterMode` + `PhotoSelection`），
+   因为 `fmtRange`/`tileTimeFmt`/`LongSetSaver` 内聚在一起，拆成 3 个文件反而碎片化。
+3. **计划「4 个既有 UI 测试」不存在**：`androidTest/` 目录为空，`test/` 里 14 个都是 JVM
+   单测且不引用 UI 符号。T13 的「4 个 UI 测试」是计划写时的预期，未兑现。
+
+### 21.7 留给后续
+
+- 两处死代码（`ThumbCell` / `MoveTargetDialog`）的清理，作为独立小提交。
+- UI 层 4 处 `algorithm.*` 依赖（P5 棘轮锁定的）的真正清理，属「UI 目录重排」之后的收尾，
+  需要先把 UI 层改成读 `app.api` 投影类型，比 T13 范围大。
