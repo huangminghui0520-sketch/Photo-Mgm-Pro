@@ -6,10 +6,9 @@ name: Build Windows Desktop
 #   理由：桌面构建要拉 Compose Multiplatform 全套依赖（~10 分钟），放进每次 PR 会拖慢反馈；
 #   而它的正确性由本地 `desktop/packaging/*.sh` + 安装冒烟保证，CI 只负责"标签一到就有可下载产物"。
 #
-# ★ 这里**只出便携包**（app-image + zip），不出 MSI：
-#   jpackage --type msi 依赖 WiX Toolset，GitHub 的 windows runner 镜像并不保证常驻 WiX，
-#   而 MSI 是我们的**主交付物**，不能容忍"CI 上时好时坏"。MSI 仍在打包机上用
-#   desktop/scripts 与 `:ui:packageMsi` 产出，CI 产物作为便携版旁路。
+# ★ 这里**同时出便携包（app-image + zip）和 MSI 安装包**：
+#   windows-latest runner 自带 WiX 3.14.1，jpackage --type msi 可直接产出 MSI，
+#   CI 不再依赖打包机，两种产物随 desktop-v* 标签一并发布到 GitHub Release。
 on:
   push:
     tags: [ 'desktop-v*' ]
@@ -55,6 +54,10 @@ jobs:
       - name: Package app-image (createDistributable)
         run: gradle -p desktop :ui:createDistributable --console=plain
 
+      # ★ MSI 安装包：windows-latest runner 自带 WiX 3.14.1，jpackage 可直接出 MSI（无需额外安装）。
+      - name: Package MSI installer (packageMsi)
+        run: gradle -p desktop :ui:packageMsi --console=plain
+
       - name: Compress portable zip
         shell: pwsh
         run: |
@@ -74,6 +77,13 @@ jobs:
           path: desktop/dist/PhotoMgm-${{ env.DESKTOP_VERSION }}-portable.zip
           if-no-files-found: error
 
+      - name: Upload MSI installer
+        uses: actions/upload-artifact@v5
+        with:
+          name: PhotoMgm-desktop-msi
+          path: desktop/ui/build/compose/binaries/main/msi/PhotoMgm-${{ env.DESKTOP_VERSION }}.msi
+          if-no-files-found: error
+
       # 仅 desktop-v* 标签发布 Release；workflow_dispatch 手动跑只出 artifact
       - name: Publish GitHub Release (desktop-v* tag)
         if: startsWith(github.ref, 'refs/tags/desktop-v')
@@ -83,10 +93,12 @@ jobs:
           name: PhotoMgm Desktop ${{ github.ref_name }}
           body: |
             ## PhotoMgm Windows 桌面版 ${{ github.ref_name }}
-            便携版（免安装，解压即用）。
             - Commit：`${{ github.sha }}`
-            - MSI 安装包需 WiX，在打包机上用 `desktop/gradlew :ui:packageMsi` 产出，不走本流水线
-          files: desktop/dist/PhotoMgm-${{ env.DESKTOP_VERSION }}-portable.zip
+            - **安装包**：`PhotoMgm-${{ env.DESKTOP_VERSION }}.msi`（写入开始菜单 / 桌面快捷方式，可原地升级）
+            - **绿色压缩包**：`PhotoMgm-${{ env.DESKTOP_VERSION }}-portable.zip`（免安装，解压即用）
+          files: |
+            desktop/dist/PhotoMgm-${{ env.DESKTOP_VERSION }}-portable.zip
+            desktop/ui/build/compose/binaries/main/msi/PhotoMgm-${{ env.DESKTOP_VERSION }}.msi
           draft: false
           prerelease: false
         env:
