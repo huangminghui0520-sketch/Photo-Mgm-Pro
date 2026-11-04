@@ -139,7 +139,7 @@ cd desktop
 
 * `build-apk.yml`（Android）：推 `main` 出 APK 并发布预发布版（`auto-*` 标签）；推 `v*` 标签发布正式版
 
-* `build-desktop.yml`（Windows）：仅 `desktop-v*` 标签与手动派发出便携包（MSI 因依赖 WiX，仍在打包机产出）
+* `build-desktop.yml`（Windows）：仅 `desktop-v*` 标签与手动派发；标签触发时同时发布 **MSI 安装包 + 便携 ZIP**（runner 自带 WiX 3.14.1）
 
 * 同一分支只保留最新构建，自动取消旧的运行中任务
 
@@ -153,4 +153,4 @@ cd desktop
 
 * Android minSdk 26 / targetSdk 34 · Java 17
 
-* 当前版本：1.3.2（versionCode 6）
+* 当前版本：Android `v1.0.0`（versionCode 7）· Windows 桌面 `desktop-v1.0.0`

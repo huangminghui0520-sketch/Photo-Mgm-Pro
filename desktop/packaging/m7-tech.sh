@@ -59,7 +59,7 @@ echo "== 3/5 jpackage 生成 app-image（捆绑裁剪运行时）=="
 rm -rf "$OUT/dist"
 "$JP" --type app-image \
     --name PhotoMgmCli \
-    --app-version 2.0.0 \
+    --app-version 1.0.0 \
     --input "$LIB" \
     --main-jar cli.jar \
     --main-class com.photomgm.desktop.cli.MainKt \

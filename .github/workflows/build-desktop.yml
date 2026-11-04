@@ -20,7 +20,9 @@ concurrency:
 
 env:
   # 与 desktop/ui/build.gradle.kts 的 packageVersion 保持一致（改版本时两处同改）
-  DESKTOP_VERSION: 2.0.0
+  # ★ 2026-11-04 首发定版 1.0.0：与标签 desktop-v1.0.0 对齐，产物名同步为
+  #   PhotoMgm-1.0.0.msi / PhotoMgm-1.0.0-portable.zip
+  DESKTOP_VERSION: 1.0.0
 
 jobs:
   build:
