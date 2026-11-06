@@ -54,7 +54,7 @@ class ExifMergedReaderTest {
     @Test
     fun `合并与双构造基线逐字段一致_真实样本`() {
         val samples = collectRealSamples()
-        assumeTrue("源目录照片不存在，跳过真实样本 oracle", samples.isNotEmpty())
+        assumeTrue("[SKIP-SCAN] 源目录照片不存在，跳过真实样本 oracle", samples.isNotEmpty())
         var mismatch = 0
         val bad = mutableListOf<String>()
         for (f in samples) {
@@ -98,7 +98,7 @@ class ExifMergedReaderTest {
         val t2 = collectRealSamples().firstOrNull {
             it.absolutePath.contains("9-27") && !it.name.contains("_original")
         }
-        assumeTrue("9-27 照片缺失，跳过 T2 断言", t2 != null)
+        assumeTrue("[SKIP-SCAN] 9-27 照片缺失，跳过 T2 断言", t2 != null)
         val r = reader.readAll(t2!!.absolutePath)
         assertTrue("T2 应有拍摄时间", r.first != null)
         assertNull("T2 GPS 应为 null", r.second)
@@ -108,7 +108,7 @@ class ExifMergedReaderTest {
     @Test
     fun `独立读取方法委托readAll后行为一致`() {
         val samples = collectRealSamples()
-        assumeTrue("源目录照片不存在，跳过委托一致性", samples.isNotEmpty())
+        assumeTrue("[SKIP-SCAN] 源目录照片不存在，跳过委托一致性", samples.isNotEmpty())
         val f = samples.first()
         assertEquals(reader.readAll(f.absolutePath).first, reader.readCaptureTimeMs(f.absolutePath))
         assertEquals(reader.readAll(f.absolutePath).second, reader.readGps(f.absolutePath))

@@ -87,7 +87,7 @@ class AppViewModelTest {
     /** 注册模拟 MediaStore cursor：返回临时媒体目录照片（DATA 绝对路径 + RELATIVE_PATH）。 */
     private fun registerMediaStore() {
         val files = mediaDir.listFiles()?.filter { it.name.lowercase().endsWith(".jpg") } ?: emptyList()
-        assumeTrue("临时媒体目录无照片（源目录缺失），跳过", files.isNotEmpty())
+        assumeTrue("[SKIP-SCAN] 临时媒体目录无照片（源目录缺失），跳过", files.isNotEmpty())
         val cols = arrayOf(
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DISPLAY_NAME,
@@ -170,7 +170,7 @@ class AppViewModelTest {
         await(vm) { it.coarseCount != null && !it.busy }
         // ★ 用 9-25 真实日志文本（同款格式已被 parseLog 验证），避免测试文本格式不被解析
         val logFile = findLogFile()
-        assumeTrue("9-25 日志文件缺失，跳过", logFile != null)
+        assumeTrue("[SKIP-SCAN] 9-25 日志文件缺失，跳过", logFile != null)
         vm.setLogsText(logFile!!.readLines().take(12).joinToString("\n"))
         vm.parseLogs()
         await(vm) { it.parsed != null && !it.busy }
@@ -193,7 +193,7 @@ class AppViewModelTest {
         vm.addSourceDir("DCIM/Camera")
         await(vm) { it.coarseCount != null && !it.busy }   // ★ 等粗筛流水线完成
         val logFile = findLogFile()
-        assumeTrue("9-25 日志文件缺失，跳过", logFile != null)
+        assumeTrue("[SKIP-SCAN] 9-25 日志文件缺失，跳过", logFile != null)
         val lines = logFile!!.readLines()
         vm.setLogsText(lines.take(6).joinToString("\n"))
         vm.parseLogs()
@@ -239,7 +239,7 @@ class AppViewModelTest {
         vm.addSourceDir("DCIM/Camera")
         await(vm) { it.coarseCount != null && !it.busy }
         val logFile = findLogFile()
-        assumeTrue("9-25 日志文件缺失，跳过", logFile != null)
+        assumeTrue("[SKIP-SCAN] 9-25 日志文件缺失，跳过", logFile != null)
         vm.setLogsText(logFile!!.readLines().take(12).joinToString("\n"))
         vm.parseLogs()
         await(vm) { it.classify != null && !it.busy }
@@ -247,7 +247,7 @@ class AppViewModelTest {
 
         vm.exportZip()
         await(vm) { (it.exportProgress ?: 0f) > 0f }      // 等首次导出真正开始推进
-        assumeTrue("首次导出已结束，本用例失去区分度，跳过",
+        assumeTrue("[SKIP-SCAN] 首次导出已结束，本用例失去区分度，跳过",
             (vm.state.value.exportProgress ?: 0f) > 0f)
 
         val reset = AtomicBoolean(false)
@@ -279,7 +279,7 @@ class AppViewModelTest {
         vm.addSourceDir("DCIM/Camera")
         await(vm) { it.coarseCount != null && !it.busy }
         val logFile = findLogFile()
-        assumeTrue("9-25 日志文件缺失，跳过", logFile != null)
+        assumeTrue("[SKIP-SCAN] 9-25 日志文件缺失，跳过", logFile != null)
         vm.setLogsText(logFile!!.readLines().take(12).joinToString("\n"))
         vm.parseLogs()
         await(vm) { it.classify != null && !it.busy }

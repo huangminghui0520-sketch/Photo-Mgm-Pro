@@ -63,13 +63,13 @@ class ThumbnailRefreshTest {
         // 本地测试照片源（工作区内的 源目录/9-25；缺失则跳过）
         val src = File("D:/Photo-Mgm/源目录/9-25")
         val files = src.listFiles()?.filter { it.name.lowercase().endsWith(".jpg") } ?: emptyList()
-        assumeTrue("测试照片源缺失，跳过", files.isNotEmpty())
+        assumeTrue("[SKIP-SCAN] 测试照片源缺失，跳过", files.isNotEmpty())
         files.take(30).forEach { it.copyTo(File(mediaDir, it.name), overwrite = true) }
     }
 
     private fun registerMediaStore() {
         val files = mediaDir.listFiles()?.filter { it.name.lowercase().endsWith(".jpg") } ?: emptyList()
-        assumeTrue("临时媒体目录无照片，跳过", files.isNotEmpty())
+        assumeTrue("[SKIP-SCAN] 临时媒体目录无照片，跳过", files.isNotEmpty())
         val cols = arrayOf(
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DISPLAY_NAME,
@@ -138,7 +138,7 @@ class ThumbnailRefreshTest {
         await(vm) { it.photos.isNotEmpty() && !it.busy }
 
         val state = vm.state.value
-        assumeTrue("未读到照片（MediaStore 模拟未命中），跳过", state.photos.isNotEmpty())
+        assumeTrue("[SKIP-SCAN] 未读到照片（MediaStore 模拟未命中），跳过", state.photos.isNotEmpty())
 
         // ① 选日期后确实清了缓存
         val newEvents = cache.events.drop(eventsAfterDirSetup.size)

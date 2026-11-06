@@ -150,12 +150,17 @@ jobs:
 
       # ★ 依赖真实照片的 VM 用例（AppViewModelTest / ExifMergedReaderTest 等）拿不到源照片时
       #   会用 assumeTrue 跳过，所以本 job 在无照片的 runner 上是绿的。**但"绿"不等于"跑过"**：
-      #   assumeTrue 属 JUnit 5 **运行期跳过**（用例被标 skipped，不是 failure），退出码与
-      #   Gradle 汇总都不区分"跳过"和"通过"。本仓实测 15 处调用点 / 22 行提及，由
-      #   `scripts/check-ignore-policy.py` 的 [SKIP-SCAN] 段逐条打印（行号 + 原因来源），
-      #   既无注释也无消息串的裸 `assumeTrue(cond)` 会让 static-guards 判红。
-      #   ★ 该统计是**静态调用点清单**，不是运行期 skipped 清单 —— 本 job 判据的边界是
-      #   "没有失败"，不能读作"用例真的验证了东西"。慢用例（导出重入，本机 ~7.8s）同属这一类。
+      #   assumeTrue 属 **运行期跳过**（用例被标 skipped，不是 failure），退出码与 Gradle
+      #   汇总都不区分"跳过"和"通过"。
+      #   `scripts/check-ignore-policy.py` 的 [SKIP-SCAN] 有两层口径：
+      #     · 源码侧（static-guards 里跑）：逐条打印调用点 path:line + 原因串，规则 S1/S2 要求
+      #       原因串非空且含 [SKIP-SCAN] / #<issue> / ci-ok 标记，否则判红；
+      #     · 运行期侧（下面 --xml 那一步）：解析 JUnit XML，按模块打印 tests/failures/
+      #       errors/skipped 并逐条列出 skipped 的 类#方法。
+      #   二者缺一不可：只有源码清单时，Linux 上样本缺失的 8 个用例会静默 skipped，
+      #   CI 绿了但覆盖为零（I-02「空真绿灯」的翻版）。
+      #   ★ 加 --continue：首个失败任务不再中止整条 gradle，8 个模块都产出 XML，
+      #     "仅这 N 个失败 / 其余 M 例通过"才是可复算的结论，而不是靠控制台猜。
       # ★ M3（单根化）：仓库根就是唯一的 Gradle 根，不再需要 -p 指定子工程。
       #   旧的「android/ 是独立工程、必须 -p android」注释已作废（那套双根拓扑已删除）。
       #   一条 `gradle testAll` 覆盖 8 个模块，接线清单在根 build.gradle.kts 的 testAll
@@ -165,7 +170,15 @@ jobs:
       #   ★ :android:data 的 task 名仍需 CI 首次运行确认（`gradle :android:data:tasks --all`）；
       #     若 AGP 给出别的名字，改根 build.gradle.kts 的 testAll 一行即可（不在本文件里）。
       - name: Run unit tests
-        run: gradle testAll --no-daemon --console=plain
+        run: gradle testAll --no-daemon --console=plain --continue
+
+      # ★ 运行期 skipped 汇总（方向 1 第一步）：静态 [SKIP-SCAN] 只数源码调用点，
+      #   读不到 JUnit XML 的 skipped。即使 gradle 失败，if: always() 也要跑这一步，
+      #   把「哪些用例被跳过 / 哪些模块根本没出报告」打进日志；X1~X4 同时拦住
+      #   「整模块空跑」「3 个模块没跑却自称全量」这两类空真绿灯。
+      - name: 运行期 skipped 汇总（[SKIP-SCAN] XML 口径）
+        if: always()
+        run: python3 scripts/check-ignore-policy.py --xml
 
       # ★ 报告上传必须覆盖**全部实际跑测的模块**（用 glob，不逐个模块硬编码）：
       #   单测报告漏传 = 失败时看不到原因，等于把 CI 变成"红了一个字"。

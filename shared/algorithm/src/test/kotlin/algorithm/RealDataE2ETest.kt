@@ -55,8 +55,8 @@ class RealDataE2ETest {
     fun realDataEndToEnd() {
         // ★ 2026-10-31：依赖开发机上的真实日志与真实 EXIF 抽取表，CI（Linux runner）上不存在。
         //   与 app 侧约定一致：数据不在就跳过（assumeTrue），不伪造"绿"。
-        assumeTrue(logFile.isFile, "真实日志缺失（${logFile.path}），跳过端到端用例")
-        assumeTrue(exifFile.isFile, "真实 EXIF 抽取表缺失（${exifFile.path}），跳过端到端用例")
+        assumeTrue(logFile.isFile, "[SKIP-SCAN] 真实日志缺失（${logFile.path}），跳过端到端用例")
+        assumeTrue(exifFile.isFile, "[SKIP-SCAN] 真实 EXIF 抽取表缺失（${exifFile.path}），跳过端到端用例")
         // ── 1. 读日志（真实文件，UTF-8 带 BOM；不剥 BOM，验证解析器对 BOM 的耐受）──
         val logText = logFile.readText(Charsets.UTF_8)
         println("== 日志字节数: ${logText.length} 首字符码点: ${logText.firstOrNull()?.code} (65279=BOM)")

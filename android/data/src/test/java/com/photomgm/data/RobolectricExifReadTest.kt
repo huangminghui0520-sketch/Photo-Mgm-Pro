@@ -4,6 +4,7 @@
 package com.photomgm.data
 
 import androidx.exifinterface.media.ExifInterface
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
@@ -17,7 +18,24 @@ import java.io.File
 class RobolectricExifReadTest {
 
     private val ROOT = File("D:/Photo-Mgm/Photo-Mgm")
-    private fun abs(p: String) = File(ROOT, p).absolutePath
+    private val sampleDir = File(ROOT, "gps_test_photos")
+
+    /**
+     * ★ [SKIP-SCAN] 本类 3 个用例都经 abs() 取样本，缺目录时统一以带原因的
+     *   assumeTrue 跳过（JUnit 运行期 skipped），既不判红、也不伪装成通过。
+     *   ROOT 是**测试夹具**的开发机绝对路径，只存在于测试源码目录（src/test 下），生产代码没有该路径。
+     */
+    private fun requireSamples() {
+        assumeTrue(
+            "[SKIP-SCAN] 真实样本目录不存在（$sampleDir）：本类依赖开发机 gps_test_photos 的 EXIF 照片，仓库与 CI 均不携带；缺样本时跳过并计入运行期 skipped",
+            sampleDir.isDirectory
+        )
+    }
+
+    private fun abs(p: String): String {
+        requireSamples()
+        return File(ROOT, p).absolutePath
+    }
 
     @Test
     fun test_T01_DateTimeOriginal与GPS可读() {

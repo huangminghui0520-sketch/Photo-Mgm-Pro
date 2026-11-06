@@ -18,7 +18,7 @@ class GenRealXlsxTest {
     @Test
     fun gen() {
         val outDir = File("D:/Photo-Mgm/Photo-Mgm/shots")
-        assumeTrue(outDir.isDirectory, "无产物目录 ${outDir.path}（真实照片环境缺失），跳过")
+        assumeTrue(outDir.isDirectory, "[SKIP-SCAN] 无产物目录 ${outDir.path}（真实照片环境缺失），跳过")
         val jpg = File(outDir, "sample.jpg").let { f ->
             if (f.exists()) f.readBytes() else byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())
         }

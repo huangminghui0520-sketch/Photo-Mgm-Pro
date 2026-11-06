@@ -7,6 +7,7 @@ import algorithm.AlgorithmApi
 import algorithm.EventClassifyEngine
 import algorithm.GpsGrouperEngine
 import algorithm.model.Photo
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -30,7 +31,21 @@ class GpsEndToEndRobolectricTest {
     // ★ 测试显式指定业务时区（issue #2）：不依赖 runner 的 TZ 环境变量。
     private val zone = ZoneId.of("Asia/Shanghai")
 
+    /**
+     * ★ [SKIP-SCAN] 本类 6 个用例都经 photo() 取样本，缺目录时统一以带原因的
+     *   assumeTrue 跳过（JUnit 运行期 skipped），既不判红、也不伪装成通过。
+     *   样本是开发机 `gps_test_photos/` 下 13 张真实 EXIF 照片，仓库与 CI 均不携带
+     *   —— 这是**测试夹具**的平台耦合，不是生产代码的平台耦合。
+     */
+    private fun requireSamples() {
+        assumeTrue(
+            "[SKIP-SCAN] 真实样本目录不存在（$root）：本类依赖开发机 gps_test_photos 的 13 张 EXIF 照片，仓库与 CI 均不携带；缺样本时跳过并计入运行期 skipped",
+            root.isDirectory
+        )
+    }
+
     private fun photo(id: Long, name: String): Photo {
+        requireSamples()
         val p = File(root, name)
         return Photo(
             id = id,
