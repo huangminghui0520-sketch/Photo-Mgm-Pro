@@ -84,7 +84,9 @@
 ## 5. 复跑命令
 
 ```bash
-cd desktop/cli/build/install/cli
+# 先出可分发包：在仓库根执行 ./gradlew :desktop:cli:installDist
+# （安装目录路径未变，仍是 desktop/cli/build/install/cli）
+cd <仓库根>/desktop/cli/build/install/cli
 export JAVA_HOME=/d/Android/jdk-17.0.2
 export JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF-8"
 CP="lib/*"

@@ -154,25 +154,27 @@ Photo-Mgm/
         └── （删除）PhotoRepository.kt —— 被 shared AnalysisPipeline 取代
 ```
 
-### 2.3 Gradle 挂载（沿用现有手法，不建第三个根工程）
+### 2.3 Gradle 挂载（★ 已演进为单根，本节保留历史写法）
 
-现有做法已证明可行：**两个独立根工程各自以"外部目录挂载"引入共享模块**，共享源码只有一份，产物目录各自隔离。
+> ⚠️ **本节 v2 时写的是"两个独立根工程各自挂载共享模块"，M3 后已改为单根多模块。**
+> 下面是当时（双根）的写法，保留用于追溯；现行写法见 `docs/REPO-LAYOUT.md` §2.1 / §2.9：
+> 仓库根一个 `settings.gradle.kts`、8 条 `include`、一条 `gradle testAll`，
+> 两端 `settings.gradle.kts`、`build.gradle.kts`、`gradle.properties`、`gradlew*`、`gradle/wrapper/` 共 14 个文件全部删除。
 
 ```kotlin
+// 【历史·已失效】双根时代各写三行；现在只需在仓库根写 include(":shared:algorithm") 等 3 条
 // desktop/settings.gradle.kts
 include(":shared:algorithm"); project(":shared:algorithm").projectDir = file("../shared/algorithm")
 include(":shared:domain");    project(":shared:domain").projectDir    = file("../shared/domain")
 include(":shared:app");       project(":shared:app").projectDir       = file("../shared/app")
 
-// android/settings.gradle.kts
-include(":shared:algorithm"); project(":shared:algorithm").projectDir = file("../shared/algorithm")
-include(":shared:domain");    project(":shared:domain").projectDir    = file("../shared/domain")
-include(":shared:app");       project(":shared:app").projectDir       = file("../shared/app")
+// android/settings.gradle.kts（同上三行）
 ```
 
-要点：
-- 用**嵌套项目名** `:shared:app` 避免与 Android 的 `:app` 撞名（这是必须的，`include(":app")` 会冲突）。
-- `desktop/build.gradle.kts` 里的产物重定向要从 `path == ":algorithm"` 改成 `path.startsWith(":shared:")`，把三个共享模块的 `buildDirectory` 都挪进 `desktop/build/external/`，否则两端并发构建会互踩。
+要点（★ 第 2 条已作废，其余仍有效）：
+- 用**嵌套项目名** `:shared:app` 避免与 Android 的 `:android:app` 撞名（这是必须的，平铺 `include(":app")` 会冲突）。
+- ~~`desktop/build.gradle.kts` 里的产物重定向要从 `path == ":algorithm"` 改成 `path.startsWith(":shared:")`，把三个共享模块的 `buildDirectory` 都挪进 `desktop/build/external/`，否则两端并发构建会互踩。~~
+  **→ 已作废**：单根后 `:shared:*` 只有一个 `build/` 目录，`subprojects { buildDirectory.set(...) }` 整段随 `desktop/build.gradle.kts` 一起删除，`desktop/build/external/` 不再存在。
 - 共享模块 `build.gradle.kts` 一律：`kotlin("jvm")` + `jvmToolchain(17)` + `dependencies { api(project(...)) }`，**禁止** AGP、Compose、androidx。
 
 ### 2.4 为什么不引入 KMP
@@ -334,7 +336,7 @@ include(":shared:app");       project(":shared:app").projectDir       = file("..
 | 项 | 内容 |
 | --- | --- |
 | 改动 | ① 建**黄金样本回归基线**：固定 1 份日志 + 50 张照片，跑 PC 与 Android 各导出一次，记录 `ledger.xlsx`、ZIP 内文件清单、文件夹清单的 SHA-256（Android 侧记录 ZIP 内条目清单 + 每个条目的哈希，不比整包哈希——ZIP 时间戳不稳定）。基线落 `scripts/golden/`。<br>② `git mv algorithm shared/algorithm`（内容零改动），改两端 `settings.gradle.kts`、`desktop/build.gradle.kts` 的产物重定向、CI 结构断言、`docs/REPO-LAYOUT.md`。<br>③ 建 `shared/domain`、`shared/app` 空模块（只有 `build.gradle.kts` + 一个 `package-info` 占位），两端挂载。 |
-| 验证 | `gradle -p android :shared:algorithm:test` 与 `gradle -p desktop :shared:algorithm:test` 同时绿；`android :app:assembleDebug` 绿；`desktop :ui:compileKotlin` 绿；三条既有门禁脚本绿。 |
+| 验证 | 【历史·双根口径】原为「两个子根各跑一次 `:shared:algorithm:test`」同时绿；**单根后等价为一次 `gradle testAll`**，两个共享模块的单测只跑一遍。`:android:app:assembleDebug` 绿；`:desktop:ui:compileKotlin` 绿；门禁脚本绿。 |
 | 回滚 | 单提交回滚即可（无内容变化）。 |
 
 ### P1 · 纯函数上移（消灭 D8~D12，零行为变更）
@@ -397,7 +399,7 @@ include(":shared:app");       project(":shared:app").projectDir       = file("..
 **行为验收（自动 + 人工）**
 4. 黄金样本：PC 端改动前后 `ledger.xlsx` 单元格文本 + 嵌入图片字节 **全等**；Android 端 ZIP 条目清单 + 每条目哈希 **全等**。允许差异必须列在 CHANGELOG 的"已知行为变更"里。
 5. 测试：`algorithm` 22 + `shared/domain` 新增 + `shared/app` 新增 + `desktop/core` 9 + `desktop/ui` 13 + `android` 15，全绿。
-6. 打包：`gradle -p android :app:assembleRelease` 与 `gradle -p desktop :ui:packageMsi` 均成功，产物可安装运行。
+6. 打包：`gradle :android:app:assembleRelease` 与 `gradle :desktop:ui:packageMsi`（**在仓库根执行**；本地用 `./gradlew`，CI 用 `gradle`）均成功，产物可安装运行。
 
 **可维护性验收（人工）**
 7. 新人只看 `docs/` 能回答："这段代码该放哪层"——即 §3 的 5+3 条足够判定任意一个文件。

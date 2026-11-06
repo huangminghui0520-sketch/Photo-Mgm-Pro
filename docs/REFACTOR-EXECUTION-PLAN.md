@@ -1,5 +1,12 @@
 # 跨端重构执行计划（REFACTOR-EXECUTION-PLAN）
 
+> ⚠️ **本文档是 T01~T14 跨端重构阶段的执行计划归档（历史）**。其中的构建做法属**双根时代**：
+> 两端各有 `settings.gradle.kts` / `build.gradle.kts` / wrapper，`:shared:*` 的产物靠
+> `desktop/build.gradle.kts` 的 `buildDir` 重定向隔离到 `desktop/build/external/`。
+> **这些在 Gradle 单根多模块重构（M0~M5）里已全部删除**：仓库根一个 `settings.gradle.kts`、8 个 include、
+> 一条 `gradle testAll`，`desktop/build/external/` 不再存在。
+> 本文只用于追溯"当初为什么这么排期"，**不要照抄其中的构建命令**；现行做法见 `docs/REPO-LAYOUT.md` §2.9。
+
 > 性质：**执行计划**（可落地、可验收、可回滚），不是方案论证。
 > 上游依据：`docs/CROSSPLATFORM-ARCH.md`（共享层怎么切）+ `docs/PC-AUDIT-AND-ANDROID-REFACTOR.md`（PC 质量与安卓怎么长）。
 > 本文件回答四个问题：**做什么、按什么顺序做、每步怎么证明没做坏、什么情况下必须停**。
@@ -113,7 +120,7 @@
 | --- | --- |
 | 目标 | 让"共享 = `shared/`"成为唯一规则；补齐 domain/app 两个空模块，为后续上移备好落点 |
 | 依赖 | T01 |
-| 改动 | ① `git mv algorithm shared/algorithm`（含 build 配置与 22 个测试，**内容零改动**）；② `desktop/settings.gradle.kts`、`android/settings.gradle.kts` 改为 `include(":shared:algorithm")` + `projectDir`；③ `android/app`、`android/data`、`desktop/core` 的 `project(":algorithm")` → `project(":shared:algorithm")`；④ `desktop/build.gradle.kts` 的 buildDir 重定向由 `path == ":algorithm"` 改为 `path.startsWith(":shared:")`，落 `desktop/build/external/`；⑤ 新建 `shared/domain`、`shared/app`（仅 `build.gradle.kts` + `package-info.kt` 占位），两端挂载；⑥ CI 结构断言、`docs/REPO-LAYOUT.md`、3 个 gate 脚本的扫描路径同步 |
+| 改动 | ① `git mv algorithm shared/algorithm`（含 build 配置与 22 个测试，**内容零改动**）；② `desktop/settings.gradle.kts`、`android/settings.gradle.kts` 改为 `include(":shared:algorithm")` + `projectDir`；③ `android/app`、`android/data`、`desktop/core` 的 `project(":algorithm")` → `project(":shared:algorithm")`；④ `desktop/build.gradle.kts` 的 buildDir 重定向由 `path == ":algorithm"` 改为 `path.startsWith(":shared:")`，落 `desktop/build/external/`；⑤ 新建 `shared/domain`、`shared/app`（仅 `build.gradle.kts` + `package-info.kt` 占位），两端挂载；⑥ CI 结构断言、`docs/REPO-LAYOUT.md`、3 个 gate 脚本的扫描路径同步。<br>★ **②④ 已作废**（Gradle 单根多模块重构 M3/M4）：两端 `settings.gradle.kts` / `build.gradle.kts` 与 wrapper 共 14 个文件全删，`buildDir` 重定向整段删除，`desktop/build/external/` 不再存在 |
 | 产出 | `shared/{algorithm,domain,app}` 三模块；两端 `settings` 各 3 行挂载；CI 断言 4 条 |
 | 验证 | §7 的 **L1 全绿 + L2 全绿 + L4 编译通过**；关键一条：`git status` 显示 `algorithm/` 为纯 rename（`git log --stat -1` 里无内容 diff） |
 | 回滚 | 单提交回滚（无内容变化，回滚无风险） |

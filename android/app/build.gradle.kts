@@ -7,19 +7,27 @@ plugins {
 }
 
 // 读取本地签名配置（keystore/keystore.properties，不入库；缺失时 release 回退 debug 签名，保证任何环境可构建）
-// ★ 2026-11-02 目录重组：rootProject 由仓库根变为 android/，签名默认放 android/keystore/；
-//   为兼容重组前沿用仓库根 keystore/ 的开发机，两处都探测（android/keystore 优先），
-//   storeFile 同理按"先 android/ 再仓库根"解析。两处都没有 → 静默回退 debug 签名，不阻断构建。
+// ★ 单根重构（M3）：rootProject 由 android/ 变回**仓库根**，所以这里的路径必须写成
+//   "相对仓库根"的形式：照旧写 keystore/… 的根相对探测，单根后会解析成 <repo>/keystore/（错）。
+//   两处探测（优先级从高到低）：
+//     ① <repo>/android/keystore/keystore.properties —— build-apk.yml 的 CI 注入落点
+//     ② <repo>/keystore/keystore.properties         —— 重组前旧开发机的位置（兼容用）
+//   storeFile 同理：android/<path> 优先，<path> 兜底（keystore.properties 里写的是
+//   storeFile=keystore/photomgm-release.jks，即相对 android/ 的路径）。
+//   ★ 两处都不存在 → **静默回退 debug 签名**，构建照样 BUILD SUCCESSFUL ——
+//     所以「构建成功」不证明签名正确，必须用 apksigner 验（I-15 / G11）；
+//     「v* 标签必须 release 签名」的闸门是 I-27，另案。
 import java.util.Properties
 val keystorePropFile = listOf(
-    rootProject.file("keystore/keystore.properties"),
-    rootProject.file("../keystore/keystore.properties"),
+    rootProject.layout.projectDirectory.file("android/keystore/keystore.properties").asFile,
+    rootProject.layout.projectDirectory.file("keystore/keystore.properties").asFile,
 ).firstOrNull { it.exists() }
 val keystoreProps = Properties().apply {
     if (keystorePropFile != null) keystorePropFile.inputStream().use { load(it) }
 }
 fun resolveSigningFile(path: String) =
-    rootProject.file(path).takeIf { it.exists() } ?: rootProject.file("../$path")
+    rootProject.layout.projectDirectory.file("android/$path").asFile.takeIf { it.exists() }
+        ?: rootProject.layout.projectDirectory.file(path).asFile
 
 android {
     namespace = "com.photomgm.app"
@@ -90,7 +98,7 @@ dependencies {
     implementation(project(":shared:domain"))
     // T05-C1：`runCatchingCancellable` 上移到 :shared:app（取消信号两端同一类型）。
     implementation(project(":shared:app"))
-    implementation(project(":data"))
+    implementation(project(":android:data"))
 
     // ★ 2026-10-01 升级 BOM 2024.02 → 2024.04（material3 1.1.2 → 1.2.0）：
     //   仅为取得 rememberDatePickerState 的 selectableDates 参数（放开巡查日期可选范围，修复「9-27 不可选」）

@@ -1,6 +1,9 @@
 name: Build Windows Desktop
 
-# Windows 桌面版（desktop/ 独立 Gradle 工程）的打包流水线。
+# Windows 桌面版的打包流水线。
+# ★ 单根多模块（M3 起）：desktop/ 是单根构建下的 `:desktop:*` 三个模块
+#   （`:desktop:core` / `:desktop:cli` / `:desktop:ui`），不再是独立 Gradle 工程。
+#   Gradle 根是仓库根（`settings.gradle.kts` 在根），下面所有 gradle 调用都在根执行、用全限定项目路径。
 #
 # ★ 触发面刻意收窄：只在 desktop-v* 标签与手动派发时跑。
 #   理由：桌面构建要拉 Compose Multiplatform 全套依赖（~10 分钟），放进每次 PR 会拖慢反馈；
@@ -45,20 +48,24 @@ jobs:
         with:
           gradle-version: 8.10.2
 
-      # ★ 不用 ./gradlew：两端 wrapper 的 distributionUrl 都指向腾讯云镜像（国内快、海外不稳），
-      #   美国 runner 上拉分发包容易超时。改用 setup-gradle 装好的 Gradle 8.10.2 + `-p desktop`，
-      #   与 ci.yml / build-apk.yml 保持一致。
-      - name: Unit tests (core / cli / ui)
-        run: gradle -p desktop :core:test :cli:test :ui:test --console=plain
+      # ★ 不使用仓库内的 wrapper 脚本：分发包走腾讯云镜像（国内快、海外不稳），
+      #   美国 runner 上拉分发包容易超时。改用 setup-gradle 装好的 Gradle 8.10.2，与另外两个
+      #   workflow 保持一致（三个 workflow 都不调用 wrapper，wrapper 只服务本地开发）。
+      # ★ M5：原「Unit tests (desktop core / cli / ui + shared domain / app)」step 已**删除**。
+      #   理由：ci.yml 的 `gradle testAll` 已在每次 push/PR 一次覆盖全部 8 个模块（含 desktop×3、
+      #   shared×3），此处再跑一遍是纯重复 —— 桌面出包 workflow 只负责出包，单测失败由 ci.yml 拦。
+      #   另有实际代价：这一步会额外拉起一次完整配置 + 编译，Windows runner 上多花约 3~5 分钟。
+      #   ★ 出包前置校验仍保留：下面 createDistributable 失败即整条 workflow 红。
 
-      # :shared:algorithm 由 desktop/settings.gradle.kts 以 ../shared/algorithm 挂载，产物落在
-      # desktop/build/external/shared-algorithm —— 与 Android 构建的 shared/algorithm/build 分离，互不踩。
+      # :shared:{algorithm,domain,app} 现在由**根 settings** 纳入同一构建，源码仍在 shared/ 下
+      # （物理位置零移动）。单根后不再需要"把桌面侧共享层产物重定向到 external/"的补丁：
+      # 8 个模块各写自己的 build 目录，全仓一份产物，不存在两份构建互踩的问题。
       - name: Package app-image (createDistributable)
-        run: gradle -p desktop :ui:createDistributable --console=plain
+        run: gradle :desktop:ui:createDistributable --console=plain
 
       # ★ MSI 安装包：windows-latest runner 自带 WiX 3.14.1，jpackage 可直接出 MSI（无需额外安装）。
       - name: Package MSI installer (packageMsi)
-        run: gradle -p desktop :ui:packageMsi --console=plain
+        run: gradle :desktop:ui:packageMsi --console=plain
 
       - name: Compress portable zip
         shell: pwsh

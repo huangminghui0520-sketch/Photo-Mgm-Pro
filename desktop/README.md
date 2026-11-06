@@ -35,7 +35,7 @@
 | 15 | 设置持久化（`%APPDATA%\PhotoMgm\settings.json`） | ✅ 实现 | `CorePipelineTest.设置持久化后新实例可恢复` |
 | 16 | 日志文本草稿持久化（防崩溃丢输入） | ✅ 实现 | `LogsTextStore` |
 | 17 | 长路径（>260 字符）前置拦截并给出可操作建议 | ✅ 实现 | `PcFolderExporterTest.超长目标路径在导出前被明确阻断` |
-| 18 | 无头命令行入口（批处理 / 排障 / 验收） | ✅ 实现（额外交付） | `:cli:run`，见第五节 |
+| 18 | 无头命令行入口（批处理 / 排障 / 验收） | ✅ 实现（额外交付） | `:desktop:cli:run`，见第五节 |
 
 ---
 
@@ -176,13 +176,13 @@ core 没有 `EXPORTED` 状态 → 结果条靠 `state.lastExport.exportDir` 的�
 ### 2.5 冒烟与走查怎么跑
 
 ```bash
-./gradlew :ui:run                                                    # 正常窗口
-./gradlew :ui:run --args="--smoke"                                   # 渲染后自动退出
-./gradlew :ui:run --args="--demo --smoke --size 900x540 --shot l.png"          # 事件列表（最小窗）
-./gradlew :ui:run --args="--demo --smoke --sheet photos --shot p.png"           # 照片层
-./gradlew :ui:run --args="--demo --smoke --sheet settings --shot s.png"         # 设置层（已无日期，日期在主页）
-./gradlew :ui:run --args="--demo --smoke --sheet copy --shot c.png"             # 复制到某事件（对比 --sheet move）
-./gradlew :ui:run --args="--sheet log"                                          # 强制展开日志条
+./gradlew :desktop:ui:run                                                    # 正常窗口
+./gradlew :desktop:ui:run --args="--smoke"                                   # 渲染后自动退出
+./gradlew :desktop:ui:run --args="--demo --smoke --size 900x540 --shot l.png"          # 事件列表（最小窗）
+./gradlew :desktop:ui:run --args="--demo --smoke --sheet photos --shot p.png"           # 照片层
+./gradlew :desktop:ui:run --args="--demo --smoke --sheet settings --shot s.png"         # 设置层（已无日期，日期在主页）
+./gradlew :desktop:ui:run --args="--demo --smoke --sheet copy --shot c.png"             # 复制到某事件（对比 --sheet move）
+./gradlew :desktop:ui:run --args="--sheet log"                                          # 强制展开日志条
 ```
 
 | 参数 | 作用 |
@@ -280,16 +280,32 @@ UI 需要的数据全在 `AppState` 里：`events` / `photos` / `eventPhotoIds` 
 
 ## 四、构建与测试
 
-前置：JDK 17（本机在 `C:\Users\28988\.workbuddy\jdks\jdk-17.0.2`，未写入系统 `JAVA_HOME`）。
+前置：**JDK 17**（本机在 `C:\Users\28988\.workbuddy\jdks\jdk-17.0.2`，未写入系统 `JAVA_HOME`）。
+Android SDK **只有执行 `:android:*` 任务时才需要**，桌面测试不需要。
+
+> ✅ **桌面模块不需要 Android SDK**（2026-11-06 实测，本机无 SDK、无 `local.properties`）：
+> `gradle projects` / `gradle :desktop:core:test` / `:desktop:ui:test` / `:shared:*:test`
+> 全部 `BUILD SUCCESSFUL`（669 用例 0 失败）；只有 `gradle :android:data:testDebugUnitTest`
+> 报 `SDK location not found`。原因：AGP 8.7.3 把 SDK 定位推迟到**任务执行期**，配置期不校验。
+> 注意 `gradle testAll` **包含**两个 `:android:*` 测试任务，所以它仍然要 SDK。
+> 详见根 `README.md` 的「环境前置（重要）」节。
+
+> ★ **单根多模块（M3 起）**：`desktop/` 不再是独立 Gradle 工程，本目录下的 `settings.gradle.kts`、
+> `build.gradle.kts`、`gradle.properties`、`gradlew`、`gradlew.bat`、`gradle/wrapper/` **已全部删除**。
+> 现在所有命令都在**仓库根**执行，桌面端项目名是 `:desktop:core` / `:desktop:cli` / `:desktop:ui`。
+> 产物路径未变（`desktop/ui/build/compose/binaries/...`、`desktop/cli/build/install/cli/`）。
+> 本地用 `./gradlew`（腾讯云分发包），CI 用 `gradle`（setup-gradle 8.10.2，不用 wrapper）。
 
 ```bash
-cd desktop
+cd <仓库根>
 export JAVA_HOME="/c/Users/28988/.workbuddy/jdks/jdk-17.0.2"
 export PATH="$JAVA_HOME/bin:$PATH"
+# Android SDK 仅在需要跑 :android:* 任务时配置，桌面/共享层测试不需要
 
-./gradlew test              # 全部测试（原算法 316 + 桌面核心 44 + 界面 73 = 433 全绿）
-./gradlew :ui:run --args="--smoke"   # UI 冒烟
-./gradlew :cli:installDist  # 可分发命令行到 cli/build/install/cli/
+./gradlew :desktop:core:test :desktop:ui:test :shared:algorithm:test   # 不需要 SDK
+./gradlew testAll           # 全部 8 个模块的测试（含 2 个 :android:* 任务 → 需要 SDK）
+./gradlew :desktop:ui:run --args="--smoke"   # UI 冒烟
+./gradlew :desktop:cli:installDist  # 可分发命令行到 desktop/cli/build/install/cli/
 ```
 
 ---
@@ -297,7 +313,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 ## 五、命令行用法（无 UI 也能真实跑完一遍）
 
 ```bash
-./gradlew :cli:run --args="\
+./gradlew :desktop:cli:run --args="\
   --source D:/巡查照片 --date 2026-08-14 \
   --log D:/巡查日志.txt --out D:/导出 --template 0"
 ```
@@ -377,8 +393,10 @@ jlink 报 `java.base not found`。只传主 jar 即可。另：Windows 中文环
    接口给 UI 的是**受控加载语义**（句柄），不是裸 `BufferedImage`——1000 张网格持有 1000 个图必然 OOM。
 3. **渲染后端回落**：本机 D3D12 不可用，Skiko 回退。需在兼容性阶段补「回退场景仍可用 + 可自诊断」验收。
 4. **`.gitignore` 由本目录自带**（`desktop/.gitignore`），未改动根 `.gitignore`，因为根文件同属原工程文件。
-5. **首次构建曾把产物写进原工程** `algorithm/build`：已在 `desktop/build.gradle.kts` 里把 `:algorithm` 的
-   buildDir 重定向到 `desktop/build/external/algorithm`。想清掉那次残留，在原工程执行 `./gradlew clean` 即可。
+5. **首次构建曾把产物写进原工程** `algorithm/build`：当时在 `desktop/build.gradle.kts` 里把 `:algorithm` 的
+   buildDir 重定向到 `desktop/build/external/algorithm` 来规避。
+   **M3 单根化后这套重定向已整体删除**（`desktop/build.gradle.kts` 与 `desktop/build/external/` 都不再存在），
+   `:shared:*` 只有一个 `build/` 目录。若磁盘上仍残留 `desktop/build/external/`，属旧构建遗留，可直接删除。
 
 ---
 

@@ -24,7 +24,7 @@ java {
 }
 
 dependencies {
-    implementation(project(":core"))
+    implementation(project(":desktop:core"))
 
     // 当前操作系统对应的 Compose Desktop 运行时（Windows 上会拉 skiko-awt-runtime-windows-x64）
     implementation(compose.desktop.currentOs)

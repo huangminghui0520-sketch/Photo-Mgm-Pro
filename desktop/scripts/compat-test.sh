@@ -51,14 +51,15 @@ COMMON_ARGS="--source $SOURCE_DIR --date $PATROL_DATE --log $LOG_FILE \
 
 case "$MODE" in
   analyze)
-    cd "$DESKTOP_DIR"
-    ./gradlew :cli:run -q --args="$COMMON_ARGS --dry-run" 2>&1 | tee "$RUN_LOG"
+    # ★ 单根多模块（M3 起）：Gradle 根是仓库根，project 名带前缀 :desktop:cli
+    cd "$REPO_DIR"
+    ./gradlew :desktop:cli:run -q --args="$COMMON_ARGS --dry-run" 2>&1 | tee "$RUN_LOG"
     echo ""
     echo "✔ 分析结束（dry-run，未导出）。完整输出见: $RUN_LOG"
     ;;
   export)
-    cd "$DESKTOP_DIR"
-    ./gradlew :cli:run -q --args="$COMMON_ARGS" 2>&1 | tee "$RUN_LOG"
+    cd "$REPO_DIR"
+    ./gradlew :desktop:cli:run -q --args="$COMMON_ARGS" 2>&1 | tee "$RUN_LOG"
     echo ""
     echo "✔ 导出结束。导出结果在: $OUT_DIR"
     echo "  台账与照片子目录应已生成；请打开 xlsx 核对字段与照片数量。"

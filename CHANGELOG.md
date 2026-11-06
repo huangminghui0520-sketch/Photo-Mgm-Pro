@@ -5,6 +5,35 @@
 
 ## [Unreleased]
 
+### 工程（构建 · Gradle 单根多模块重构 M0~M5，**无用户可见变化**）
+- **拓扑**：仓库根成为唯一 Gradle 根，`settings.gradle.kts` 一条 `include` 覆盖 8 个项目
+  （`:shared:{algorithm,domain,app}` + `:android:{data,app}` + `:desktop:{core,cli,ui}`）。
+  删除两端各自的 `settings.gradle.kts` / `build.gradle.kts` / `gradle.properties` / `gradlew*` /
+  `gradle/wrapper/`（M3 删 4 个根脚本 + M4 删 10 个构建文件），双根拓扑与「两端并发构建互踩」问题一起消失。
+  **所有源码目录与产物路径零移动**（`android/app/build/outputs/apk/...`、`desktop/ui/build/compose/binaries/...`
+  与重构前完全一致），3 个 golden 基线 JSON 一个字节未改。
+- **CI 一次覆盖 8 个模块的单测**：新增根 `testAll` 聚合任务（硬编码 8 项 `dependsOn`），
+  `ci.yml` 用一条 `gradle testAll --no-daemon --console=plain` 替代原来两条子根命令；
+  `build-desktop.yml` 里重复的 `Unit tests` step 删除（该 workflow 回归「只出包」）。
+  `test-reports` 上传路径由 2 条硬编码扩为 6 条 glob（含 desktop）。
+  `:desktop:cli` 没有 `src/test`，其 `test` 必 `NO-SOURCE` —— 判据看 `TEST-*.xml` 的 `tests>0`，不看 Task 行。
+- **根 wrapper + 版本目录**：仓库根本地开发用 `./gradlew`（`distributionUrl` 走腾讯云镜像，与旧两端 wrapper
+  逐字节一致，sha256 已比对）；CI 三个 workflow 仍用 `gradle/actions/setup-gradle@v6` 装官方 8.10.2，
+  **不调用 wrapper**（美国 runner 拉腾讯云分发包易超时）。新增 `gradle/libs.versions.toml`
+  （31 versions / 20 libraries / 6 plugins）作为版本单点来源，根 `build.gradle.kts` 用 6 条
+  `alias(...) apply false` 统一插件版本，模块脚本里的 8 处带版本插件声明随之删除。
+- **签名路径修正**：单根后 `rootProject` 从 `android/` 回到仓库根，`android/app/build.gradle.kts` 的
+  keystore 探测改用 `rootProject.layout.projectDirectory` 双探测
+  （`android/keystore/…` 优先、仓库根 `keystore/…` 兜底），CI 注入点仍是 `android/keystore/`。
+  ⚠️ 两处都不存在时仍**静默**回退 debug 签名 —— `BUILD SUCCESSFUL` 不证明签名正确，须 `apksigner verify`。
+- **门禁补 desktop**：`check-cancellation` / `check-ignore-policy` / `check-timezone` 的默认扫描根补入
+  `desktop/{core,cli,ui}/src/main`（此前 desktop 的 80 个 `.kt`、其中 23 个测试文件完全不被扫描）。
+  `check-ignore-policy.py` 新增 JUnit 5 `assumeTrue`/`assumeFalse` 原因可溯源性扫描（默认只统计，
+  裸调用告警并可 `--allow-unannotated-skip` 关闭）；`check-shared-purity.py` 的 P4 owner 改为真实路径 +
+  存在性校验；`golden/compare.py` 的坏 JSON / 非法正则统一 `EXIT=2`（此前与"有差异"撞码 1）。
+- `affects: build, ci, docs`；`verify:` 4 个门禁自测 17/21/13/18 组全绿、实扫 84/54/231/147 文件 0 问题、
+  3 个 workflow YAML 可解析、`gradle testAll` 通过 **【需 CI 验证】**（本机无 JDK/Android SDK）
+
 ### 工程（跨端 · T14 门禁 + 契约常量收敛，**无用户可见变化**）
 - 新增 `scripts/check-shared-purity.py`（进 CI）：把「该放哪层」从口头约定变成红灯。五条规则——
   P1 共享层禁 `android.*`/`java.awt`/`javax.*`/`javafx`/`com.photomgm.*`；P1b `shared/app` 禁
@@ -162,8 +191,11 @@
   - ★ **已知遗留**：安卓黄金基线需按新产物重建（52 条照片 sha256 已变）；未授权时的剥离呈"部分生效"（实测仅前 9 张丢 GPS），已登记待复现——去重判据不能假设 GPS "全有或全无"
 
 ### 工程
+> 以下为当时（双根时代）的构建方式，**已被 Unreleased 的「Gradle 单根多模块重构」取代**：
+> 现在没有 `android/settings.gradle.kts`，也不需要 `cd android` / `gradle -p android` —— 一切在仓库根执行。
 - 仓库布局重组：Android 端收进 `android/`（独立 Gradle 工程，`:app` + `:data`），Windows 端保持 `desktop/` 不变，共用核心 `algorithm/` 留在根目录供两端以 `../algorithm` 挂载 —— 一份源码、无副本（详见 `docs/REPO-LAYOUT.md`）
-- 仓库根不再有 `settings.gradle.kts`：Android 构建须 `cd android`（或 CI 用 `gradle -p android`）；桌面端构建方式不变，**PC 侧代码零改动**
+- ~~仓库根不再有 `settings.gradle.kts`：Android 构建须 `cd android`（或 CI 用 `gradle -p android`）；桌面端构建方式不变，**PC 侧代码零改动**~~
+  ——【已失效】M3 起仓库根重新成为唯一 Gradle 根，`cd android` 与 `gradle -p android` 都不再成立
 - 签名目录随工程根迁到 `android/keystore/`，并保留对旧位置（仓库根 `keystore/`）的兼容探测，老开发机无需搬文件
 - 三个静态门禁脚本默认扫描根改为 `android/app`、`algorithm`、`android/data`
 - 新增 `build-desktop.yml`：`desktop-v*` 标签/手动派发时在 windows-latest 出便携包（MSI 仍因依赖 WiX 留在打包机产出）

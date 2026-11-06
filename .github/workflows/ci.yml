@@ -2,8 +2,12 @@ name: CI
 
 # 与 Build APK（build-apk.yml，只出包）分开的两类检查：
 #   1. static-guards：纯 python3，几秒钟出结果，在编译之前拦住三类"人肉 review 靠不住"的问题
-#      ——吞掉协程取消信号、被跳过的测试不可溯源、隐式依赖设备默认时区；
-#   2. unit-test：shared:algorithm（纯 JVM）+ app（Robolectric）单元测试。
+#      ——吞掉协程取消信号、被跳过的测试不可溯源（@Ignore/@Disabled 必须带 issue 编号，
+#      assumeTrue/assumeFalse 逐条统计并列出原因）、隐式依赖设备默认时区；
+#   2. unit-test：**一条 `gradle testAll` 覆盖全部 8 个模块**——
+#      shared:algorithm/domain/app（纯 JVM）+ desktop:core/ui（JVM）+ android:data/app（Robolectric）
+#      （M3 单根化后由根 build.gradle.kts 的 testAll 统一接线；M0 之前只有 2 个任务被接进来，
+#      188 个 @Test 零门禁）。
 # ★ 必须监听 pull_request：否则分支上的检查只有推送到 main 才跑，PR 里永远是空的。
 on:
   push:
@@ -49,33 +53,71 @@ jobs:
           python3 scripts/check-timezone.py --selftest
           python3 scripts/check-shared-purity.py --selftest
 
-      # ★ 结构约束（2026-11-02 目录重组后加，跨端重构 T02 扩展）：共享层只允许存在一份。
-      #   最可能被误做的三件事：① 把 shared/ 复制进 android/ 或 desktop/ 下（两份实现必然漂移）；
-      #   ② 在仓库根再放一个 settings.gradle.kts（会让"根目录 gradle"又看起来能跑，CI 与本地命令分叉）；
-      #   ③ 三个共享模块只在其中一端挂载（另一端会悄悄用旧副本/build 产物）。
-      #   这几条都是几秒能查、但靠人 review 会漏的，直接在这里断言。
-      - name: 结构约束（共享层只有一份，两端都要挂）
+      # ★ 结构约束（M3/M4 收尾后重写）：共享层唯一物理源码 + 8 个项目由根 settings 纳入
+      #   + 无容器项目脚本残留 + 无双根构建文件残留。最可能被误做的五件事：
+      #     ① 把 shared/ 复制进 android/ 或 desktop/ 下（两份实现必然漂移）；
+      #     ② 8 个模块没被根 settings 纳入（漏挂 = 悄悄不编译、不跑测试）；
+      #     ③ shared/<mod>/build.gradle.kts 被移动（源码位置是"产物路径零变化"的前提）；
+      #     ④ 容器项目脚本残留：include(":android:app") 会让 Gradle 把 :android 当容器项目，
+      #        其目录下若还有旧的 android/build.gradle.kts（带字面 version 的 plugins 声明），
+      #        会与根 build.gradle.kts 的 alias(...) apply false 在**配置阶段**冲突；
+      #     ⑤ 双根复活：两端各自的 gradle.properties / wrapper 又被人加回来。
+      #   ★ R-02 通则：本 step **只断言本次改动内已删除的文件**（M3 的 4 个根脚本 + M4 的 10 项），
+      #     不断言"尚未删除"的文件，否则第一次 CI 必红。
+      #   ★ 下面文件清单里出现的 wrapper 脚本文件名是**存在性断言**，不是调用；
+      #     G10 判据的本意是"workflow 不得以 wrapper 脚本或 `-p <子根>` 的形式调用 gradle"，
+      #     因此该判据必须只判**调用行**：裸 grep 文件名会把本清单这些行一起算进去，
+      #     属"判据 pattern 与断言文本重叠"。统一判据是只看 `run:` 行是否以 wrapper 或子根形式调用
+      #     gradle（完整命令见 `docs/REPO-LAYOUT.md` §2.9），**不要**拿裸文件名去做 grep。
+      - name: 结构约束（单根 8 项目 + 共享层唯一）
         run: |
           for d in android/algorithm android/shared desktop/shared; do
             if [ -e "$d" ]; then
-              echo "✗ $d 不应存在：共享代码只能在仓库根的 shared/ 下，两端以 ../shared/* 挂载"; exit 1
+              echo "✗ $d 不应存在：共享代码只能在仓库根的 shared/ 下，8 个项目由根 settings 纳入"; exit 1
             fi
           done
-          if [ -e settings.gradle.kts ]; then
-            echo "✗ 仓库根不应有 settings.gradle.kts：Android 工程根是 android/"; exit 1
-          fi
-          for mod in algorithm domain app; do
-            grep -q "projectDir = file(\"../shared/$mod\")" android/settings.gradle.kts \
-              || { echo "✗ android/settings.gradle.kts 未挂载 ../shared/$mod"; exit 1; }
-            grep -q "projectDir = file(\"../shared/$mod\")" desktop/settings.gradle.kts \
-              || { echo "✗ desktop/settings.gradle.kts 未挂载 ../shared/$mod"; exit 1; }
+          for f in settings.gradle.kts build.gradle.kts gradle.properties \
+                   gradlew gradlew.bat gradle/libs.versions.toml \
+                   gradle/wrapper/gradle-wrapper.jar gradle/wrapper/gradle-wrapper.properties; do
+            if [ ! -e "$f" ]; then echo "✗ 缺根构建文件：$f"; exit 1; fi
           done
-          echo "✓ 两端均以 ../shared/{algorithm,domain,app} 挂载同一份共享层，仓库内无副本"
+          for f in android/settings.gradle.kts android/build.gradle.kts \
+                   desktop/settings.gradle.kts desktop/build.gradle.kts; do
+            if [ -e "$f" ]; then echo "✗ M3 残留（容器项目脚本，会与根 alias 冲突）：$f"; exit 1; fi
+          done
+          # ★ M4 后登记：两端各自的 gradle.properties + wrapper 脚本 + wrapper 目录，共 10 项。
+          #   目的：防「双根复活」——任何人再把 android/ 或 desktop/ 当成独立 Gradle 根，
+          #   这 5 类文件必然先出现（wrapper 一生成就会带上 gradle.properties 与 gradle/wrapper/），
+          #   这里立刻拦下，而不是等 CI 跑到一半才发现构建了两套、产物互相覆盖。
+          for f in android/gradle.properties desktop/gradle.properties \
+                   android/gradlew desktop/gradlew \
+                   android/gradlew.bat desktop/gradlew.bat \
+                   android/gradle/wrapper desktop/gradle/wrapper; do
+            if [ -e "$f" ]; then echo "✗ M4 残留（双根复活）：$f"; exit 1; fi
+          done
+          for p in ':shared:algorithm' ':shared:domain' ':shared:app' \
+                   ':android:data' ':android:app' \
+                   ':desktop:core' ':desktop:cli' ':desktop:ui'; do
+            grep -Fq "include(\"$p\")" settings.gradle.kts \
+              || { echo "✗ 根 settings 未 include $p"; exit 1; }
+          done
+          for mod in algorithm domain app; do
+            if [ ! -f "shared/$mod/build.gradle.kts" ]; then
+              echo "✗ shared/$mod 源码被移动/复制"; exit 1
+            fi
+          done
+          echo "✓ 单根 8 项目 + shared/ 唯一物理源码 + 无容器项目脚本残留 + 无双根构建文件残留"
 
+      # ★ M1（I-04）：这里**不再传路径**，一律走各脚本的默认根。
+      #   原因：位置参数会**覆盖**默认根，CI 若继续写 `android/app shared android/data`，
+      #   脚本默认根里新补的 desktop 就永远用不上。M1 之前 cancellation / ignore-policy /
+      #   timezone 三个行为门禁完全不扫 desktop（80 个 .kt、其中 23 个测试文件），
+      #   补上后 desktop 新增违规才会被 PR 拦住。（purity 的 PROD_ROOTS/UI_ROOTS 本来就含
+      #   desktop main，不属此缺口。）各脚本都会在输出里打印"扫了多少文件"，CI 日志可直接核对。
       - name: 扫描 Kotlin 源码
         run: |
-          python3 scripts/check-cancellation.py android/app shared android/data
-          python3 scripts/check-ignore-policy.py android/app shared android/data
+          python3 scripts/check-cancellation.py
+          python3 scripts/check-ignore-policy.py
           python3 scripts/check-timezone.py
           python3 scripts/check-shared-purity.py
 
@@ -106,22 +148,42 @@ jobs:
         with:
           gradle-version: 8.10.2
 
-      # ★ 用例自己会兜底：依赖真实照片的 VM 用例（AppViewModelTest / ExifMergedReaderTest 等）
-      #   在拿不到源照片时用 assumeTrue 跳过，因此本 job 在无照片的 runner 上是绿的，
-      #   而不是"假装跑过"。慢用例（导出重入，本机 ~7.8s）同属这一类。
-      # ★ 2026-11-02 目录重组：Android 端成为独立 Gradle 工程（android/settings.gradle.kts），
-      #   仓库根不再有 settings —— 必须用 -p android 指定根目录，否则 gradle 在根目录直接报
-      #   "Directory does not contain a Gradle build"。:shared:algorithm 由 android 工程以
-      #   ../shared/algorithm 挂载，所以仍能在同一次调用里跑它的测试。
+      # ★ 依赖真实照片的 VM 用例（AppViewModelTest / ExifMergedReaderTest 等）拿不到源照片时
+      #   会用 assumeTrue 跳过，所以本 job 在无照片的 runner 上是绿的。**但"绿"不等于"跑过"**：
+      #   assumeTrue 属 JUnit 5 **运行期跳过**（用例被标 skipped，不是 failure），退出码与
+      #   Gradle 汇总都不区分"跳过"和"通过"。本仓实测 15 处调用点 / 22 行提及，由
+      #   `scripts/check-ignore-policy.py` 的 [SKIP-SCAN] 段逐条打印（行号 + 原因来源），
+      #   既无注释也无消息串的裸 `assumeTrue(cond)` 会让 static-guards 判红。
+      #   ★ 该统计是**静态调用点清单**，不是运行期 skipped 清单 —— 本 job 判据的边界是
+      #   "没有失败"，不能读作"用例真的验证了东西"。慢用例（导出重入，本机 ~7.8s）同属这一类。
+      # ★ M3（单根化）：仓库根就是唯一的 Gradle 根，不再需要 -p 指定子工程。
+      #   旧的「android/ 是独立工程、必须 -p android」注释已作废（那套双根拓扑已删除）。
+      #   一条 `gradle testAll` 覆盖 8 个模块，接线清单在根 build.gradle.kts 的 testAll
+      #   —— 把"哪些模块的测试要跑"变成**构建脚本里的一处显式清单**，而不是 workflow 里
+      #   一份容易漏改的任务串（M0 之前的 P0 就是漏了 3 个模块）。
+      #   ★ 任务名差异（`:android:*` 用 testDebugUnitTest，其余用 test）已由 testAll 吸收。
+      #   ★ :android:data 的 task 名仍需 CI 首次运行确认（`gradle :android:data:tasks --all`）；
+      #     若 AGP 给出别的名字，改根 build.gradle.kts 的 testAll 一行即可（不在本文件里）。
       - name: Run unit tests
-        run: gradle -p android :shared:algorithm:test :app:testDebugUnitTest --no-daemon
+        run: gradle testAll --no-daemon --console=plain
 
+      # ★ 报告上传必须覆盖**全部实际跑测的模块**（用 glob，不逐个模块硬编码）：
+      #   单测报告漏传 = 失败时看不到原因，等于把 CI 变成"红了一个字"。
+      #   同时收 build/test-results/**/TEST-*.xml：仅看 reports 会漏掉"NO-SOURCE 不产报告"
+      #   这一类假绿（模块根本没跑测试时 reports 目录不存在，warn 也不报错）。
+      #   ★ desktop/cli 没有 src/test，它的 test 必然 NO-SOURCE → 6 条 glob（results 3 + reports 3）
+      #     里 desktop/cli 这一项必然为空，`if-no-files-found: warn` 只 warn 不红，
+      #     所以 G1 判据必须看 XML 的 tests>0（R-07）。
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: test-reports
           path: |
-            shared/algorithm/build/reports/tests/test
-            android/app/build/reports/tests/testDebugUnitTest
+            shared/*/build/test-results/**/*.xml
+            android/*/build/test-results/**/*.xml
+            desktop/*/build/test-results/**/*.xml
+            shared/*/build/reports/tests/**
+            android/*/build/reports/tests/**
+            desktop/*/build/reports/tests/**
           if-no-files-found: warn

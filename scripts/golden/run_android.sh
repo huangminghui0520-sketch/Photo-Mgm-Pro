@@ -139,7 +139,9 @@ done
 APK="$REPO/android/app/build/outputs/apk/debug/app-debug.apk"
 if [ "$NO_BUILD" != 1 ]; then
   say "3/9 构建 debug APK"
-  ( cd "$REPO/android" && ./"$GRADLEW_WIN" :app:assembleDebug --console=plain -q )
+  # ★ M5（单根多模块）：仓库根已是唯一 Gradle 根，task 用**全限定项目路径**。
+  #   projectDir 未变（android/app），所以下面 APK= 的产物路径一个字符都不用改。
+  ( cd "$REPO" && ./"$GRADLEW_WIN" :android:app:assembleDebug --console=plain -q )
 else
   say "3/9 复用现有 APK"
 fi
@@ -157,7 +159,7 @@ adb_ shell pm grant "$PKG" android.permission.ACCESS_MEDIA_LOCATION >/dev/null 2
 
 # run-as 是 debug 包专有能力；release 包会在这一步失败，提前给出可读的原因
 if ! adb_ shell "run-as $PKG id" >/dev/null 2>&1; then
-  die "run-as 不可用（需 debuggable APK）。请用 debug 包：:app:assembleDebug"
+  die "run-as 不可用（需 debuggable APK）。请用 debug 包：:android:app:assembleDebug"
 fi
 
 # ── 素材：照片进 MediaStore ───────────────────────────────────────────────────

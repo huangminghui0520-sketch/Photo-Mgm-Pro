@@ -5,39 +5,48 @@
 ## 模块结构
 
 仓库同时承载两端：**Android App**（`android/`）与 **Windows 桌面版**（`desktop/`），共用仓库根
-`shared/` 下的同一份源码（无副本）。两端各自是独立 Gradle 工程，互不引用、互不影响。
+`shared/` 下的同一份源码（无副本）。**仓库根是唯一的 Gradle 根**，两端模块与共享层模块一起由根
+`settings.gradle.kts` 纳入同一个构建（不再是两个独立工程）。
 
 ```
 Photo-Mgm/
-├── shared/               ★ 共享层（纯 Kotlin JVM，零平台依赖，两端以源码挂载）
+├── settings.gradle.kts   ★ 唯一 Gradle 根：include 全部 8 个项目
+├── build.gradle.kts      插件版本（alias 到 gradle/libs.versions.toml）+ testAll 聚合任务
+├── gradle.properties     全仓统一 JVM 参数 / AndroidX 开关
+├── gradle/
+│   ├── libs.versions.toml     ★ 版本单点来源（Gradle Version Catalog）
+│   └── wrapper/               wrapper（仅本地开发用，CI 不调用）
+├── gradlew / gradlew.bat
+├── shared/               ★ 共享层（纯 Kotlin JVM，零平台依赖，仓内唯一物理源码）
 │   ├── algorithm/           算法内核：日志解析、GPS 分组、事件分类、三态去重、台账、ZIP 导出
 │   ├── domain/              业务规则：视图派生、人工调整、台账投影、EXIF 时间、SHA-256
 │   └── app/                 应用层：跨端契约 api/、端口 port/、会话 state/、用例 usecase/、导出 export/
-├── android/              ★ Android 端（独立工程：:shared:* + :data + :app）
+├── android/              ★ Android 模块（:android:data + :android:app）
 │   ├── data/                MediaStore / SAF / ExifInterface / 图片编解码 / 设置存储
 │   └── app/                 Compose Material3 UI + 编排
-├── desktop/              ★ Windows 桌面端（独立工程：:shared:* + :core + :cli + :ui）
+├── desktop/              ★ Windows 桌面模块（:desktop:core + :desktop:cli + :desktop:ui）
 │   ├── core/                适配器 + 组装根（DesktopCore）
 │   ├── cli/                 无头命令行入口
 │   └── ui/                  Compose Multiplatform 界面
 ├── docs/                  两端共享文档（UI 规格、桌面计划、兼容性矩阵、重构执行计划）
-├── scripts/               静态门禁（协程取消 / @Ignore 可溯源 / 隐式时区 / 共享层纯度）
+├── scripts/               静态门禁（协程取消 / @Ignore 可溯源 / 隐式时区 / 共享层纯度）+ 黄金样本
 └── .github/workflows/     ci.yml、build-apk.yml、build-desktop.yml
 ```
 
-| 模块 / 目录        | 职责                                                     | 依赖                    |
+| 项目（Gradle 全名） | 职责                                                     | 依赖                    |
 | -------------- | ------------------------------------------------------ | --------------------- |
-| `shared/algorithm` | 算法内核（纯 Kotlin JVM，零平台依赖，被两端以源码挂载）             | 无                     |
-| `shared/domain`   | 业务规则（视图派生 / 人工调整 / 台账投影 / EXIF / SHA-256）        | `:shared:algorithm`    |
-| `shared/app`      | 应用层（跨端契约 / 端口 / 会话 / 用例 / 导出）                      | `:shared:domain`       |
-| `android/:data`  | Android 数据接入层（MediaStore / SAF / ExifInterface / 图片编解码） | `:shared:*`            |
-| `android/:app`   | Android UI（Compose Material3，经 `app.api` 契约单向调用共享层） | `:shared:*`, `:data`   |
-| `desktop/:core`  | Windows 适配器 + 组装根（DesktopCore + Pc* 端口实现）           | `:shared:*`            |
-| `desktop/:cli`   | 无头命令行入口                                                  | `:shared:*`, `:core`   |
-| `desktop/:ui`    | Compose Multiplatform 界面（含 jpackage 打包）                 | `:shared:*`, `:core`   |
+| `:shared:algorithm` | 算法内核（纯 Kotlin JVM，零平台依赖，被两端以源码挂载）             | 无                     |
+| `:shared:domain`   | 业务规则（视图派生 / 人工调整 / 台账投影 / EXIF / SHA-256）        | `:shared:algorithm`    |
+| `:shared:app`      | 应用层（跨端契约 / 端口 / 会话 / 用例 / 导出）                      | `:shared:domain`       |
+| `:android:data`  | Android 数据接入层（MediaStore / SAF / ExifInterface / 图片编解码） | `:shared:*`            |
+| `:android:app`   | Android UI（Compose Material3，经 `app.api` 契约单向调用共享层） | `:shared:*`, `:android:data`   |
+| `:desktop:core`  | Windows 适配器 + 组装根（DesktopCore + Pc* 端口实现）           | `:shared:*`            |
+| `:desktop:cli`   | 无头命令行入口                                                  | `:shared:*`, `:desktop:core`   |
+| `:desktop:ui`    | Compose Multiplatform 界面（含 jpackage 打包）                 | `:shared:*`, `:desktop:core`   |
 
-> **共享层只被挂载、不被复制**：两端 `settings.gradle.kts` 用
-> `project(":shared:xxx").projectDir = file("../shared/xxx")` 引入同一份源码；仓库内不存在第二份实现。
+> **共享层只被挂载、不被复制**：根 `settings.gradle.kts` 用 `include(":shared:xxx")` 纳入，
+> 默认 `projectDir` 恰为 `<root>/shared/xxx`，所以物理目录零移动；仓库内不存在第二份实现。
+> （旧的两端 settings 里那 6 行 `projectDir = file("../shared/xxx")` 已随双根拓扑一起删除。）
 
 目录边界、构建隔离方式与"共用核心的影响面"见 [docs/REPO-LAYOUT.md](docs/REPO-LAYOUT.md)。
 
@@ -88,6 +97,70 @@ Photo-Mgm/
 
 ## 构建
 
+**构建拓扑：仓库根是唯一的 Gradle 根，共 8 个模块**（不再是 android/ 与 desktop/ 两个独立工程）：
+
+| 分组 | 项目 | 物理目录 |
+|---|---|---|
+| 共享层 | `:shared:algorithm` `:shared:domain` `:shared:app` | `shared/<mod>/` |
+| Android | `:android:data` `:android:app` | `android/<mod>/` |
+| Windows 桌面 | `:desktop:core` `:desktop:cli` `:desktop:ui` | `desktop/<mod>/` |
+
+物理目录与全部产物路径**零移动**（`android/app/build/...`、`desktop/ui/build/...` 与重构前完全一致）。
+
+### 环境前置（重要）
+
+单根化带来一个**容易被忽略的前置条件变化**，先说清楚再动手：
+
+**① JDK 17** —— 所有 Gradle 任务的前置。8 个模块的 `jvmToolchain(17)` / `jvmTarget 17` 都固定为 17，
+低版本 JDK 会在配置阶段直接失败。设 `JAVA_HOME` 指向 JDK 17 即可。
+
+**② Android SDK 只在执行 `:android:*` 任务时需要，不是「所有命令」的前置**
+
+> 本条曾按「单根 → 配置期全量配置 → 必然要 SDK」推断写成「所有命令都需要」，
+> **2026-11-06 实测推翻**（本机无 SDK、无 `local.properties`）：
+>
+> | 命令 | 结果 |
+> |---|---|
+> | `gradle projects` | `BUILD SUCCESSFUL`，8 个项目全部列出 |
+> | `gradle :desktop:core:test` | `BUILD SUCCESSFUL`（11 tasks） |
+> | `gradle :shared:algorithm:test :shared:domain:test :shared:app:test` | `BUILD SUCCESSFUL` |
+> | `gradle :desktop:ui:test` | `BUILD SUCCESSFUL` |
+> | `gradle :android:data:testDebugUnitTest` | `FAILED`：`SDK location not found. Define a valid SDK location with an ANDROID_HOME …` |
+>
+> 原因：AGP 8.7.3 把 SDK 定位延迟到**任务执行期**，配置期只解析插件、不校验 SDK。
+> 所以单根化**没有**把 SDK 变成全仓前置 —— 这是双根→单根唯一一个「比预想更宽松」的变化。
+
+真正需要 SDK 的是：
+- 任何 `:android:*` 的 `assemble*` / `test*` / 打包任务（执行期才校验，报错很快，20s 内）；
+- `gradle testAll`（它的 8 项 `dependsOn` 含 `:android:data` / `:android:app` 两个测试任务）。
+
+不需要 SDK 的是：`:shared:*` 与 `:desktop:*` 的全部测试与编译、`gradle projects`、
+以及 `build-desktop.yml` 里只跑 `:desktop:ui:createDistributable` / `packageMsi` 的出包流程。
+
+配置方式（只在需要跑 Android 任务时任选其一）：
+- 环境变量 `ANDROID_HOME` 或 `ANDROID_SDK_ROOT` 指向 SDK 根目录；
+- 或在**仓库根**放 `local.properties`，内容一行 `sdk.dir=D:/Android/sdk`
+  （**推荐用正斜杠**；写反斜杠需按 Java properties 规则转义成 `D\\:\\\\Android\\\\sdk`，很容易写错）。
+  `local.properties` 已在 `.gitignore:4` 里，不要提交。
+
+**③ CI**：`setup-java` 提供 JDK 17。各 runner 是否预置 Android SDK **未在本机核验**
+（`.workbuddy/analysis/05-refactor-execution-verification.md` 的 V-B）；即使不预置，
+`build-desktop.yml` 也不受影响——它不执行任何 `:android:*` 任务。
+
+**④ 本地缺 SDK 时不需要开关**：既然只有 `:android:*` 执行期才校验，跑桌面/共享层测试不必绕过；
+根 `settings.gradle.kts` 末尾的 `PHOTOMGM_SKIP_ANDROID`（`settings.gradle.kts:85-88`）仍是
+**注释草案、未启用**，且启用前必须先把 `build.gradle.kts:31-40` 的 `testAll` 改成条件构造，
+否则会引用不存在的项目。**不要**把它当成现成开关。
+
+### 两处 `gradle` 的来源不同，别混用
+
+| 场景 | 用什么 | 为什么 |
+|---|---|---|
+| **本地开发** | 仓库根的 `./gradlew`（或 `gradlew.bat`） | wrapper 的 `distributionUrl` 指向腾讯云镜像（国内快）；wrapper 文件只服务本地 |
+| **CI（GitHub Actions）** | 裸 `gradle`（`gradle/actions/setup-gradle@v6` 装的 8.10.2） | 美国 runner 拉腾讯云分发包容易超时，故 CI **不调用 wrapper**，直接装官方 8.10.2 |
+
+两者版本相同（8.10.2），只是分发包来源不同。CI 的三个 workflow 都不出现 `./gradlew`。
+
 远程仓库按环境自动切换：
 
 
@@ -96,27 +169,37 @@ Photo-Mgm/
 
 * CI（GitHub Actions，自动注入 `CI=true`）：`google()` / `mavenCentral()` 原生源，避免海外 runner 访问国内镜像超时
 
-
-
 ```
-# ── Android 端（仓库根不再有 settings.gradle，命令一律进 android/ 执行）──
-cd android
-./gradlew :shared:algorithm:test :shared:domain:test :shared:app:test   # 共享层三模块用例
-./gradlew :data:test               # 平台接入层用例
-./gradlew :app:testDebugUnitTest   # UI/编排用例（Robolectric）
-./gradlew :app:assembleDebug       # debug APK（release 已启用 R8 混淆与资源裁剪）
-./gradlew :app:assembleRelease
+# ── 全部命令都在仓库根执行（task 用全限定项目路径）──
+cd <仓库根>
 
-# ── Windows 桌面端（独立工程，互不干扰）──
-cd desktop
-./gradlew :shared:algorithm:test :shared:domain:test :shared:app:test   # 共享层（桌面侧挂载）
-./gradlew :core:test :cli:test :ui:test
-./gradlew :ui:createDistributable  # 便携版 app-image
-./gradlew :ui:packageMsi           # MSI（需 WiX，Windows 上执行）
+# 一次跑完全部 8 个模块的单测（CI 用的就是这一条）
+./gradlew testAll
+# 等价展开：
+#   :shared:algorithm:test :shared:domain:test :shared:app:test
+#   :android:data:testDebugUnitTest :android:app:testDebugUnitTest
+#   :desktop:core:test :desktop:cli:test :desktop:ui:test
+#   ★ :desktop:cli 没有 src/test，它的 test 以 NO-SOURCE 结束（不产出 TEST-*.xml）
+
+# ── Android ──
+./gradlew :android:app:assembleDebug     # debug APK（release 已启用 R8 混淆与资源裁剪）
+./gradlew :android:app:assembleRelease
+./gradlew :android:data:test             # 平台接入层用例
+./gradlew :android:app:testDebugUnitTest  # UI/编排用例（Robolectric）
+
+# ── Windows 桌面端 ──
+./gradlew :desktop:core:test :desktop:cli:test :desktop:ui:test
+./gradlew :desktop:ui:createDistributable  # 便携版 app-image
+./gradlew :desktop:ui:packageMsi           # MSI（需 WiX，Windows 上执行）
+./gradlew :desktop:cli:run                 # 直接跑 CLI（黄金样本用）
 ```
 
 产物：`android/app/build/outputs/apk/debug/app-debug.apk`（release 同目录 `.../release/app-release.apk`）；
 桌面端在 `desktop/ui/build/compose/binaries/main/` 下的 `app/PhotoMgm/` 与 `msi/*.msi`。
+
+> `desktop/build/external/` **已不存在**。那是双根时代为了「共享模块产物不被两端互相覆盖」而做的
+> `buildDir` 重定向；单根后 8 个模块各写自己的 `build/`，全仓一份产物，这套补丁已整体删除。
+> 若你的磁盘上残留该目录，属旧构建遗留，可直接删除。
 
 > 正式签名：release 构建会读取本地 `android/keystore/keystore.properties`（不入库；同时兼容旧的仓库根
 > `keystore/keystore.properties`）；缺失时回退 debug 签名，保证任何环境可构建。
@@ -135,11 +218,11 @@ cd desktop
 
 
 
-* `ci.yml`：静态门禁（协程取消 / `@Ignore` 可溯源 / 隐式时区 / 共享层纯度）+ 单元测试，`push`/`pull_request`/手动均触发
+* `ci.yml`：静态门禁（协程取消 / `@Ignore` 可溯源 / 隐式时区 / 共享层纯度）+ 单元测试（一条 `gradle testAll` 一次覆盖全部 8 个模块），`push`/`pull_request`/手动均触发
 
 * `build-apk.yml`（Android）：推 `main` 出 APK 并发布预发布版（`auto-*` 标签）；推 `v*` 标签发布正式版
 
-* `build-desktop.yml`（Windows）：仅 `desktop-v*` 标签与手动派发；标签触发时同时发布 **MSI 安装包 + 便携 ZIP**（runner 自带 WiX 3.14.1）
+* `build-desktop.yml`（Windows）：仅 `desktop-v*` 标签与手动派发；**只负责出包**（单测已由 `ci.yml` 的 `testAll` 覆盖），标签触发时同时发布 **MSI 安装包 + 便携 ZIP**（runner 自带 WiX 3.14.1）
 
 * 同一分支只保留最新构建，自动取消旧的运行中任务
 

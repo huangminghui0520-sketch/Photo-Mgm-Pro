@@ -124,7 +124,8 @@ Android 10（API 29）起，媒体读取走 MediaProvider + FUSE。App 打开媒
 ### 5.1 静态与单测
 
 ```bash
-cd android && ./gradlew.bat test --console=plain
+# ★ 单根多模块（M3 起）：在**仓库根**执行；桌面/安卓模块名均带前缀。
+cd <仓库根> && ./gradlew.bat :android:app:test :android:data:test :shared:algorithm:test --console=plain
 ```
 
 覆盖 `:app` / `:data` / `:shared:algorithm` 三模块 debug+release 单测，全绿（含新增 15 条断言）。

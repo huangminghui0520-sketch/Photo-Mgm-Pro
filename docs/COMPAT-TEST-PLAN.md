@@ -211,19 +211,20 @@ Windows 控制台默认 GBK，CLI 的中文输出（进度、事件清单、告�
 ## 7. 复跑命令
 
 ```bash
-cd desktop
+# ★ 单根多模块（M3 起）：在**仓库根**执行，桌面 CLI 项目名是 :desktop:cli
+cd <仓库根>
 export JAVA_HOME=C:/Users/28988/.workbuddy/jdks/jdk-17.0.2
 export JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF-8"
 
 # 分析（dry-run，只分析不导出）
-./gradlew :cli:run -q --args="--source C:/Users/28988/Desktop/ceshi \
+./gradlew :desktop:cli:run -q --args="--source C:/Users/28988/Desktop/ceshi \
   --date 2026-10-24 \
   --log C:/Users/28988/Desktop/ceshi/10月24日巡查日志.txt \
   --out /tmp/photomgm-compat-out \
   --dry-run --data-dir /tmp/photomgm-compat-test"
 
 # 真实导出（去掉 --dry-run）
-./gradlew :cli:run -q --args="--source C:/Users/28988/Desktop/ceshi \
+./gradlew :desktop:cli:run -q --args="--source C:/Users/28988/Desktop/ceshi \
   --date 2026-10-24 \
   --log C:/Users/28988/Desktop/ceshi/10月24日巡查日志.txt \
   --out C:/Users/28988/Desktop/ceshi/导出结果 \

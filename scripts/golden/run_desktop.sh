@@ -32,8 +32,10 @@ SAMPLEW="$(win "$SAMPLE")"
 OUTW="$(win "$OUT")"
 DATAW="$(win "$DATA")"
 
-cd "$REPO/desktop"
-./gradlew :cli:run --console=plain -q \
+# ★ M5（单根多模块）：仓库根已是唯一 Gradle 根，不再 cd 到 desktop/；
+#   task 用**全限定项目路径** :desktop:cli:run。产物目录未变（desktop/cli/build/...）。
+cd "$REPO"
+./gradlew :desktop:cli:run --console=plain -q \
   --args="--source $SAMPLEW/photos --date 2026-08-14 --log $SAMPLEW/patrol-log-20260814.txt --data-dir $DATAW --out $OUTW" \
   > "$OUT/cli.log" 2>&1 || {
     echo "[FAIL] 导出失败，末尾输出："

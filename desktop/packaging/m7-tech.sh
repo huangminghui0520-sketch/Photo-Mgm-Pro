@@ -13,12 +13,16 @@
 #   packaging/build/dist/PhotoMgmCli/         app-image 目录（可直接双击 exe）
 #   packaging/build/dist/PhotoMgmCli/runtime/ 裁剪后的运行时（测体积看这里）
 #
-# 用法：
+# 用法（脚本会自行 cd，可从任意目录调用）：
 #   JAVA_HOME=/path/to/jdk-17 ./packaging/m7-tech.sh
 #   SMOKE_ARGS="--source D:/photos --date 2026-08-14 ... -o D:/out" ./packaging/m7-tech.sh
 set -euo pipefail
 
+# ★ 单根多模块（M3 起）：desktop/ 不再是独立 Gradle 工程，Gradle 必须在**仓库根**调用。
+#   ROOT 仍是 desktop/（下面 OUT / LIB / APP 都是相对 desktop/ 的路径，保持不变）；
+#   REPO 是它的父目录，即仓库根，只用于调 gradle。
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO="$(cd "$ROOT/.." && pwd)"
 cd "$ROOT"
 
 : "${JAVA_HOME:?请先 export JAVA_HOME 指向 JDK 17（需含 jdeps/jpackage）}"
@@ -29,7 +33,8 @@ LIB="cli/build/install/cli/lib"
 APP="$OUT/dist/PhotoMgmCli"
 
 echo "== 1/5 生成 CLI 发行目录 =="
-./gradlew :cli:installDist --console=plain -q
+# 在仓库根调用、用全限定项目路径；产物仍落在 desktop/cli/build/install/cli/（LIB 不变）
+( cd "$REPO" && ./gradlew :desktop:cli:installDist --console=plain -q )
 ls "$LIB" | sed 's/^/   /'
 
 echo

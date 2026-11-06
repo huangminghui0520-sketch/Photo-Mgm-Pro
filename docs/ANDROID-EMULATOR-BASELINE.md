@@ -224,8 +224,10 @@ adb -s emulator-5554 shell getprop sys.boot_completed    # 轮询到 1，超时 
 ### S2 构建并安装
 
 ```bash
-cd android && ./gradlew.bat :app:assembleDebug --console=plain -q
-adb -s emulator-5554 install -r -t app/build/outputs/apk/debug/app-debug.apk
+# ★ 单根多模块（M3 起）：在**仓库根**执行，task 用全限定项目路径；
+#   产物路径未变（仍是 android/app/build/outputs/apk/debug/app-debug.apk）。
+cd <仓库根> && ./gradlew.bat :android:app:assembleDebug --console=plain -q
+adb -s emulator-5554 install -r -t android/app/build/outputs/apk/debug/app-debug.apk
 adb -s emulator-5554 shell pm clear com.photomgm.app
 adb -s emulator-5554 shell pm grant com.photomgm.app android.permission.READ_MEDIA_IMAGES
 ```

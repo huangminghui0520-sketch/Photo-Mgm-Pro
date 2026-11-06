@@ -1,5 +1,10 @@
 # Photo-Mgm Windows 桌面版 · 开发计划（v1.0）
 
+> ⚠️ **本文档是已完成里程碑的归档计划（历史）**。编制于 2026-10-31，当时 `desktop/` 是独立 Gradle 工程、
+> 项目名为平铺的 `:app` / `:core` / `:ui` / `:algorithm`。**M3 单根化后这些命令全部失效**——
+> 现行命令见 `docs/REPO-LAYOUT.md` §2.9（仓库根执行，项目名 `:desktop:core` / `:desktop:cli` / `:desktop:ui`）。
+> 下表 §六 的命令仅作验收记录留存，不要照抄。
+
 > 编制日期：2026-10-31　依据：`docs/WINDOWS-DESKTOP-PLAN.md`（技术方案 v1.1，commit `2f7fba8`）
 > 性质：**待批准的执行计划**。批准前不执行 M0、不创建 `desktop/`、不改动 `algorithm/ data/ app/`。
 > 排期基准：假设 **T0 = 2026-11-02（周一）批准并开工**，单人串行开发 + 用户节点验收。
@@ -204,7 +209,7 @@ JDK 17（含 jlink/jpackage）、Gradle 8.10.2（wrapper 自取）、WiX 3.11+�
 | 里程碑 | 验证命令 | 通过判据 |
 |---|---|---|
 | M0 | `java -version` / `jlink --version` / `jpackage --version` / `echo %JAVA_HOME%` | 四项均输出 17.x 且路径有效 |
-| M1 | `cd desktop && gradlew -v` → `gradlew :app:run` → `gradlew :algorithm:test` | Gradle 8.10.2；窗口中文标题；290 用例 0 failed |
+| M1 | 【历史】`(进入 desktop/) && gradlew -v` → `gradlew :app:run` → `gradlew :algorithm:test`　**现行**：仓库根 `./gradlew :desktop:ui:run` | Gradle 8.10.2；窗口中文标题；290 用例 0 failed |
 | M2 | `gradlew :app:test --tests "*PcExif*" --tests "*PcPaths*" --tests "*PhotoIdAllocator*"` | 三条单测全绿；100 张对照表时间/GPS 一致率 100% |
 | M3 | `gradlew :app:test --tests "*DesktopViewModel*" --tests "*ExportOrchestrator*"` | 三态重算、晚到不覆盖、取消释放三组用例绿 |
 | M4 | `gradlew :app:run` + 手工走查清单（三档 DPI、多选、拖拽、右键、双击、Esc） | 清单逐项打勾，无错位/无遮挡 |

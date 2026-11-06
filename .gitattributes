@@ -16,3 +16,12 @@ scripts/**/*.sh text eol=lf
 # 工作流同理：GitHub Actions 容忍 CRLF，但一旦换行不一致，
 # 每次改动都会变成整文件重写，diff 完全失去可读性。
 .github/workflows/*.yml text eol=lf
+
+# ★ P2-06：根 wrapper 是单根化后**唯一**的本地 Gradle 入口（M4 已删两端 wrapper）。
+#   gradlew 是以 `#!/bin/sh` 开头的可执行脚本，若检出成 CRLF，Linux/macOS 或容器里的
+#   bash 会把 `\r` 当成解释器路径的一部分，直接报
+#   `bad interpreter: /bin/sh^M: no such file or directory`。
+#   强制 LF，保证任何平台 checkout 后都能直接 `./gradlew`。
+gradlew text eol=lf
+# gradlew.bat 走 Windows cmd，保持 CRLF 更稳（cmd 对 LF-only 的 batch 有已知解析坑）。
+gradlew.bat text eol=crlf

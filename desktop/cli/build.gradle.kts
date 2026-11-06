@@ -12,7 +12,7 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":core"))
+    implementation(project(":desktop:core"))
     implementation(project(":shared:algorithm"))
 }
 

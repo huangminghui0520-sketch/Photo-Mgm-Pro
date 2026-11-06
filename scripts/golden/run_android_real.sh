@@ -149,7 +149,9 @@ if [ "$SKIP_INSTALL" = 1 ]; then
   say "3/9 复用已安装的包"
 else
   say "3/9 构建并安装 debug APK"
-  ( cd "$REPO/android" && ./gradlew.bat :app:assembleDebug --console=plain -q )
+  # ★ M5（单根多模块）：仓库根已是唯一 Gradle 根，task 用**全限定项目路径**。
+  #   projectDir 未变（android/app），所以下面 APK= 的产物路径一个字符都不用改。
+  ( cd "$REPO" && ./gradlew.bat :android:app:assembleDebug --console=plain -q )
   adb_ install -r -t "$APK" >/dev/null || die "安装失败"
 fi
 [ -f "$APK" ] || die "APK 不存在：$APK"
