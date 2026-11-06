@@ -322,9 +322,9 @@ done
 | `testAll` 的 `dependsOn` 项数 | 8（硬编码） |
 | 4 个门禁脚本自测 / 实扫 | 17 / 21 / 13 / 18 组自测通过；实扫 84 / 54 / 231 / 147 文件，0 问题 |
 | 三个 workflow YAML | `yaml.safe_load` 解析通过；`run: gradle ` 计数 = 4，子根写法（`-p`）= 0 |
-| `./gradlew testAll` 实跑 | 非 Android 的 6 个模块**已本地跑通**：`:shared:*` + `:desktop:core/ui` 共 669 用例 / 0 失败 / 1 skipped，`:desktop:cli` NO-SOURCE；整体（含 2 个 `:android:*` 任务）仍需 SDK → **【需 CI 验证】** |
+| `gradle testAll` 实跑 | **已本地全量跑通（2026-11-06 18:16）**：带 `ANDROID_HOME=D:/Android/sdk` + `--rerun-tasks --no-build-cache` → `BUILD SUCCESSFUL in 5m 58s, EXIT=0`；8 个测试任务中 7 个真实执行、`:desktop:cli` NO-SOURCE；**80 份 XML / 765 用例 / 4 skipped / 0 failures / 0 errors / 0 份 tests=0**。CI 首跑仍需复核 runner 环境（V-B），但「本机不可判定」已解除 |
 | `:android:data` 的 test task 名是否为 `testDebugUnitTest` | **已本地确认**：`gradle :android:data:tasks --all` 输出含 `testDebugUnitTest`（`build.gradle.kts:35` 无需改动） |
-| SDK 前置的真实边界 | **已本地实测**：无 SDK 时 `gradle projects`、`:desktop:*`、`:shared:*` 测试全部成功；只有 `:android:*` 的**执行期**报 `SDK location not found`（README「环境前置」已按此改写） |
+| SDK 前置的真实边界 | **已本地实测**：Gradle **定位不到** SDK 时（SDK 实体在 `D:/Android/sdk`，只是未设 `ANDROID_HOME`、仓库无 `local.properties`）`gradle projects`、`:desktop:*`、`:shared:*` 测试全部成功；只有 `:android:*` 的**执行期**报 `SDK location not found`（README「环境前置」已按此改写）。带 SDK 时 `testAll --dry-run` 8 个测试任务全在图中 |
 | `scripts/check-ci-gradle-source.py` | G10 **完备**判据（仅标准库；15 组 selftest + 3 类真实变异）；**尚未挂进 `static-guards`**，待首跑绿后单独提交挂入 |
 
 #### 判据通则（写门禁 / 验收命令前先读这条）
