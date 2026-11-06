@@ -280,10 +280,11 @@ UI 需要的数据全在 `AppState` 里：`events` / `photos` / `eventPhotoIds` 
 
 ## 四、构建与测试
 
-前置：**JDK 17**（本机在 `C:\Users\28988\.workbuddy\jdks\jdk-17.0.2`，未写入系统 `JAVA_HOME`）。
+前置：**JDK 17**（本机在 `D:/Android/jdk-17.0.2`，`C:\Users\28988\.workbuddy\jdks\jdk-17.0.2` 是同一份副本；两者都未写入系统 `JAVA_HOME`，需显式设置）。
 Android SDK **只有执行 `:android:*` 任务时才需要**，桌面测试不需要。
 
-> ✅ **桌面模块不需要 Android SDK**（2026-11-06 实测，本机无 SDK、无 `local.properties`）：
+> ✅ **桌面模块不需要 Android SDK**（2026-11-06 实测，当次未设 `ANDROID_HOME`、无 `local.properties`，
+> 即 Gradle 定位不到 SDK；SDK 实体本机其实在 `D:/Android/sdk`，措辞已从「本机无 SDK」更正）：
 > `gradle projects` / `gradle :desktop:core:test` / `:desktop:ui:test` / `:shared:*:test`
 > 全部 `BUILD SUCCESSFUL`（669 用例 0 失败）；只有 `gradle :android:data:testDebugUnitTest`
 > 报 `SDK location not found`。原因：AGP 8.7.3 把 SDK 定位推迟到**任务执行期**，配置期不校验。

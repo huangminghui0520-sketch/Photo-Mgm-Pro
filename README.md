@@ -113,11 +113,15 @@ Photo-Mgm/
 
 **① JDK 17** —— 所有 Gradle 任务的前置。8 个模块的 `jvmToolchain(17)` / `jvmTarget 17` 都固定为 17，
 低版本 JDK 会在配置阶段直接失败。设 `JAVA_HOME` 指向 JDK 17 即可。
+本机 JDK 17.0.2 装在 `D:/Android/jdk-17.0.2`（历史副本 `D:/Photo-Mgm/Photo-Mgm/local.properties`
+里也是这么记的），`C:\Users\28988\.workbuddy\jdks\jdk-17.0.2` 是同一份的副本
+（两者 `bin/java.exe` sha256 相同：`3ab0516b67b52410…`）。两者都**没有**写进系统 `JAVA_HOME`，需显式设置。
 
 **② Android SDK 只在执行 `:android:*` 任务时需要，不是「所有命令」的前置**
 
 > 本条曾按「单根 → 配置期全量配置 → 必然要 SDK」推断写成「所有命令都需要」，
-> **2026-11-06 实测推翻**（本机无 SDK、无 `local.properties`）：
+> **2026-11-06 实测推翻**（当次未设 `ANDROID_HOME`、无 `local.properties`，即 Gradle **定位不到** SDK；
+> 注意：SDK 实体本机其实有，在 `D:/Android/sdk`，只是当时没挂到环境变量——措辞已从「本机无 SDK」更正）：
 >
 > | 命令 | 结果 |
 > |---|---|
@@ -142,6 +146,11 @@ Photo-Mgm/
 - 或在**仓库根**放 `local.properties`，内容一行 `sdk.dir=D:/Android/sdk`
   （**推荐用正斜杠**；写反斜杠需按 Java properties 规则转义成 `D\\:\\\\Android\\\\sdk`，很容易写错）。
   `local.properties` 已在 `.gitignore:4` 里，不要提交。
+
+本机 SDK 在 `D:/Android/sdk`，组件完整（`platforms/android-34/android.jar`、
+`build-tools/34.0.0`、`platform-tools`、`licenses`）。实测
+`ANDROID_HOME=D:/Android/sdk gradle testAll --dry-run` → `BUILD SUCCESSFUL`，
+任务图里 8 个测试任务齐全（2026-11-06）。
 
 **③ CI**：`setup-java` 提供 JDK 17。各 runner 是否预置 Android SDK **未在本机核验**
 （`.workbuddy/analysis/05-refactor-execution-verification.md` 的 V-B）；即使不预置，
