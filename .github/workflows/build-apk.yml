@@ -78,18 +78,18 @@ jobs:
         run: gradle :android:app:assembleRelease --no-daemon
 
       # AGP 8.7.3 公共 API 不支持配置 APK 输出名，构建产物为 app-release.apk；
-      # 上传前重命名为 Photo-Mgm-release.apk
+      # 上传前重命名为 Photo-Mgm-debug.apk（未配置 KEYSTORE_BASE64 时为 debug 签名、非发布产物）
       - name: Rename APK
         shell: bash
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release.apk dist/Photo-Mgm-release.apk
+          cp android/app/build/outputs/apk/release/app-release.apk dist/Photo-Mgm-debug.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v5
         with:
-          name: Photo-Mgm-release-apk
-          path: dist/Photo-Mgm-release.apk
+          name: Photo-Mgm-debug-apk
+          path: dist/Photo-Mgm-debug.apk
           if-no-files-found: error
 
       # ── 正式版发布：仅 v* 标签触发（如 v1.0.0）──
@@ -98,13 +98,13 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          name: Photo-Mgm ${{ github.ref_name }}
+          name: Photo-Mgm ${{ github.ref_name }}（debug 签名，非发布产物）
           body: |
             ## Photo-Mgm ${{ github.ref_name }}
-            正式发布版安装包。
+            未配置 KEYSTORE_BASE64 等 Secrets，产物为 debug 签名、非发布产物。
             - Commit：`${{ github.sha }}`
-            - 说明：请确认已配置 KEYSTORE_BASE64 等 Secrets，否则为 debug 签名。
-          files: dist/Photo-Mgm-release.apk
+            - 说明：正式签名版需配置 KEYSTORE_BASE64 等 Secrets 后，由 v* 标签发布。
+          files: dist/Photo-Mgm-debug.apk
           draft: false
           prerelease: false
         env:
@@ -116,13 +116,13 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: auto-${{ github.run_number }}
-          name: Photo-Mgm 自动构建 #${{ github.run_number }}
+          name: Photo-Mgm 自动构建（debug 签名，非发布产物） #${{ github.run_number }}
           body: |
-            每次推送 main 自动生成的测试安装包。
+            每次推送 main 自动生成的测试安装包（debug 签名、非发布产物）。
             - 构建序号：#${{ github.run_number }}
             - Commit：`${{ github.sha }}`
-            - 说明：此为自动构建（debug 签名），正式签名版请打 v* 标签发布。
-          files: dist/Photo-Mgm-release.apk
+            - 说明：未配置 KEYSTORE_BASE64 等 Secrets，产物为 debug 签名、非发布产物；正式签名版需配置 KEYSTORE_BASE64 等 Secrets 后，由 v* 标签发布。
+          files: dist/Photo-Mgm-debug.apk
           draft: false
           prerelease: true
         env:
