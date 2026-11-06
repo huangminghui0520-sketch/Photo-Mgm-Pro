@@ -73,10 +73,32 @@ I3  有原因但字符串里不含 `#<数字>` → 违规：无法溯源到 issu
     X4 failures+errors 必须为 0；
     skipped 条数与逐条清单**始终打印**，不设拍脑袋的上限（阈值会让合法的样本缺失变红）。
 
+★ 2026-11-06 再收紧（X5）：XML 必须属于**本次 run**
+------------------------------------------------
+X1~X4 只看「有没有 XML / 计数如何」，不看 XML 是哪次执行留下的。上一次遗留的 XML、
+本地混合报告、以及 FROM-CACHE 恢复的 XML 都能满足 X2。实测证据（CI run
+42204749670 的 test-reports artifact）：`shared/algorithm` 的 23 份 XML 在 zip 里的
+**mtime 全是本次 run 的 2026-11-06 10:44:36**（晚于 run 起点 10:42:47Z），
+但 `<testsuite timestamp>` 是 `2026-11-04T14:24:xx`、`hostname=runnervm48cm3`
+（另一次 run / 另一台 runner）；本次 run 其余模块的 hostname 是 `runnervm7aw5e`。
+→ **只用 mtime 会放过缓存恢复的旧报告**，必须同时校验 XML 内嵌时间。
+
+    X5（仅在提供 --marker / --since 时启用）：逐份 XML 同时要求
+      ① 文件 mtime >= 本次 run 起点（抓「上一次遗留的 XML」）；
+      ② `<testsuite timestamp>`（Gradle 写 UTC）>= 本次 run 起点
+         （抓「mtime 被刷新、内容仍是旧的」FROM-CACHE 报告）；
+      ③ timestamp 缺失或不可解析 = 无法判定 run 归属，判红。
+    hostname 集合只打印不判红（多机执行可能合法），便于人工看出跨 run 混入。
+    CI 在 gradle 之前用 `date -u +%s` 落 marker 文件并传 --marker；
+    gradle 加 --no-build-cache，避免 FROM-CACHE 把旧 XML 直接搬进本次目录。
+    未给 marker 时打印 `[X5] SKIP`，明确「X1~X4 的绿不代表本次执行」。
+
 用法
 ----
     python3 scripts/check-ignore-policy.py [路径 ...]   # 默认扫 android/app shared android/data + desktop/*/src/test
     python3 scripts/check-ignore-policy.py --xml        # 源码扫描 + JUnit XML 运行期汇总（CI unit-test job 用）
+    python3 scripts/check-ignore-policy.py --xml --marker "$RUNNER_TEMP/ci-run-start.epoch"   # 启用 X5
+    python3 scripts/check-ignore-policy.py --xml --since 2026-11-06T10:42:47Z               # 等价写法
     python3 scripts/check-ignore-policy.py --selftest   # 内置样例自测（不依赖仓库代码）
     python3 scripts/check-ignore-policy.py --allow-unannotated-skip   # S1/S2 不判红（过渡用，CI 不用）
     退出码 0=通过  1=发现违规 / 跳过不合规 / 运行期判据失败 / 自测失败
@@ -104,9 +126,11 @@ I3  有原因但字符串里不含 `#<数字>` → 违规：无法溯源到 issu
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
 
 # 仓库根 = 本脚本（scripts/）的上级目录
@@ -382,6 +406,117 @@ def evaluate_xml(summaries: dict[str, dict], parse_problems: list[str]) -> list[
         if bad:
             out.append(f'[X4] {m}: failures+errors={bad}')
     return out
+
+
+# ------------------- X5：XML 与本次 run 的归属（--marker / --since） -------------------
+
+GRADLE_TS_FMT = '%Y-%m-%dT%H:%M:%S'
+CLOCK_SKEW_SEC = 2.0     # marker 与测试启动之间的秒级截断 / 时钟抖动容忍
+
+
+def parse_since(value: str) -> float:
+    """`--since` → UTC epoch 秒。支持 epoch 秒、ISO8601（Z / +00:00 / 无时区按 UTC）。"""
+    v = value.strip()
+    try:
+        return float(v)
+    except ValueError:
+        pass
+    s = v[:-1] + '+00:00' if v.endswith('Z') else v
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError as exc:
+        raise ValueError(
+            f'--since 无法解析：{value!r}（用 epoch 秒或 2026-11-06T10:42:47Z）'
+        ) from exc
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def read_marker(path: Path) -> float:
+    """marker 文件内容为 epoch 秒（CI 用 `date -u +%s`）；非数字则退回其 mtime。"""
+    if not path.is_file():
+        raise ValueError(f'--marker 文件不存在：{path}（CI 需先跑「记录本次 run 起点」步骤）')
+    text = path.read_text(encoding='utf-8').strip()
+    try:
+        return float(text)
+    except ValueError:
+        return path.stat().st_mtime
+
+
+def _xml_timestamp_epoch(raw: str) -> float:
+    """`<testsuite timestamp>` → UTC epoch。Gradle 写的是 UTC（无时区后缀）。"""
+    try:
+        return datetime.strptime(raw, GRADLE_TS_FMT).replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        dt = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+
+
+def check_run_attribution(root: Path, since: float) -> tuple[list[str], dict]:
+    """X5：每份 JUnit XML 都必须属于 `since` 之后的这次 run。
+
+    mtime 与内嵌 timestamp **两条都要过**：实测 FROM-CACHE 恢复的报告 mtime 会被
+    刷新成本次 run，只有 `<testsuite timestamp>` 还留着上一次执行的时间。
+    """
+    problems: list[str] = []
+    stats = {'files': 0, 'stale_mtime': 0, 'stale_timestamp': 0,
+             'no_timestamp': 0, 'hosts': set(), 'oldest_ts': None}
+    start_utc = datetime.fromtimestamp(since, timezone.utc).strftime(GRADLE_TS_FMT)
+    files = sorted(
+        p for p in root.rglob('TEST-*.xml')
+        if '/build/test-results/' in p.as_posix().replace('\\', '/')
+    )
+    for p in files:
+        relp = rel(p)
+        stats['files'] += 1
+        mtime = p.stat().st_mtime
+        if mtime < since - CLOCK_SKEW_SEC:
+            mt_utc = datetime.fromtimestamp(mtime, timezone.utc).strftime(GRADLE_TS_FMT)
+            problems.append(
+                f'[X5] {relp}: 文件 mtime={mt_utc} 早于本次 run 起点 {start_utc}'
+                f'（上一次遗留的 XML 冒充本次执行）'
+            )
+            stats['stale_mtime'] += 1
+        try:
+            suite = ET.parse(p).getroot()
+        except ET.ParseError:
+            continue                       # 损坏报告已由 X1~X4 的 parse_problems 负责
+        ts_raw = suite.get('timestamp')
+        if not ts_raw:
+            problems.append(f'[X5] {relp}: 缺 <testsuite timestamp>，无法判定 run 归属')
+            stats['no_timestamp'] += 1
+        else:
+            try:
+                ts_epoch = _xml_timestamp_epoch(ts_raw)
+            except ValueError:
+                problems.append(f'[X5] {relp}: <testsuite timestamp> 不可解析：{ts_raw!r}')
+                stats['no_timestamp'] += 1
+            else:
+                if ts_epoch < since - CLOCK_SKEW_SEC:
+                    problems.append(
+                        f'[X5] {relp}: <testsuite timestamp>={ts_raw} 早于本次 run 起点 '
+                        f'{start_utc}（mtime 虽新、内容是旧的：FROM-CACHE 恢复的报告）'
+                    )
+                    stats['stale_timestamp'] += 1
+                if stats['oldest_ts'] is None or ts_raw < stats['oldest_ts']:
+                    stats['oldest_ts'] = ts_raw
+        host = suite.get('hostname')
+        if host:
+            stats['hosts'].add(host)
+    return problems, stats
+
+
+def print_run_attribution(since: float, stats: dict) -> None:
+    start_utc = datetime.fromtimestamp(since, timezone.utc).strftime(GRADLE_TS_FMT)
+    hosts = ', '.join(sorted(stats['hosts'])) or '(无 hostname 属性)'
+    print(f'[X5] run 归属（起点 UTC {start_utc}）：核查 {stats["files"]} 份 XML；'
+          f'mtime 陈旧 {stats["stale_mtime"]} 份 / 内嵌 timestamp 陈旧 '
+          f'{stats["stale_timestamp"]} 份 / 缺或坏 timestamp {stats["no_timestamp"]} 份；'
+          f'最早 timestamp={stats["oldest_ts"]}；hostname 集合={hosts}'
+          '（hostname 仅打印，多机执行不判红）')
 
 
 def print_xml_report(summaries: dict[str, dict]) -> None:
@@ -807,15 +942,66 @@ def selftest() -> int:
             failed.append(f'  ✗ X_collect_xml 真解析：sums={sums} problems={pproblems}')
         else:
             print('  ✓ X_collect_xml 真解析 7 模块 / 21 例 / 1 skipped')
+
+        # ---- X5 run 归属自测：判据必须能抓到「旧 XML 冒充本次执行」 ----
+        # 固定时间轴：run 起点 10:00Z；本次执行 10:05Z；2 天前的旧报告 2026-11-04。
+        since_x5 = datetime(2026, 11, 6, 10, 0, 0, tzinfo=timezone.utc).timestamp()
+        now_x5 = datetime(2026, 11, 6, 10, 30, 0, tzinfo=timezone.utc).timestamp()
+        old_x5 = datetime(2026, 11, 4, 10, 0, 0, tzinfo=timezone.utc).timestamp()
+        x5root = root / 'x5root'
+        x5d = x5root / 'm' / 'build' / 'test-results' / 'test'
+        x5d.mkdir(parents=True, exist_ok=True)
+
+        def x5_write(ts, mtime, hostname='runnerA'):
+            p = x5d / 'TEST-x.xml'
+            attr = f' timestamp="{ts}"' if ts is not None else ''
+            p.write_text(
+                '<testsuite tests="1" failures="0" errors="0" skipped="0"'
+                f'{attr} hostname="{hostname}"><testcase classname="a.T" name="f"/>'
+                '</testsuite>', encoding='utf-8')
+            os.utime(p, (mtime, mtime))
+            return p
+
+        x5_cases = [
+            ('X5_本次执行XML不报', '2026-11-06T10:05:00', now_x5, None),
+            ('X5_上次遗留XML_mtime旧必须报', '2026-11-06T10:05:00', old_x5, 'X5'),
+            ('X5_FROM_CACHE_内嵌时间旧但mtime新必须报', '2026-11-04T10:05:00', now_x5, 'X5'),
+            ('X5_缺timestamp必须报', None, now_x5, 'X5'),
+        ]
+        for name, ts, mt, want in x5_cases:
+            for p in x5d.glob('TEST-*.xml'):
+                p.unlink()
+            x5_write(ts, mt)
+            probs, _st = check_run_attribution(x5root, since_x5)
+            ok = (not probs) if want is None else any(f'[{want}]' in x for x in probs)
+            if not ok:
+                failed.append(f'  ✗ {name}: 期望 {want or "无问题"}，实际 {probs}')
+            else:
+                print(f'  ✓ {name}')
+
+        # marker / since 解析：epoch 与 ISO 两种写法必须等价
+        mp = root / 'ci-run-start.epoch'
+        mp.write_text(str(int(since_x5)), encoding='utf-8')
+        x5_parse_ok = (
+            read_marker(mp) == since_x5
+            and parse_since('2026-11-06T10:00:00Z') == since_x5
+            and parse_since(str(int(since_x5))) == since_x5
+        )
+        if not x5_parse_ok:
+            failed.append('  ✗ X5_marker与since解析：epoch 与 ISO 写法不等价')
+        else:
+            print('  ✓ X5_marker与since解析')
     print('  ✓ CRLF/LF 等价性')
 
     if failed:
         print('\n自测失败：')
         print('\n'.join(failed))
         return 1
-    total = len(CASES) + len(SKIP_CASES) + len(xml_checks) + 1
+    total = (len(CASES) + len(SKIP_CASES) + len(xml_checks)
+             + 1 + len(x5_cases) + 1)
     print(f'\n自测通过：{total} 组样例（{len(CASES)} 组注解规则 + {len(SKIP_CASES)} 组跳过扫描'
-          f' + {len(xml_checks)} 组 XML 判据 + 1 组 collect_xml 真解析）'
+          f' + {len(xml_checks)} 组 XML 判据 + 1 组 collect_xml 真解析'
+          f' + {len(x5_cases)} 组 X5 run 归属 + 1 组 marker/since 解析）'
           f' + WARN 退出码 + CRLF 等价性')
     return 0
 
@@ -839,12 +1025,43 @@ def rel(path: Path) -> str:
         return path.as_posix()
 
 
+def parse_args(argv: list[str]) -> tuple[set[str], dict[str, str], list[str]]:
+    """手工解析：--marker / --since 带值，其余开关无值，其余非 '-' 参数是扫描路径。
+
+    不用 argparse 是为了保持「零第三方依赖 + 只用标准库」的既有口径，
+    也避免它把未知开关吞成错误文本（本脚本允许附加任意路径参数）。
+    """
+    flags: set[str] = set()
+    params: dict[str, str] = {}
+    roots: list[str] = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a in ('--marker', '--since'):
+            if i + 1 >= len(argv) or argv[i + 1].startswith('--'):
+                raise ValueError(f'{a} 缺少取值（例：--marker "$RUNNER_TEMP/ci-run-start.epoch"）')
+            params[a] = argv[i + 1]
+            flags.add(a)
+            i += 2
+            continue
+        if a.startswith('-'):
+            flags.add(a)
+        else:
+            roots.append(a)
+        i += 1
+    return flags, params, roots
+
+
 def main() -> int:
-    flags = {a for a in sys.argv[1:] if a.startswith('-')}
+    try:
+        flags, params, roots = parse_args(sys.argv[1:])
+    except ValueError as exc:
+        print(f'check-ignore-policy: 参数错误：{exc}')
+        return 1
     if '--selftest' in flags:
         return selftest()
     allow_unannotated = '--allow-unannotated-skip' in flags
-    roots = [a for a in sys.argv[1:] if not a.startswith('-')] or DEFAULT_ROOTS
+    roots = roots or DEFAULT_ROOTS
 
     files: list[Path] = []
     for r in roots:
@@ -905,23 +1122,55 @@ def main() -> int:
 
     # ---- 运行期 skipped 汇总（--xml）----
     xml_problems: list[str] = []
+    x5_state = 'off'                       # off / skip / on
     if '--xml' in flags:
         xml_summaries, parse_problems = collect_xml(REPO_ROOT)
         print()
         print_xml_report(xml_summaries)
         xml_problems = evaluate_xml(xml_summaries, parse_problems)
+
+        # X5：只有显式给了本次 run 起点才能判定「XML 是不是这次跑出来的」。
+        since: float | None = None
+        try:
+            if '--marker' in params:
+                mp = Path(params['--marker'])
+                since = read_marker(REPO_ROOT / mp if not mp.is_absolute() else mp)
+            elif '--since' in params:
+                since = parse_since(params['--since'])
+        except (ValueError, OSError) as exc:
+            xml_problems.append(f'[X5] 无法读取本次 run 起点：{exc}')
+        if since is not None:
+            x5_problems, x5_stats = check_run_attribution(REPO_ROOT, since)
+            print_run_attribution(since, x5_stats)
+            xml_problems += x5_problems
+            x5_state = 'on'
+        elif not any(x.startswith('[X5]') for x in xml_problems):
+            x5_state = 'skip'
+            print('[X5] SKIP：未提供 --marker / --since，无法判定 XML 是否属于本次 run。'
+                  '本地自检模式下 X1~X4 的「通过」只证明报告内容自洽，'
+                  '不证明这些测试在本次执行中真的跑过。')
+
         if xml_problems:
             print(f'\n[SKIP-SCAN] 运行期判据不通过（{len(xml_problems)} 条）：')
             for x in xml_problems:
                 print('  ' + x)
         else:
-            print('[SKIP-SCAN] 运行期判据 X1~X4 通过（7 个应出报告模块齐全、'
-                  '无整模块空跑、无 failures/errors）')
+            tail = ('X1~X5 通过（7 个应出报告模块齐全、无整模块空跑、无 failures/errors、'
+                    'XML 均属于本次 run）' if x5_state == 'on' else
+                    'X1~X4 通过；X5 未启用（不代表本次执行）')
+            print(f'[SKIP-SCAN] 运行期判据 {tail}')
+    elif '--marker' in params or '--since' in params:
+        print('check-ignore-policy: --marker / --since 只在 --xml 模式下生效')
+        return 1
 
     if problems or (warns and not allow_unannotated) or xml_problems:
         return 1
 
-    suffix = '；--xml 运行期判据 X1~X4 通过' if '--xml' in flags else ''
+    if '--xml' in flags:
+        suffix = ('；--xml 运行期判据 X1~X5 通过（XML 属于本次 run）' if x5_state == 'on'
+                  else '；--xml X1~X4 通过、X5 未启用（不代表本次执行）')
+    else:
+        suffix = ''
     print(f'check-ignore-policy: OK（{scanned} 个测试文件；'
           f'@Ignore/@Disabled 0 处违规；assumeTrue/assumeFalse 调用点 {len(detail)} 处，'
           f'不满足 S1/S2 的 {warns} 处{suffix}）')

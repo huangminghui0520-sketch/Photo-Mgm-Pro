@@ -161,6 +161,10 @@ jobs:
       #   CI 绿了但覆盖为零（I-02「空真绿灯」的翻版）。
       #   ★ 加 --continue：首个失败任务不再中止整条 gradle，8 个模块都产出 XML，
       #     "仅这 N 个失败 / 其余 M 例通过"才是可复算的结论，而不是靠控制台猜。
+      #     ★★ 口径必须写死（push 说明 / 任何交付描述沿用原句）：
+      #     「--continue 的目的是让所有模块都执行以便归因，不是让 CI 变绿。
+      #       本次 push 后 CI 预期仍为红，红色是归因窗口，不是回归信号。」
+      #     job 的最终状态仍由失败任务决定 = failure；--continue 不改变这一点。
       # ★ M3（单根化）：仓库根就是唯一的 Gradle 根，不再需要 -p 指定子工程。
       #   旧的「android/ 是独立工程、必须 -p android」注释已作废（那套双根拓扑已删除）。
       #   一条 `gradle testAll` 覆盖 8 个模块，接线清单在根 build.gradle.kts 的 testAll
@@ -169,16 +173,29 @@ jobs:
       #   ★ 任务名差异（`:android:*` 用 testDebugUnitTest，其余用 test）已由 testAll 吸收。
       #   ★ :android:data 的 task 名仍需 CI 首次运行确认（`gradle :android:data:tasks --all`）；
       #     若 AGP 给出别的名字，改根 build.gradle.kts 的 testAll 一行即可（不在本文件里）。
+      # ★ X5 run 归属：在 gradle 之前落一个本次 job 的 UTC 起点。
+      #   没有它，门禁只看到「有 XML」；上一次遗留的 XML / FROM-CACHE 恢复的
+      #   旧报告都能满足 X2。实测：FROM-CACHE 的 XML mtime 会被刷新成本次 run，
+      #   只有 <testsuite timestamp> 还留着旧值，所以 X5 两条时间都查。
+      - name: 记录本次 run 起点（X5 run 归属）
+        run: |
+          date -u +%s > "$RUNNER_TEMP/ci-run-start.epoch"
+          echo "[X5] run 起点 UTC epoch=$(cat "$RUNNER_TEMP/ci-run-start.epoch")"
+
+      # ★ --no-build-cache：CI 首跑 `shared/algorithm` 是 FROM-CACHE，23 份 XML
+      #   的 <testsuite timestamp> 是两天前、hostname 是另一台 runner。缓存恢复的
+      #   报告不算「本次执行」；关掉读缓存，让 8 个测试任务真的跑、产出本次 XML。
       - name: Run unit tests
-        run: gradle testAll --no-daemon --console=plain --continue
+        run: gradle testAll --no-daemon --console=plain --continue --no-build-cache
 
       # ★ 运行期 skipped 汇总（方向 1 第一步）：静态 [SKIP-SCAN] 只数源码调用点，
       #   读不到 JUnit XML 的 skipped。即使 gradle 失败，if: always() 也要跑这一步，
       #   把「哪些用例被跳过 / 哪些模块根本没出报告」打进日志；X1~X4 同时拦住
-      #   「整模块空跑」「3 个模块没跑却自称全量」这两类空真绿灯。
+      #   「整模块空跑」「3 个模块没跑却自称全量」这两类空真绿灯；X5 校验
+      #   每份 XML 的 mtime 与 <testsuite timestamp> 都晚于本次 run 起点。
       - name: 运行期 skipped 汇总（[SKIP-SCAN] XML 口径）
         if: always()
-        run: python3 scripts/check-ignore-policy.py --xml
+        run: python3 scripts/check-ignore-policy.py --xml --marker "$RUNNER_TEMP/ci-run-start.epoch"
 
       # ★ 报告上传必须覆盖**全部实际跑测的模块**（用 glob，不逐个模块硬编码）：
       #   单测报告漏传 = 失败时看不到原因，等于把 CI 变成"红了一个字"。
