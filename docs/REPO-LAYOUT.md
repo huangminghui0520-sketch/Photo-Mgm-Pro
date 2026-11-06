@@ -369,7 +369,7 @@ git tag -a desktop-v2.0.0 -m "Windows 桌面版 2.0.0" && git push origin deskto
 CI 上的判定标准：
 
 - `ci.yml` 绿 = 结构约束（§2.6，含"无双根残留"）+ 四个门禁 + `gradle testAll` 覆盖全部 8 个模块；
-- `build-apk.yml` 绿 = 出 `Photo-Mgm-release-apk` artifact（`v*` 标签则发 Release）；
+- `build-apk.yml` 绿 = 出 `Photo-Mgm-debug-apk` artifact（`v*` 标签则发 Release）；
 - `build-desktop.yml` 绿（仅 `desktop-v*` / 手动）= 出 `PhotoMgm-desktop-portable` artifact（**不含单测**）。
 
 > **`testAll` 绿的真正判据**：不是"8 条 Task 行都出现"，而是 8 份 `build/test-results/**/TEST-*.xml`
