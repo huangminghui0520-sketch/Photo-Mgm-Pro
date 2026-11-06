@@ -1,7 +1,7 @@
 // LogParserReport.kt —— 日志解析诊断/验证入口（非核心算法逻辑，仅供人工审核解析输出）
 // 用法：
-//   默认跑黄金样本： gradle :algorithm:runLogParser
-//   验证自己的日志： gradle :algorithm:runLogParser --args="--file=你的日志文件.txt"
+//   默认跑黄金样本： gradle :shared:algorithm:runLogParser
+//   验证自己的日志： gradle :shared:algorithm:runLogParser --args="--file=你的日志文件.txt"
 package algorithm
 
 import java.io.File

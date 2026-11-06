@@ -1,7 +1,7 @@
 // desktop/cli/Main.kt —— 无头命令行入口（逻辑核心的第一个消费者）
 //
 // 用法（示例）：
-//   gradlew :cli:run --args="--source D:/巡查照片 --date 2026-10-30 --log D:/巡查日志.txt --out D:/导出"
+//   ./gradlew :desktop:cli:run --args="--source D:/巡查照片 --date 2026-10-30 --log D:/巡查日志.txt --out D:/导出"
 //
 // 设计约束：
 //   · 本文件不 import 任何 UI/AWT 窗口类，只依赖 api 门面 —— 与未来的 UI 是平级消费者；
@@ -165,7 +165,7 @@ private fun printUsage() {
         Photo-Mgm Windows 逻辑核心（无头模式）
 
         用法：
-          gradlew :cli:run --args="--source <照片目录> [--source ...] --date 2026-10-30 --log <日志.txt> --out <导出目录>"
+          ./gradlew :desktop:cli:run --args="--source <照片目录> [--source ...] --date 2026-10-30 --log <日志.txt> --out <导出目录>"
 
         参数：
           --source, -s     照片源目录（可重复，多个目录取并集）
@@ -181,7 +181,7 @@ private fun printUsage() {
           --help, -h       显示本帮助
 
         示例：
-          gradlew :cli:run --args="-s D:/巡查照片 -d 2026-10-30 -l D:/日志.txt -o D:/导出"
+          ./gradlew :desktop:cli:run --args="-s D:/巡查照片 -d 2026-10-30 -l D:/日志.txt -o D:/导出"
         """.trimIndent(),
     )
 }
