@@ -11,6 +11,18 @@
 用法：
     python scripts/golden/compare.py --base docs/golden/desktop-baseline.json --after /tmp/after.json
     python scripts/golden/compare.py --base a.json --after b.json --ignore '导出时间' --max 40
+
+退出码边界用例（4 条，可直接复算；M1 修完 I-08 后实测 0/1/2/2）：
+    python scripts/golden/compare.py --base A --after A                    # 合法相同 → 0
+    python scripts/golden/compare.py --base A --after B                    # 合法不同 → 1
+    printf '{bad json' > /tmp/bad.json
+    python scripts/golden/compare.py --base A --after /tmp/bad.json        # 坏 JSON  → 2
+    python scripts/golden/compare.py --base A --after /tmp/not-exist.json  # 文件不存在 → 2
+
+★ 修 I-08 的原因：`json.loads`（原 `:72-73`）没有异常保护，坏 JSON 会抛未捕获的
+  JSONDecodeError → 进程以 **1** 退出，与「有差异」撞码。自动化里这是最坏的一种混码：
+  "基线变了"和"工具/输入坏了"看起来一样。现在读入与解码统一走 `_load_json`，
+  失败一律 EXIT=2 并打印 `[ERROR] 无法解析 …`；`--ignore` 的非法正则同样 EXIT=2。
 """
 
 from __future__ import annotations
@@ -20,6 +32,20 @@ import json
 import re
 import sys
 from pathlib import Path
+
+
+class _InputError(Exception):
+    """输入不可用（文件缺失 / 非 JSON / 非法正则）→ 映射到 EXIT=2。"""
+
+
+def _load_json(path: str) -> object:
+    """读入并解析一份快照 JSON。任何读/解码/语法错误都映射到 EXIT=2。"""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        print(f"[ERROR] 无法解析 {path}: {exc}")
+        raise _InputError(str(exc)) from exc
+
 
 def walk(a, b, path: str, diffs: list[tuple[str, object, object]], ignores: list[re.Pattern]) -> None:
     if any(p.search(path) for p in ignores):
@@ -69,9 +95,17 @@ def main() -> int:
             print(f"[FAIL] 文件不存在：{p}")
             return 2
 
-    base = json.loads(Path(args.base).read_text(encoding="utf-8"))
-    after = json.loads(Path(args.after).read_text(encoding="utf-8"))
-    ignores = [re.compile(p) for p in args.ignore]
+    try:
+        base = _load_json(args.base)
+        after = _load_json(args.after)
+    except _InputError:
+        return 2
+
+    try:
+        ignores = [re.compile(p) for p in args.ignore]
+    except re.error as exc:
+        print(f"[ERROR] --ignore 正则无效: {exc}")
+        return 2
 
     diffs: list[tuple[str, object, object]] = []
     walk(base, after, "", diffs, ignores)

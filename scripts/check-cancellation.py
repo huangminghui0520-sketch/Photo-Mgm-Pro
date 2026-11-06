@@ -28,9 +28,12 @@ R2  协程上下文内禁止裸 runCatching
 
 用法
 ----
-    python3 scripts/check-cancellation.py [路径 ...]     # 默认扫 app algorithm data
+    python3 scripts/check-cancellation.py [路径 ...]     # 默认扫 android/app shared android/data + desktop 三模块
     python3 scripts/check-cancellation.py --selftest     # 内置样例自测（不依赖仓库代码）
     退出码 0=通过  1=发现违规 / 自测失败
+
+    ★ I-04（M1）：默认根补上了 desktop（core/cli/ui 的 src/main 与 src/test）。
+      补之前 desktop 的 80 个 .kt 完全在盲区：新写的吞取消模式不会被 CI 拦住。
 
 ★ CI 可重现性（2026-10-31 复核，四条都必须成立，否则"本地绿、CI 红"）
 ----
@@ -282,7 +285,7 @@ def collect(roots: list[str]) -> list[Path]:
 #
 # 为什么要有自测：本脚本是 254 行的自制词法分析器，它**没有**外部依赖可对拍，
 # 一旦某天 Python 版本或行尾约定变了，"规则还在、判据失效"是最难发现的一种回归
-# ——表现是永远绿。下面 11 组样例把"该报的必须报、不该报的不能报、CRLF 与 LF 同结果"
+# ——表现是永远绿。下面 12 组样例把"该报的必须报、不该报的不能报、CRLF 与 LF 同结果"
 # 三类性质钉死，CI 与本地跑的是同一份判据。
 
 CASES: list[tuple[str, str, int, str]] = [
@@ -427,6 +430,21 @@ object X {
     }
 }
 ''', 0, ''),
+
+    # ★ 覆盖补齐：BROAD_CATCH 覆盖 Exception|Throwable|Error|RuntimeException|…，
+    #   但此前只有 Exception 有样例 —— Throwable 分支写坏也不会有样例变红。
+    ('r1_Throwable_必须报', '''package a
+
+class A {
+    suspend fun f() {
+        try {
+            doWork()
+        } catch (e: Throwable) {
+            log(e)
+        }
+    }
+}
+''', 1, '[R1]'),
 ]
 
 
@@ -479,12 +497,23 @@ def selftest() -> int:
     return 0
 
 
+DEFAULT_ROOTS = [
+    # 安卓端 + 共享层（模块目录本身含 src/main 与 src/test）
+    'android/app', 'shared', 'android/data',
+    # 桌面端（I-04）：core/cli/ui 的 src/main 与 src/test。
+    #   补扫实测全绿（80 个 .kt / EXIT=0），属"覆盖缺口"而非"已发生缺陷"。
+    'desktop/core/src/main', 'desktop/core/src/test',
+    'desktop/cli/src/main', 'desktop/cli/src/test',
+    'desktop/ui/src/main', 'desktop/ui/src/test',
+]
+
+
 def main() -> int:
     args = sys.argv[1:]
     if args and args[0] in ('--selftest', '-t', 'selftest'):
         return selftest()
 
-    roots = args or ['android/app', 'shared', 'android/data']
+    roots = args or DEFAULT_ROOTS
     files = collect(roots)
     if not files:
         print('check-cancellation: 未找到任何 Kotlin 源文件（roots=%s）' % ' '.join(roots))

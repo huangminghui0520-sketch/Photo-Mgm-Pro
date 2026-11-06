@@ -34,8 +34,12 @@
 用法
 ----
     python3 scripts/check-timezone.py [路径 ...]     # 默认扫 app / shared（algorithm+domain+app）/ data 的 src/main
+                                                     #   + desktop 三模块 src/main（I-04，M1 补）
     python3 scripts/check-timezone.py --selftest
     退出码 0=通过  1=发现违规
+
+    ★ I-04：desktop/core|cli|ui 的 src/main 共 57 个 .kt 原来完全在盲区；
+      桌面端同样用 algorithm.AppZone.ID，补扫实测全绿（EXIT=0）。
 """
 from __future__ import annotations
 
@@ -198,6 +202,16 @@ fun f() = java.time.LocalDate.now()
 fun f() = LocalDateTime.now( )
 ''', {'T2'}),
 
+    # ★ 覆盖补齐（M1）：T2 正则含 LocalTime、T1 正则允许 `ZoneId . systemDefault` 的间距，
+    #   此前都没有样例，正则写坏也不会有样例变红。
+    ('t2_localtime_now_必须报', '''package a
+fun f() = LocalTime.now()
+''', {'T2'}),
+
+    ('t1_带空格写法_必须报', '''package a
+fun f() = ZoneId . systemDefault ( )
+''', {'T1'}),
+
     ('instant_now_不报', '''package a
 fun f() = java.time.Instant.now()
 ''', set()),
@@ -324,14 +338,20 @@ def collect(roots: list) -> list:
     return sorted(set(files))
 
 
+DEFAULT_ROOTS = [
+    # 安卓端与共享层：只扫 src/main（测试里用 TimeZone.setDefault 做验证是合法的）
+    'android/app/src/main', 'shared/algorithm/src/main', 'shared/domain/src/main',
+    'shared/app/src/main', 'android/data/src/main',
+    # 桌面端（I-04）：原来整段在盲区。同样只扫 src/main。
+    'desktop/core/src/main', 'desktop/cli/src/main', 'desktop/ui/src/main',
+]
+
+
 def main(argv: list) -> int:
     if '--selftest' in argv:
         return selftest()
 
-    roots = [a for a in argv[1:] if not a.startswith('-')] or [
-        'android/app/src/main', 'shared/algorithm/src/main', 'shared/domain/src/main',
-        'shared/app/src/main', 'android/data/src/main',
-    ]
+    roots = [a for a in argv[1:] if not a.startswith('-')] or DEFAULT_ROOTS
     files = collect(roots)
     if not files:
         print(f'未找到任何 Kotlin 文件（roots={roots}）', file=sys.stderr)

@@ -46,9 +46,17 @@
 
 用法
 ----
-    python3 scripts/check-shared-purity.py                # 默认扫全部规则
+    python3 scripts/check-shared-purity.py                # 默认扫全部规则（shared + 两端 main）
+    python3 scripts/check-shared-purity.py desktop        # 只扫给定根（I-07：位置参数真的生效）
     python3 scripts/check-shared-purity.py --selftest     # 判据自测
     退出码 0=通过  1=发现违规
+
+    ★ 传了位置参数时：文件集 = 这些根下的 .kt，但**目录递归时排除 `src/test/`**
+      （与默认扫 `src/main` 的口径一致；测试里写 `TimeZone.getDefault()` 构造场景、
+      或 import 平台 API 造假件都是合法的，不排除会假红 —— 见 P2-03）；
+      规则仍按**路径**判定适用范围（P1/P2/P3 只对 `shared/<mod>/` 生效，P5 只对 UI 路径生效），
+      且 P4 不再断言"某字面量一处定义都没有"（缩了范围就无从判断），只报"多处定义"与 owner 失效。
+      汇总行也会标注 `P4（缩范围…）`，避免被读成"全量唯一性已通过"（P2-04）。
 """
 from __future__ import annotations
 
@@ -93,6 +101,12 @@ P3_HINT = '共享层读进程环境（cwd/home/APPDATA）；路径与区域设�
 
 # P4：产物契约字符串必须只有一处定义
 # (字面量, 权威定义位置（相对仓库根）, 说明)
+# ★ 2026-11-06 I-03 修正：`export-manifest.json` 的 owner 原写成
+#   `shared/app/src/main/kotlin/app/export/ExportManifest.kt`，**该文件不存在**
+#   （`ls` → No such file, EXIT=2），真实定义在
+#   `desktop/core/src/main/kotlin/com/photomgm/desktop/core/export/ExportManifest.kt:71`。
+#   登记错了从来没人发现，因为 `check_contract_literals` 只数"谁定义了字面量"，
+#   从不校验 owner 是否存在 → 登记表成了装饰。下面新增 owner 校验把它变成真断言。
 CONTRACT_LITERALS = [
     ('99_未分类', 'shared/algorithm/src/main/kotlin/algorithm/ZipExporter.kt',
      '未匹配照片的文件夹名：ZIP 目录名与台账照片列必须同源'),
@@ -100,8 +114,9 @@ CONTRACT_LITERALS = [
      '桌面端台账默认文件名：执行器与 CLI 的元文件名集合必须同源'),
     ('export.log', 'shared/app/src/main/kotlin/app/export/ExportLogWriter.kt',
      '导出日志文件名'),
-    ('export-manifest.json', 'shared/app/src/main/kotlin/app/export/ExportManifest.kt',
-     '导出清单文件名'),
+    ('export-manifest.json',
+     'desktop/core/src/main/kotlin/com/photomgm/desktop/core/export/ExportManifest.kt',
+     '导出清单文件名（桌面端独有：安卓 ZIP 没有跨次续传，不写 manifest）'),
 ]
 
 # P5：UI 层禁止 import 的包（跨端契约 app.api / 平台自己的包不在此列）
@@ -126,6 +141,22 @@ PROD_ROOTS = SHARED_ROOTS + [
 
 SUPPRESS = 'purity-ok'
 SUPPRESS_TZ = 'tz-ok'
+
+
+def _is_shared_layer(p: Path) -> bool:
+    """路径里出现 `/shared/<模块>/` 段 → 属共享层（P1/P2/P3 的适用范围）。
+
+    ★ 只在「命令行传了位置参数」时用于收敛规则范围（见 main）：传 `desktop` 时
+      P1/P2/P3 仍只该对共享层生效，否则桌面端自己的 `import com.photomgm.*`
+      会被当成"共享层越界"，造一堆假红。
+    """
+    return re.search(r'/shared/[^/]+/', p.as_posix()) is not None
+
+
+def _is_ui_layer(p: Path) -> bool:
+    """路径属 UI 层 → 适用 P5。"""
+    posix = p.as_posix()
+    return '/app/ui/' in posix or '/desktop/ui/src/main/' in posix
 
 
 # ── 源码读取与噪声剥离 ──────────────────────────────────────────────────────
@@ -276,39 +307,82 @@ def check_shared_file(path: Path, root_rel: str) -> list:
     return problems
 
 
-def check_contract_literals(files: list) -> list:
-    """P4：登记的字面量只允许一处**定义**（`= "字面量"`），多出即报。
+def contract_pattern(literal: str) -> "re.Pattern":
+    """`<val|const val> NAME[: Type] = "字面量"` 的定义形态。"""
+    return re.compile(
+        r'\b(?:const\s+)?val\s+([A-Za-z_]\w*)\s*(?::\s*[\w.<>?]+\s*)?=\s*"' + re.escape(literal) + r'"'
+    )
+
+
+def count_definitions(f: Path, pat: "re.Pattern") -> list:
+    """在单个文件里数"真定义"，返回 `[(行号, 名字), …]`。
 
     ★ 这里不能直接跑在 `strip_noise()` 的结果上：那个函数把字符串内容也抹成空白，
       而本条规则要判的正是字符串本身。做法是**在原文上匹配、在剥离后的代码上确认**
       ——被注释掉的定义（`// const val X = "99_未分类"`）或写在字符串里的示例
       （`val doc = "const val X = ..."`）在剥离后的那一行里找不到 `val X`，于是不算定义。
     """
+    raw = read_source(f)
+    code_lines = strip_noise(raw).split('\n')
+    found: list = []
+    for line_idx, line in enumerate(raw.split('\n')):
+        for m in pat.finditer(line):
+            name = m.group(1)
+            if f'val {name}' not in code_lines[line_idx]:
+                continue
+            found.append((line_idx + 1, name))
+    return found
+
+
+def check_contract_owner(literal: str, owner: str, base: Path,
+                         pat: "re.Pattern | None" = None) -> list:
+    """P4 附加（I-03）：登记的 owner 必须**真实存在**，且确实定义了该字面量。
+
+    owner 一律按**仓库根的相对路径**登记（唯一形式），因此这里用 `base / owner` 解析；
+    `base` 供 `--selftest` 指向临时目录（否则自测只能依赖幸运的真实路径）。
+    """
+    pat = pat or contract_pattern(literal)
+    p = base / owner
+    if not p.is_file():
+        return [f'[P4] owner 不存在: {owner}（契约常量 "{literal}" 的权威定义位置；'
+                f'登记表已过期，请改成真实定义文件）']
+    if not count_definitions(p, pat):
+        return [f'[P4] owner 里找不到定义: {owner} 中没有 `val … = "{literal}"`'
+                f'（登记表指向的文件存在，但字面量已搬走）']
+    return []
+
+
+def check_contract_literals(files: list, base: Path | None = None,
+                            partial: bool = False) -> list:
+    """P4：登记的字面量只允许一处**定义**（`= "字面量"`），多出即报；owner 必须存在。
+
+    三类问题分别报：
+      ① owner 登记失效（文件不存在 / 文件里没有该字面量）—— I-03 前的空洞；
+      ② 同一字面量在多处定义 → 改一处忘另一处（"ZIP 里叫 A、台账里叫 B"）；
+      ③ 一处定义都没有 → 权威位置搬走了，登记表过期。
+
+    `partial=True` 表示**这次只扫了部分根**（命令行传参缩范围）：此时"找不到定义"
+    不能作结论（没扫到的文件里可能就有），只报 ② 与 ①。owner 校验是按路径做的，
+    与扫描范围无关，所以照常执行。
+    """
+    root = base if base is not None else repo_root()
     problems: list = []
     for literal, owner, why in CONTRACT_LITERALS:
-        pat = re.compile(
-            r'\b(?:const\s+)?val\s+([A-Za-z_]\w*)\s*(?::\s*[\w.<>?]+\s*)?=\s*"' + re.escape(literal) + r'"'
-        )
+        pat = contract_pattern(literal)
+        problems += check_contract_owner(literal, owner, root, pat)
         sites: list = []
         for f in files:
-            raw = read_source(f)
-            code_lines = strip_noise(raw).split('\n')
-            raw_lines = raw.split('\n')
-            for line_idx, line in enumerate(raw_lines):
-                for m in pat.finditer(line):
-                    name = m.group(1)
-                    # 剥离后该行仍含 `val <name>` 才算"真定义"
-                    if f'val {name}' not in code_lines[line_idx]:
-                        continue
-                    sites.append((f.as_posix(), line_idx + 1, name))
+            for line_no, name in count_definitions(f, pat):
+                sites.append((f.as_posix(), line_no, name))
         if len(sites) > 1:
             detail = '、'.join(f'{p}:{ln}（{name}）' for p, ln, name in sites)
             problems.append(
                 f'[P4] 契约常量 "{literal}" 有 {len(sites)} 处定义：{detail}；'
                 f'权威位置应为 {owner}（{why}）'
             )
-        elif len(sites) == 0:
-            # 定义消失同样要报：说明权威位置搬走了，登记表已过期
+        elif len(sites) == 0 and not partial:
+            # 定义消失同样要报：说明权威位置搬走了，登记表已过期。
+            # （缩范围扫描时不能这么断言——见上面的 partial 说明）
             problems.append(f'[P4] 契约常量 "{literal}" 在 src/main 里找不到定义（登记表过期？权威位置 {owner}）')
     return problems
 
@@ -432,6 +506,24 @@ import android.content.Context
 """
 fun f() = System.getProperty("user.dir")
 ''', {'P3'}),
+
+    # ★ 覆盖补齐：P2 的另外两个分支（Calendar / TimeZone）此前没有样例，
+    #   正则写坏也不会有样例变红。
+    ('p2_calendar_getInstance_必须报', '''package app.x
+fun f() = java.util.Calendar.getInstance()
+''', {'P2'}),
+
+    ('p2_timezone_getDefault_必须报', '''package app.x
+fun f() = java.util.TimeZone.getDefault()
+''', {'P2'}),
+
+    # ★ 回归样例：块注释同样不算代码（KDoc 里贴违规 import 是常见写法）
+    ('p1_块注释里的import_不报', '''package app.x
+/*
+ * import android.content.Context
+ */
+fun f() = 1
+''', set()),
 ]
 
 
@@ -480,6 +572,27 @@ def selftest() -> int:
             if any('99_未分类' in p and '找不到定义' in p for p in check_contract_literals([a])):
                 failed.append('  ✗ P4 把"只有一处定义"误报成找不到定义')
 
+        # ---- P4 owner 存在性（I-03）----
+        # ① owner 存在且含定义 → 不报；② owner 不存在 → 必须报（对应实扫 exit 1）；
+        # ③ 真实登记表的 4 个 owner 必须全部存在（这条是"登记表过期"的回归位）。
+        p4root = root / 'p4owner'
+        p4root.mkdir()
+        (p4root / 'Ok.kt').write_text(
+            'package x\nobject A { const val UNMATCHED_FOLDER = "99_未分类" }\n',
+            encoding='utf-8', newline='')
+        if check_contract_owner('99_未分类', 'Ok.kt', p4root):
+            failed.append('  ✗ P4 owner 存在且含定义时被误报')
+        if not check_contract_owner('99_未分类', 'Missing.kt', p4root):
+            failed.append('  ✗ P4 owner 不存在时没有报错（实扫应 exit 1）')
+        (p4root / 'NoLiteral.kt').write_text(
+            'package x\nobject B { const val OTHER = "别的名字" }\n',
+            encoding='utf-8', newline='')
+        if not check_contract_owner('99_未分类', 'NoLiteral.kt', p4root):
+            failed.append('  ✗ P4 owner 存在但字面量已搬走时没有报错')
+        for literal, owner, _why in CONTRACT_LITERALS:
+            if not (repo_root() / owner).is_file():
+                failed.append(f'  ✗ P4 登记表 owner 不存在: {owner}（契约常量 "{literal}"）')
+
         # P5：UI 层越界必须报，app.api 与 algorithm 不算越界
         ui = root / 'ui'
         ui.mkdir()
@@ -507,12 +620,36 @@ def selftest() -> int:
         if len(check_shared_file(bom, '')) != len(check_shared_file(lf, '')):
             failed.append('  ✗ BOM 影响了判定结果')
 
+        # ---- I-07：位置参数必须真的覆盖扫描根 ----
+        # 反例：修复前 `python3 … desktop` 与无参输出 IDENTICAL（argv 被静默忽略）。
+        # 这里用临时目录验证「只扫该目录」：里面放一个 P5 违规 import，必须被扫出来，
+        # 且输出首行要能看出实际使用的根。
+        import contextlib
+        import io
+
+        argv_root = root / 'argv_root'
+        ui_bad = argv_root / 'desktop' / 'ui' / 'src' / 'main' / 'kotlin' / 'ui' / 'Bad.kt'
+        ui_bad.parent.mkdir(parents=True)
+        ui_bad.write_text('package ui\nimport app.usecase.AnalysisPipeline\n',
+                          encoding='utf-8', newline='')
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = main(['prog', str(argv_root)])
+        out = buf.getvalue()
+        if code != 1:
+            failed.append(f'  ✗ 传位置参数时没扫出临时目录里的违规 import（EXIT={code}）')
+        if 'app.usecase' not in out:
+            failed.append('  ✗ 位置参数未生效：输出里没有临时目录的 P5 违规（I-07 未修复）')
+        if str(argv_root) not in out:
+            failed.append('  ✗ 输出首行没有反映实际使用的扫描根（I-07 无法核对）')
+
     if failed:
         print('自测失败：')
         for f in failed:
             print(f)
         return 1
-    print(f'check-shared-purity --selftest: OK（{len(SELFTEST_CASES)} 组样例 + P4/P5 判据 + CRLF/LF + BOM）')
+    print(f'check-shared-purity --selftest: OK（{len(SELFTEST_CASES)} 组样例 + P4/P5 判据'
+          f'（含 owner 存在性）+ argv roots + CRLF/LF + BOM）')
     return 0
 
 
@@ -522,7 +659,20 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def collect(roots: list) -> list:
+def collect(roots: list, skip_test: bool = True) -> list:
+    """把扫描根展开成 `.kt` 文件集。
+
+    ★ `skip_test`（默认 True）：目录递归时**排除 `src/test` 下的测试源码**。
+      理由：默认根全是 `src/main`，天然不含测试；而传位置参数（如 `… shared`）时，
+      递归会把 `shared/*/src/test/**` 一起收进来，P1/P2/P3 于是对测试代码也生效 ——
+      但测试里允许写 `TimeZone.getDefault()` 构造时区场景、允许 import 平台 API 做假件，
+      这是**合法**的，判红就是假红（P2-03 实测：`shared` 缩范围扫描 EXIT=1，
+      命中 `shared/algorithm/src/test/.../TimeZoneExplicitTest.kt:34`）。
+      排除后，缩范围扫描的口径与默认扫 `src/main` 完全一致。
+
+      注意：**显式点名的单个文件一律尊重**（`p.is_file()` 分支不过滤）——
+      操作者明确要看某个测试文件时不该被静默跳过。
+    """
     base = repo_root()
     files: list = []
     for r in roots:
@@ -530,7 +680,13 @@ def collect(roots: list) -> list:
         if p.is_file():
             files.append(p)
         elif p.is_dir():
-            files += [f for f in p.rglob('*.kt') if '/build/' not in f.as_posix()]
+            for f in p.rglob('*.kt'):
+                posix = f.as_posix()
+                if '/build/' in posix:
+                    continue
+                if skip_test and '/src/test/' in posix:
+                    continue
+                files.append(f)
     return sorted(set(files))
 
 
@@ -538,23 +694,46 @@ def main(argv: list) -> int:
     if '--selftest' in argv:
         return selftest()
 
-    shared_files = collect(SHARED_ROOTS)
-    ui_files = collect(UI_ROOTS)
-    prod_files = collect(PROD_ROOTS)
+    # ★ I-07（M1）：位置参数覆盖扫描根，与另外三个门禁对称。
+    #   修复前 main 除 --selftest 外不读任何参数，`… desktop` 与无参输出 IDENTICAL
+    #   ——操作者以为缩了范围，其实扫的还是全仓。
+    cli_roots = [a for a in argv[1:] if not a.startswith('-')]
+    if cli_roots:
+        shared_roots = list(cli_roots)
+        ui_roots = list(cli_roots)
+        prod_roots = list(cli_roots)
+    else:
+        shared_roots, ui_roots, prod_roots = SHARED_ROOTS, UI_ROOTS, PROD_ROOTS
 
-    if not shared_files or not ui_files or not prod_files:
+    shared_files = collect(shared_roots)
+    ui_files = collect(ui_roots)
+    prod_files = collect(prod_roots)
+
+    # ★ 首行必须能核对"到底扫了哪些根"（I-07）：传参被静默忽略时，这一行会立刻暴露。
+    print(f"扫描根（{'命令行位置参数' if cli_roots else '默认常量'}）："
+          f"shared={' '.join(shared_roots)} / UI={' '.join(ui_roots)} / "
+          f"生产={' '.join(prod_roots)}")
+
+    if not prod_files or (not cli_roots and (not shared_files or not ui_files)):
         print(f'扫描路径为空（shared={len(shared_files)} ui={len(ui_files)} prod={len(prod_files)}）',
               file=sys.stderr)
         return 1
 
     problems: list = []
+    scanned_shared = 0
     for f in shared_files:
+        # 传参模式下，规则仍按路径判定适用范围（见 _is_shared_layer 注释）
+        if cli_roots and not _is_shared_layer(f):
+            continue
+        scanned_shared += 1
         problems += check_shared_file(f, f.as_posix())
-    problems += check_contract_literals(prod_files)
-    ui_problems, algorithm_hits = check_ui_layer(ui_files)
+    problems += check_contract_literals(prod_files, partial=bool(cli_roots))
+    ui_scanned = [f for f in ui_files if (not cli_roots or _is_ui_layer(f))]
+    ui_problems, algorithm_hits = check_ui_layer(ui_scanned)
     problems += ui_problems
 
-    print(f'扫描：shared {len(shared_files)} 个文件 / UI {len(ui_files)} 个 / 生产代码 {len(prod_files)} 个')
+    print(f'扫描：shared {scanned_shared} 个文件 / UI {len(ui_scanned)} 个 / '
+          f'生产代码 {len(prod_files)} 个')
 
     if len(algorithm_hits) > MAX_UI_ALGORITHM_IMPORTS:
         problems.append(
@@ -576,8 +755,15 @@ def main(argv: list) -> int:
               f'（时区类用 `// tz-ok: 原因`）。')
         return 1
 
+    # ★ P2-04：缩范围（partial）时不做「全量唯一性」断言，汇总行必须把这件事写出来，
+    #   否则读者会把「P4 4 个契约常量各一处定义」读成"全仓唯一性已通过"。
+    p4_summary = (
+        'P4（缩范围：仅校验已扫目录内的 owner 与定义，不做全量唯一性断言）'
+        if cli_roots
+        else f'P4 {len(CONTRACT_LITERALS)} 个契约常量各一处定义'
+    )
     print(f'check-shared-purity: OK（P1 平台 import 0 处 / P2 无参时钟 0 处 / '
-          f'P3 环境依赖 0 处 / P4 {len(CONTRACT_LITERALS)} 个契约常量各一处定义 / '
+          f'P3 环境依赖 0 处 / {p4_summary} / '
           f'P5 UI 越界 0 处）')
     return 0
 
