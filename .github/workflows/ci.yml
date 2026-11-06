@@ -52,6 +52,7 @@ jobs:
           python3 scripts/check-ignore-policy.py --selftest
           python3 scripts/check-timezone.py --selftest
           python3 scripts/check-shared-purity.py --selftest
+          python3 scripts/check-ci-gradle-source.py --selftest
 
       # ★ 结构约束（M3/M4 收尾后重写）：共享层唯一物理源码 + 8 个项目由根 settings 纳入
       #   + 无容器项目脚本残留 + 无双根构建文件残留。最可能被误做的五件事：
@@ -120,6 +121,7 @@ jobs:
           python3 scripts/check-ignore-policy.py
           python3 scripts/check-timezone.py
           python3 scripts/check-shared-purity.py
+          python3 scripts/check-ci-gradle-source.py
 
   unit-test:
     name: Unit tests
