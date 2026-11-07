@@ -1,17 +1,13 @@
 name: Build APK
 
-# 推送到 main 自动构建并发布预发布版；推送 v* 标签（如 v1.0.0）自动构建并发布正式版
+# 触发面：仅 v* 标签（如 v1.0.0）与手动派发。
+# main 推送不再自动出 APK（项目重心在 PC 端，见 build-desktop.yml）。
+# 原「main 分支保护把 Build release APK 列为 required status check」的说明已失效：
+# 2026-11-07 实测 `GET /repos/.../branches/main/protection` → HTTP 404 `Branch not protected`，
+# 该保护规则已不存在，故一并移除当初为它加的 pull_request 触发与 auto-N 预发布 step。
 on:
   push:
-    branches: [ main ]
     tags: [ 'v*' ]
-  # ★ 2026-10-31 新增 pull_request：main 的分支保护把「Build release APK」列为 required
-  #   status check，而本 workflow 原先**只在 main/tag 触发** —— PR 上根本不会出现这个
-  #   check，保护规则会变成"永远等不到 → 永远不能合入"的死锁。加上它，PR 上才会跑。
-  #   两个 Release 发布步骤已有 `startsWith(github.ref, 'refs/tags/'|'refs/heads/')` 条件，
-  #   PR 的 ref 是 `refs/pull/<n>/merge`，两者都不匹配 → PR 上只出包、不发布 Release。
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 # 同一分支/标签只保留最新构建，自动取消旧的运行中任务，避免重复构建浪费资源
@@ -107,23 +103,5 @@ jobs:
           files: dist/Photo-Mgm-debug.apk
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ── 自动构建版发布：仅 main 分支推送触发 ──
-      - name: Publish GitHub Release (auto build)
-        if: startsWith(github.ref, 'refs/heads/')
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: auto-${{ github.run_number }}
-          name: Photo-Mgm 自动构建（debug 签名，非发布产物） #${{ github.run_number }}
-          body: |
-            每次推送 main 自动生成的测试安装包（debug 签名、非发布产物）。
-            - 构建序号：#${{ github.run_number }}
-            - Commit：`${{ github.sha }}`
-            - 说明：未配置 KEYSTORE_BASE64 等 Secrets，产物为 debug 签名、非发布产物；正式签名版需配置 KEYSTORE_BASE64 等 Secrets 后，由 v* 标签发布。
-          files: dist/Photo-Mgm-debug.apk
-          draft: false
-          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

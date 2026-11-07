@@ -229,9 +229,9 @@ cd <仓库根>
 
 * `ci.yml`：静态门禁（协程取消 / `@Ignore` 可溯源 / 隐式时区 / 共享层纯度）+ 单元测试（一条 `gradle testAll` 一次覆盖全部 8 个模块），`push`/`pull_request`/手动均触发
 
-* `build-apk.yml`（Android）：推 `main` 出 APK 并发布预发布版（`auto-*` 标签）；推 `v*` 标签发布正式版
+* `build-apk.yml`（Android）：仅 `v*` 标签与手动派发触发；`main` 推送不再出 APK
 
-* `build-desktop.yml`（Windows）：仅 `desktop-v*` 标签与手动派发；**只负责出包**（单测已由 `ci.yml` 的 `testAll` 覆盖），标签触发时同时发布 **MSI 安装包 + 便携 ZIP**（runner 自带 WiX 3.14.1）
+* `build-desktop.yml`（Windows）：`main` 推送（每次合入验打包）与 `desktop-v*` 标签（发版）+ 手动派发；**只负责出包**（单测已由 `ci.yml` 的 `testAll` 覆盖），标签触发时同时发布 **MSI 安装包 + 便携 ZIP**（runner 自带 WiX 3.14.1）
 
 * 同一分支只保留最新构建，自动取消旧的运行中任务
 

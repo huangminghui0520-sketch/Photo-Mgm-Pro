@@ -5,15 +5,17 @@ name: Build Windows Desktop
 #   （`:desktop:core` / `:desktop:cli` / `:desktop:ui`），不再是独立 Gradle 工程。
 #   Gradle 根是仓库根（`settings.gradle.kts` 在根），下面所有 gradle 调用都在根执行、用全限定项目路径。
 #
-# ★ 触发面刻意收窄：只在 desktop-v* 标签与手动派发时跑。
-#   理由：桌面构建要拉 Compose Multiplatform 全套依赖（~10 分钟），放进每次 PR 会拖慢反馈；
-#   而它的正确性由本地 `desktop/packaging/*.sh` + 安装冒烟保证，CI 只负责"标签一到就有可下载产物"。
+# ★ 触发面：push main（每次合入验打包）+ desktop-v* 标签（发版）+ 手动派发。
+#   原「刻意收窄到标签」已调整：PC 端为项目重心，main 推送也验打包（约 10 分钟，拉全套
+#   Compose Multiplatform 依赖），换取 PC 端每次合入都可出包。
+#   **Release 发布仍只在 desktop-v* 标签触发**（见下方 `if: startsWith(github.ref, 'refs/tags/desktop-v')`）。
 #
 # ★ 这里**同时出便携包（app-image + zip）和 MSI 安装包**：
 #   windows-latest runner 自带 WiX 3.14.1，jpackage --type msi 可直接产出 MSI，
 #   CI 不再依赖打包机，两种产物随 desktop-v* 标签一并发布到 GitHub Release。
 on:
   push:
+    branches: [ main ]
     tags: [ 'desktop-v*' ]
   workflow_dispatch:
 
