@@ -31,8 +31,18 @@ const val TIME_STEP_MINUTES: Int = 5
 /** 时列：0..23 共 24 项。 */
 val HOUR_OPTIONS: List<Int> = (0..23).toList()
 
-/** 分列：0,5,…,55 共 12 项。 */
-val MINUTE_OPTIONS: List<Int> = (0..55 step TIME_STEP_MINUTES).toList()
+/**
+ * 分列的末档特例：59 分。
+ *
+ * ★ 为什么单独占一档：默认结束时刻是巡查日 23:59（V1，整日语义）。5 分钟步进只到 55，
+ *   59 就没有对应项 —— 列里一格都不高亮，用户想「保持整日」也无处可点，点 55 又会把
+ *   区间悄悄减掉最后 4 分钟（执行器按「整分钟包含」处理，23:59 表示 23:59:59）。
+ *   所以 59 不参与步进，只承接「整日」这一个值。
+ */
+const val LAST_MINUTE_OPTION: Int = 59
+
+/** 分列：0,5,…,55 共 12 项 + 末档特例 59，合计 13 项。 */
+val MINUTE_OPTIONS: List<Int> = (0..55 step TIME_STEP_MINUTES).toList() + LAST_MINUTE_OPTION
 
 /**
  * 区间「先序」失败的文案。
@@ -147,16 +157,20 @@ private fun timeText(hour: Int, minute: Int): String =
     LocalTime.of(hour.coerceIn(0, 23), minute.coerceIn(0, 59)).format(TIME_FMT)
 
 /**
- * 分钟落到 5 分钟档的**档位下沿**（59 → 55）。
+ * 分钟落位到列里**该高亮的那一格**：本身是档位就原样返回，否则落到档位下沿
+ * （4 → 0，58 → 55）。
  *
- * ★ 为什么需要它：默认结束时刻是 23:59（V1），而分列只有 0,5,…,55 ——
- *   59 落在「55 档」里。列高亮取档位下沿，用户看到的是"当前值所在的档"，
- *   而不是"什么都没选中"；真要精确到 59 仍由 [withEndHour] 保留（改时不偷偷改分钟）。
+ * ★ 为什么 59 要特判：59 是 [MINUTE_OPTIONS] 的末档特例（见 [LAST_MINUTE_OPTION]）。
+ *   不特判的话 floorMod 会把 59 压成 55 —— 列里高亮 55、业务值却是 59，两处对不上，
+ *   「点 55 才生效」「整日悄悄少 4 分钟」都由此而来。
+ *   本函数只决定**高亮哪一格**，不改业务值：改小时仍保留原分钟（见 [withEndHour]）。
  */
 fun snapToStep(minute: Int, step: Int = TIME_STEP_MINUTES): Int {
-    if (step <= 0) return minute.coerceIn(0, 59)
-    val snapped = minute - Math.floorMod(minute, step)
-    return snapped.coerceIn(0, 59)
+    val m = minute.coerceIn(0, 59)
+    if (step <= 0) return m
+    // 59 只在默认步进下算档位；自定义步进仍按 step 落位，不把特例值混进别人的档。
+    if (step == TIME_STEP_MINUTES && m == LAST_MINUTE_OPTION) return LAST_MINUTE_OPTION
+    return (m - Math.floorMod(m, step)).coerceIn(0, 59)
 }
 
 /** 区间规则本体在 shared/domain，经门面转发（F6）；这里只转发，不重写。 */

@@ -196,13 +196,12 @@ class PhoneImportUiTest {
         assertEquals("2026-11-05", f.endDate)
         assertEquals("23:59", f.endTime)
         assertNull(f.calendarTarget)
-        // 时列 24 项；分列 12 项且不含 59 —— 59 落在 55 档（见 snapToStep 的注释）
+        // 时列 24 项；分列 13 项 = 0,5,…,55 + 末档特例 59（承接默认 23:59 的整日语义）
         assertEquals(24, HOUR_OPTIONS.size)
-        assertEquals(12, MINUTE_OPTIONS.size)
+        assertEquals(13, MINUTE_OPTIONS.size)
         assertEquals(0, MINUTE_OPTIONS.first())
-        assertEquals(55, MINUTE_OPTIONS.last())
-        assertFalse(MINUTE_OPTIONS.contains(59))
-        assertEquals(55, snapToStep(59))
+        assertEquals(LAST_MINUTE_OPTION, MINUTE_OPTIONS.last())
+        assertTrue(MINUTE_OPTIONS.contains(59))
         assertEquals(0, snapToStep(4))
         assertEquals(55, snapToStep(55))
     }
@@ -309,5 +308,29 @@ class PhoneImportUiTest {
         assertNull(form().openCalendar(CalendarTarget.START).toggleCalendar(CalendarTarget.START).calendarTarget)
         // 收起后不残留
         assertNull(form().openCalendar(CalendarTarget.END).closeCalendar().calendarTarget)
+    }
+
+    // ── U9 / U10：默认值与分列档位必须对得上 ──────────────────────────────
+    // ★ U9 防的是「默认值没有对应档位」这个复发点：默认 23:59 是整日语义，
+    //   一旦分列里没有 59，列里就没有一格高亮，用户想保持整日也无处可点。
+    //   U10 固定落位规则：只有 59 走特例，相邻的非档位值仍落到 5 分钟下沿。
+
+    @Test
+    fun `U9 默认结束分钟的分钟值落在分列档位内`() {
+        val f = defaultPhoneImportForm(patrol, dirs, PhoneSyncFormulas.defaultRange(patrol))
+        val end = requireNotNull(f.endDateTime()) { "默认结束时间应可解析：${f.endDate} ${f.endTime}" }
+        // 默认值仍是 23:59（V1，不改共享层），且它现在是分列的末档 → 能高亮、能点回
+        assertEquals(59, end.minute)
+        assertTrue(MINUTE_OPTIONS.contains(end.minute))
+    }
+
+    @Test
+    fun `U10 档位落位 59 取末档特例 其余仍落 5 分钟下沿`() {
+        assertEquals(LAST_MINUTE_OPTION, snapToStep(59))
+        // 特例只对 59 生效：相邻非档位值仍按 5 分钟下沿落位，没有被一起抬到 59
+        assertEquals(55, snapToStep(58))
+        assertEquals(55, snapToStep(57))
+        assertEquals(55, snapToStep(55))
+        assertEquals(0, snapToStep(4))
     }
 }

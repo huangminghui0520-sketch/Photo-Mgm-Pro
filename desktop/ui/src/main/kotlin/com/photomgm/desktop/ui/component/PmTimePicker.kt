@@ -8,7 +8,8 @@
 // ★ 为什么分列是 5 分钟一档（不是 1）：
 //   区间只用于文件夹命名与筛选边界，5 分钟粒度已比现场需求细；1 分钟要 60 项，
 //   滚动长度翻 5 倍，选 23:55 得滚半屏。档位定义在 model（TIME_STEP_MINUTES /
-//   MINUTE_OPTIONS），本组件只渲染，不另存一份常量。
+//   MINUTE_OPTIONS），本组件只渲染，不另存一份常量。末档 59 是承接「整日」语义的
+//   特例（见 model 的 LAST_MINUTE_OPTION），不属于步进。
 //
 // ★ 为什么高度固定 200dp：
 //   两行（开始 / 结束）并排时列高必须一致，否则两行基线错开，扫一眼像填错了行；
@@ -74,7 +75,8 @@ private const val LEAD_ROWS = 2
  * 时 / 分两列选择器。
  *
  * @param hour 0..23；不在范围内时按 0 显示（界面不该传越界值，这里只兜底不报错）。
- * @param minute 任意 0..59；高亮取它所在的 5 分钟档（59 → 55 档），点档位才改成档位值。
+ * @param minute 任意 0..59；高亮取它所在的档（59 有独立末档，其余落到 5 分钟档的下沿），
+ *   点某一档才把它改成档位值。
  * @param enabled false 时整列置灰且不可点（同步进行中）。
  */
 @Composable
@@ -87,7 +89,8 @@ fun PmTimePicker(
     enabled: Boolean = true,
 ) {
     val selectedHour = hour.coerceIn(0, 23)
-    // 档位落位：59 落在 55 档。用档位下沿做高亮，不悄悄改业务值。
+    // 档位落位：59 命中末档特例（见 MINUTE_OPTIONS），其余落到档位下沿。
+    // 只决定高亮哪一格，不悄悄改业务值。
     val selectedMinute = snapToStep(minute.coerceIn(0, 59))
 
     Column(modifier.height(PICKER_H)) {
