@@ -42,6 +42,7 @@
 package com.photomgm.desktop.ui.component
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,6 +60,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
@@ -301,8 +306,12 @@ private fun CardHeader(
 }
 
 /**
- * 照片条：一行等高的格子，放不下就末位「+N」，绝不横向滚动
- * （一旦可横滑，用户就看不到"这个事件到底几张"，而"几张"正是要判断的东西）。
+ * 照片条：一行等高的格子，**可横向滚动**；末位是「+N」，标出首屏之外还有几张。
+ *
+ * ★ 为什么改成可滚动：照片多于首屏格数时，旧版只留「+N」把剩下的藏掉，
+ *   复核"这个事件到底几张、有没有漏"时看不到具体是哪几张；
+ *   滚动让每一张都能翻到，而「+N」仍然回答"一共比首屏多几张"。
+ * ★ 滚动条只在这条真能滚时才画：装得下时画一条满长的灰条，会让人以为右边还有东西。
  */
 @Composable
 private fun PhotoStrip(
@@ -344,15 +353,34 @@ private fun PhotoStrip(
         return
     }
 
-    // 放不下时少显示一格、末位留给「+N」；maxTiles 至少为 1（真实宽度下 ≥7），这里只做防御。
-    val shown = if (photos.size > maxTiles) (maxTiles - 1).coerceAtLeast(1) else photos.size
-    val overflow = photos.size - shown
+    // 全部照片都进列表；末位「+N」= 比首屏格数多出来的张数（滚到末尾才看到）。
+    val overflow = (photos.size - maxTiles).coerceAtLeast(0)
+    val listState = rememberLazyListState()
 
-    Row(horizontalArrangement = Arrangement.spacedBy(TILE_GAP.dp)) {
-        photos.take(shown).forEach { photo ->
-            PhotoThumb(photo, slots[photo.id], tile, canCopy, { mode -> onAssign(photo, mode) })
+    Box(Modifier.fillMaxWidth()) {
+        LazyRow(
+            state = listState,
+            modifier = Modifier.fillMaxWidth().height(tile.dp),
+            horizontalArrangement = Arrangement.spacedBy(TILE_GAP.dp),
+        ) {
+            items(photos, key = { it.id }) { photo ->
+                PhotoThumb(photo, slots[photo.id], tile, canCopy, { mode -> onAssign(photo, mode) })
+            }
+            if (overflow > 0) {
+                item(key = "overflow") { OverflowTile(overflow, tile) }
+            }
         }
-        if (overflow > 0) OverflowTile(overflow, tile)
+        // 叠在缩略图上沿而不是另起一行：不改变格子尺寸与卡片高度，滚起来才出现。
+        if (listState.canScrollBackward || listState.canScrollForward) {
+            HorizontalScrollbar(
+                adapter = rememberScrollbarAdapter(listState),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = PmSpace.m)
+                    .height(6.dp),
+            )
+        }
     }
 }
 

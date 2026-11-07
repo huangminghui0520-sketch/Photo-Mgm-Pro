@@ -333,4 +333,33 @@ class PhoneImportUiTest {
         assertEquals(55, snapToStep(55))
         assertEquals(0, snapToStep(4))
     }
+
+    // ── U11 在 dialog/CalendarPanelOffsetTest（浮层定位纯函数）────────────
+
+    // ── U12：时/分改成浮层后的开关状态 ────────────────────────────────────
+    // ★ 时/分原来是内嵌两列（一直可见，没有开关状态）；改成浮层后「开哪一个、关哪个」
+    //   变成需要维护的状态，且必须与日历互斥 —— 否则两块面板会叠在同一处。
+    @Test
+    fun `U12 时分浮层开关与日历互斥`() {
+        // 打开 / 收起（点同一颗两次）
+        assertEquals(CalendarTarget.START, form().toggleTimePicker(CalendarTarget.START).timePickerTarget)
+        assertNull(form().toggleTimePicker(CalendarTarget.START).toggleTimePicker(CalendarTarget.START).timePickerTarget)
+
+        // 两侧互斥：换一颗 = 前一颗关掉
+        assertEquals(
+            CalendarTarget.END,
+            form().toggleTimePicker(CalendarTarget.START).toggleTimePicker(CalendarTarget.END).timePickerTarget,
+        )
+
+        // 与日历互斥：开日历 → 时分关掉；开时分 → 日历关掉
+        val afterCalendar = form().toggleTimePicker(CalendarTarget.START).openCalendar(CalendarTarget.END)
+        assertEquals(CalendarTarget.END, afterCalendar.calendarTarget)
+        assertNull(afterCalendar.timePickerTarget)
+        val afterTime = form().openCalendar(CalendarTarget.START).toggleTimePicker(CalendarTarget.END)
+        assertEquals(CalendarTarget.END, afterTime.timePickerTarget)
+        assertNull(afterTime.calendarTarget)
+
+        // 显式关闭
+        assertNull(form().openTimePicker(CalendarTarget.END).closeTimePicker().timePickerTarget)
+    }
 }

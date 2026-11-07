@@ -11,10 +11,12 @@
 //   这里直接用根 Box 里的绝对定位卡片：坐标系就是主窗口的像素，行为完全可预期。
 //
 // ★ 定位规则（三条，缺一条就会出现"面板跑到窗口外"）：
-//   ① 左边缘对齐日期字段左边缘，并夹在窗口内（右侧留 8 dp）；
+//   ① 水平居中于日期字段，并夹在容器内（左右各留 8 dp）；
 //   ② 默认长在字段下方 6 dp；
-//   ③ 下方放不下（低分辨率/窗口拉高时常见）就翻到字段上方，仍放不下则贴窗口下沿。
-//   位置用的是**窗口像素**，所以 100% / 125% / 150% 缩放都不需要另算一套。
+//   ③ 下方放不下（低分辨率/窗口拉高时常见）就翻到字段上方，仍放不下则贴容器下沿。
+//   位置用的是**像素**，所以 100% / 125% / 150% 缩放都不需要另算一套。
+// ★ 三条规则收在 [calendarPanelOffset] 里（纯函数）：主页传窗口尺寸，手机导入弹窗传卡片尺寸，
+//   两处共用同一套算法 —— 定位只有一个真源，不会出现"主页贴得对、弹窗里跑偏"。
 package com.photomgm.desktop.ui.dialog
 
 import androidx.compose.foundation.background
@@ -50,6 +52,41 @@ private const val SCREEN_PAD_PX = 8
 /** 面板高度的估算值（还没测量到时用它决定"下方够不够"）。 */
 private val ESTIMATED_H = 264.dp
 
+/**
+ * 浮层位置（**纯函数**，无 Composable 依赖，可单测）。
+ *
+ * [anchorX]/[anchorY] 是锚点控件的左上角，[anchorW]/[anchorH] 是它的尺寸；
+ * [windowW]/[windowH] 是**容器**尺寸 —— 主页传主窗口，手机导入弹窗传卡片（浮层画在卡片里）。
+ *
+ * 三条规则与文件头一致：水平居中 → 下方 6 dp → 放不下翻上方 → 最后贴下沿。
+ * 把夹取放在居中之后：宁可偏离中线，也不能把面板推出容器。
+ */
+internal fun calendarPanelOffset(
+    anchorX: Int,
+    anchorY: Int,
+    anchorW: Int,
+    anchorH: Int,
+    windowW: Int,
+    windowH: Int,
+    panelW: Int,
+    panelH: Int,
+): IntOffset {
+    // ① 水平居中，再夹进容器（容器比面板还窄时至少留出左内边）
+    val maxX = (windowW - panelW - SCREEN_PAD_PX).coerceAtLeast(SCREEN_PAD_PX)
+    val x = (anchorX + (anchorW - panelW) / 2).coerceIn(SCREEN_PAD_PX, maxX)
+
+    // ②③ 下方优先，放不下翻上方，最后兜底贴下沿
+    val below = anchorY + anchorH + GAP_PX
+    val above = anchorY - GAP_PX - panelH
+    val maxY = (windowH - panelH - SCREEN_PAD_PX).coerceAtLeast(SCREEN_PAD_PX)
+    val y = when {
+        below + panelH <= windowH - SCREEN_PAD_PX -> below
+        above >= SCREEN_PAD_PX -> above
+        else -> maxY
+    }
+    return IntOffset(x, y)
+}
+
 @Composable
 fun DatePickerLayer(
     date: LocalDate,
@@ -66,19 +103,17 @@ fun DatePickerLayer(
     val panelW = size.value.width.takeIf { it > 0 } ?: estimatedW
     val panelH = size.value.height.takeIf { it > 0 } ?: estimatedH
 
-    // ① 左对齐 + 夹在窗口内
-    val x = anchor.left.coerceIn(
-        SCREEN_PAD_PX,
-        (windowWidth - panelW - SCREEN_PAD_PX).coerceAtLeast(SCREEN_PAD_PX),
+    // ①水平居中 + ②③下方优先/翻上方/贴上沿 —— 三条规则本体在 [calendarPanelOffset]。
+    val pos = calendarPanelOffset(
+        anchorX = anchor.left,
+        anchorY = anchor.top,
+        anchorW = anchor.width,
+        anchorH = anchor.height,
+        windowW = windowWidth,
+        windowH = windowHeight,
+        panelW = panelW,
+        panelH = panelH,
     )
-    // ②③ 优先下方，放不下翻到上方，最后兜底夹到窗口内
-    val below = anchor.bottom + GAP_PX
-    val above = anchor.top - GAP_PX - panelH
-    val y = when {
-        below + panelH <= windowHeight - SCREEN_PAD_PX -> below
-        above >= SCREEN_PAD_PX -> above
-        else -> (windowHeight - panelH - SCREEN_PAD_PX).coerceAtLeast(SCREEN_PAD_PX)
-    }
 
     // 全屏透明点击层：点面板外面任意位置 = 关闭。它不压暗主界面 ——
     // 选日期时用户还要看着日期字段本身与当天的日志摘要，压暗反而看不见。
@@ -93,7 +128,7 @@ fun DatePickerLayer(
     ) {
         Box(
             Modifier
-                .offset { IntOffset(x, y) }
+                .offset { pos }
                 .onSizeChanged { size.value = it }
                 .shadow(14.dp, RoundedCornerShape(PmRadius.card))
                 .clip(RoundedCornerShape(PmRadius.card))

@@ -77,6 +77,8 @@ data class PhoneImportForm(
     val confirmConflict: Boolean = false,
     // 当前打开的是哪个日历；null = 都关着。只影响界面展开，不参与任何业务判断。
     val calendarTarget: CalendarTarget? = null,
+    // 当前打开的是哪个时/分浮层；null = 都关着。与 [calendarTarget] 互斥（见 openCalendar / toggleTimePicker）。
+    val timePickerTarget: CalendarTarget? = null,
 )
 
 fun parsePhoneDate(text: String): LocalDate? =
@@ -124,15 +126,39 @@ fun phoneImportRange(form: PhoneImportForm): Pair<LocalDateTime, LocalDateTime>?
 fun PhoneImportForm.startDateTime(): LocalDateTime? = parsePhoneDateTime(startDate, startTime)
 fun PhoneImportForm.endDateTime(): LocalDateTime? = parsePhoneDateTime(endDate, endTime)
 
-/** 打开某个日历。单字段赋值 = 另一个必然关闭（U2/U8 的互斥由类型保证，不靠调用方自觉）。 */
+/**
+ * 打开某个日历。单字段赋值 = 另一个必然关闭（U2/U8 的互斥由类型保证，不靠调用方自觉）。
+ *
+ * ★ 同时把 [PhoneImportForm.timePickerTarget] 清空：日历与时分浮层是两块不同的面板，
+ *   同一个位置叠两层不仅看不清，还会让「我刚点的是哪一颗」失去答案。
+ *   互斥写在这里而不是界面里 —— 界面只调 open/toggle，不维护两个字段的一致性。
+ */
 fun PhoneImportForm.openCalendar(target: CalendarTarget): PhoneImportForm =
-    copy(calendarTarget = target)
+    copy(calendarTarget = target, timePickerTarget = null)
 
 /** 点同一颗日期按钮两次 = 收起；点另一颗 = 换到那颗（不会两个都开）。 */
 fun PhoneImportForm.toggleCalendar(target: CalendarTarget): PhoneImportForm =
-    copy(calendarTarget = if (calendarTarget == target) null else target)
+    copy(
+        calendarTarget = if (calendarTarget == target) null else target,
+        timePickerTarget = null,
+    )
 
 fun PhoneImportForm.closeCalendar(): PhoneImportForm = copy(calendarTarget = null)
+
+// ── 时/分浮层的开关（与日历同构、且互斥）────────────────────────────────────
+
+/** 打开某一侧的时/分浮层；单字段赋值 = 另一侧、以及日历都关闭。 */
+fun PhoneImportForm.openTimePicker(target: CalendarTarget): PhoneImportForm =
+    copy(timePickerTarget = target, calendarTarget = null)
+
+/** 点同一个时刻按钮两次 = 收起；点另一侧 = 换过去。 */
+fun PhoneImportForm.toggleTimePicker(target: CalendarTarget): PhoneImportForm =
+    copy(
+        timePickerTarget = if (timePickerTarget == target) null else target,
+        calendarTarget = null,
+    )
+
+fun PhoneImportForm.closeTimePicker(): PhoneImportForm = copy(timePickerTarget = null)
 
 fun PhoneImportForm.withStartDate(value: LocalDate): PhoneImportForm =
     copy(startDate = value.format(DATE_FMT), confirmConflict = false)
