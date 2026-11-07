@@ -176,8 +176,14 @@ internal fun derivedScore(name: String): Int = DerivedNames.score(name)
  *   - **锚点** = 不带派生后缀的照片（带水印主图）。锚点之间**永不合并** ——
  *     两张都有水印，就一定是两次独立的拍摄或两次独立的保存。
  *   - **派生** = 带 `_original`/`_compressed` 等后缀的照片。每个派生挂到
- *     「满足 isSame 且文件名序号差最小」的锚点上（水印相机双份序号差 1~2ms，
+ *     「满足 isSame 且文件名序号差最小」的**所有**锚点上（水印相机双份序号差 1~2ms，
  *     相邻瞬间的主图序号差 ≈ 数百 ms，选最近即选对）。
+ *     ★ 2026-11-07 tie 全纳入：序号差并列最小的等价锚点一律建组。同一内容被重复扫描到
+ *     两个目录时，两份主图与同一个 `_original` 的 isSame 都成立、序号差相同；只挂「最先
+ *     遇到」的一个，另一份主图就没有映射，会在「仅原图」下经 `preferred[id] ?: id` 原样
+ *     输出（带水印主图漏出）。全部建组后 preferred 覆盖所有副本；展开侧的
+ *     `LinkedHashSet<Long>` 按 id 去重，同一原图仍只输出一次。锚点之间永不合并、单份照片
+ *     不进组，这两条语义不变。
  *
  * 代价（有意为之，均属"宁可漏并不可误删"）：
  *   - 两张都不带后缀的**真正重复**照片（如用户手动复制的副本）不再合并 —— 多留一张；
@@ -201,20 +207,31 @@ fun PhotoIngest.groupDupContent(
     val attached = LinkedHashMap<Long, MutableList<Photo>>()
     for (d in derived) {
         val seqD = lastNumberBlock(d.displayName)
-        var best: Photo? = null
         var bestDiff = Long.MAX_VALUE
+        val tied = ArrayList<Photo>()
         for (a in anchors) {
             if (!strategy.isSame(a, d)) continue
             val seqA = lastNumberBlock(a.displayName)
-            // 序号不可用（文件名无数字）时退回"第一个满足判重的锚点"，保持旧行为
+            // 序号不可用（文件名无数字）时退回"第一个满足判重的锚点"，保持旧行为：
+            // diff 记 0 参与就近比较，但不参与 tie 全纳入（避免把多张无序号主图误并）。
             val diff = if (seqA != null && seqD != null) abs(seqA - seqD) else 0L
             if (diff > config.seqTolerance) continue
-            if (diff < bestDiff) {
-                bestDiff = diff
-                best = a
+            when {
+                diff < bestDiff -> {
+                    bestDiff = diff
+                    tied.clear()
+                    tied.add(a)
+                }
+                // ★ 2026-11-07 tie 全纳入：序号差并列最小的等价锚点都记同一个派生。
+                //   跨目录重复副本（源目录 + 手机导入区间子目录各一份）与同一个 _original
+                //   的 isSame 都成立、序号差相同；只挂「最先遇到」的一个，另一份主图就没有
+                //   映射，会在「仅原图」下经 `preferred[id] ?: id` 原样输出（带水印主图漏出）。
+                //   全部建组后 preferred 覆盖所有副本；展开侧 `LinkedHashSet<Long>` 按 id
+                //   去重，同一原图仍只输出一次。单份照片（无配对）不进组的行为不变。
+                diff == bestDiff && seqA != null && seqD != null -> tied.add(a)
             }
         }
-        if (best != null) attached.getOrPut(best.id) { mutableListOf() }.add(d)
+        for (a in tied) attached.getOrPut(a.id) { mutableListOf() }.add(d)
     }
     return attached
 }
