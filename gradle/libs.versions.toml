@@ -16,9 +16,9 @@ jdk                  = "17"       # 各模块 toolchain(17) / jvmTarget 17
 compileSdk           = "34"       # android/app/build.gradle.kts:26
 minSdk               = "26"       # android/app/build.gradle.kts:29
 targetSdk            = "34"       # android/app/build.gradle.kts:30
-appVersionCode       = "7"        # android/app/build.gradle.kts:33
-appVersionName       = "1.0.0"    # android/app/build.gradle.kts:34
-desktopVersion       = "1.0.0"    # desktop/ui/build.gradle.kts 的 packageVersion, build-desktop.yml 的 DESKTOP_VERSION
+appVersionCode       = "8"        # android/app/build.gradle.kts:33
+appVersionName       = "1.0.1"    # android/app/build.gradle.kts:34
+desktopVersion       = "1.0.1"    # desktop/ui/build.gradle.kts 的 packageVersion, build-desktop.yml 的 DESKTOP_VERSION
 
 # ── 运行时依赖（已核实；共享层唯一第三方运行时依赖是 coroutines-core）──
 # ★ 显式决定（方案 §3.6）：以下两键**故意不同**，不是笔误，也不合并成单个 coroutines 键。

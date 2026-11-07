@@ -36,10 +36,10 @@ android {
         applicationId = "com.photomgm.app"
         minSdk = 26
         targetSdk = 34
-        // ★ 2026-11-04 首发定版：versionName 对齐发布标签 v1.0.0；
+        // ★ 2026-11-07 升 1.0.1：versionName 对齐发布标签 v1.0.1；
         //   versionCode 继续单调递增（6 → 7），已装 1.3.2(code 6) 的机器可正常覆盖升级
-        versionCode = 7
-        versionName = "1.0.0"
+        versionCode = 8
+        versionName = "1.0.1"
         // ★ 2026-10-07 真机 instrumentation：验证 AppTopBar 按钮在真机 Compose 层的可点击性
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

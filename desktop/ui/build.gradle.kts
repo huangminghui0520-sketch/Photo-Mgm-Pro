@@ -68,7 +68,7 @@ compose.desktop {
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.AppImage,
             )
             packageName = "PhotoMgm"
-            packageVersion = "1.0.0"
+            packageVersion = "1.0.1"
             // ★ 注意：description 必须是纯 ASCII（英文），不能用中文。
             //   jpackage 17.0.2 在生成 MSI 时把 description 写入 WiX .wxs 文件，
             //   含非 ASCII 字符会触发已知 bug（compose-jb#2021），报 "Input length = 1"。
