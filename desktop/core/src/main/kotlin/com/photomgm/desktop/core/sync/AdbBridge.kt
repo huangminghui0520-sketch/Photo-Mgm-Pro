@@ -1,8 +1,15 @@
 // desktop/core/sync/AdbBridge.kt —— 系统 adb 可执行文件的定位与调用（零新库）
 //
-// 获取方式（裁定 F5）：① 显式配置路径 → ② ANDROID_HOME / ANDROID_SDK_ROOT 下的
-// platform-tools/adb[.exe] → ③ PATH 上的 adb。**不打包、不下载、不引入 adb 库**。
-// 用 ProcessBuilder（仓内已有先例：PcShellLauncher.kt:48、ShellActions.kt:21）。
+// 获取顺序（裁定 F5 + Q4-B）：① 显式配置路径 → ② ANDROID_HOME → ③ ANDROID_SDK_ROOT →
+// ④ PATH 上的 adb[.exe] → ⑤【仅 Windows】扫 C: 到 Z: 的 \Android\sdk\platform-tools\adb.exe →
+// ⑥ 兜底裸 adb（交给系统解析，找不到时由 [requireExecutable] 抛带排查步骤的异常）。
+// **不打包、不下载、不引入 adb 库**。用 ProcessBuilder（仓内已有先例：PcShellLauncher.kt:48、
+// ShellActions.kt:21）。
+//
+// ⑤ 的存在理由：普通用户双击运行时 ANDROID_HOME 通常是空的、PATH 里也没有 platform-tools，
+// 但 SDK 就装在 D:/Android/sdk 这类标准位置。只靠 ①②③ 会退化成裸 "adb" → 必然失败。
+// macOS / Linux 的同类固定位置（/opt/homebrew/bin/adb、~/Android/Sdk/platform-tools 等）
+// 暂不实现，留 TODO。
 //
 // 可用判据：`adb devices` 输出里至少有一行是「<序列号>\tdevice」；
 // unauthorized / offline / 无输出都算不可用 → 由 PhoneConnection 自动降级到盘符方式。
@@ -25,6 +32,23 @@ internal data class AdbOutput(val exitCode: Int, val stdout: String, val stderr:
 
 internal fun interface AdbCommand {
     operator fun invoke(args: List<String>): AdbOutput
+}
+
+// 定位 adb 只需要三种环境能力：读环境变量、判断普通文件、判别平台。
+// 抽成最小接口后，单测可以完全离线验证解析顺序（不需要真有 SDK、不必真的存在 C:~Z: 各盘）。
+internal interface AdbEnv {
+    fun getenv(name: String): String?
+    fun isRegularFile(path: String): Boolean
+    fun osName(): String
+}
+
+internal class SystemAdbEnv : AdbEnv {
+    override fun getenv(name: String): String? = System.getenv(name)
+
+    override fun isRegularFile(path: String): Boolean =
+        runCatching { Files.isRegularFile(Paths.get(path)) }.getOrDefault(false)
+
+    override fun osName(): String = System.getProperty("os.name").orEmpty()
 }
 
 // 真实进程调用；15 秒超时防止未授权设备把 UI 卡住。
@@ -52,26 +76,57 @@ internal class ProcessAdbCommand : AdbCommand {
 
 internal class AdbBridge(
     private val explicitPath: String? = null,
-    private val env: (String) -> String? = { System.getenv(it) },
-    private val isWindows: Boolean = System.getProperty("os.name").orEmpty()
-        .contains("Windows", ignoreCase = true),
-    private val fileExists: (String) -> Boolean = { p ->
-        runCatching { Files.isRegularFile(Paths.get(p)) }.getOrDefault(false)
-    },
+    private val adbEnv: AdbEnv = SystemAdbEnv(),
     private val command: AdbCommand = ProcessAdbCommand(),
 ) {
 
-    // 返回可执行文件路径；返回「adb」表示交给 PATH 解析（不保证存在）。
-    fun executable(): String {
-        if (!explicitPath.isNullOrBlank() && fileExists(explicitPath)) return explicitPath
-        val exe = if (isWindows) "adb.exe" else "adb"
-        for (key in listOf("ANDROID_HOME", "ANDROID_SDK_ROOT")) {
-            val home = env(key)?.takeIf { it.isNotBlank() } ?: continue
-            val candidate = Paths.get(home, "platform-tools", exe).toString()
-            if (fileExists(candidate)) return candidate
+    private val isWindows: Boolean = adbEnv.osName().contains("Windows", ignoreCase = true)
+    private val exe: String = if (isWindows) "adb.exe" else "adb"
+    private val pathSeparator: String = if (isWindows) "\\" else "/"
+
+    // 按 ①~⑤ 顺序定位，全找不到返回 null（「找不到」是正常状态，不是异常）。
+    fun resolve(): String? {
+        if (!explicitPath.isNullOrBlank() && adbEnv.isRegularFile(explicitPath)) return explicitPath
+        for (key in SDK_HOME_KEYS) {
+            val home = adbEnv.getenv(key)?.takeIf { it.isNotBlank() } ?: continue
+            val candidate = join(home, "platform-tools", exe)
+            if (adbEnv.isRegularFile(candidate)) return candidate
         }
-        return exe
+        findOnPath()?.let { return it }
+        if (isWindows) findOnDriveRoots()?.let { return it }
+        return null
     }
+
+    // ⑥ 兜底：返回裸命令名交给系统 PATH 解析（保持既有语义，不保证存在）。
+    fun executable(): String = resolve() ?: exe
+
+    // 需要「找到」语义的调用方用这个：空手而归时抛一条带分步排查的异常，避免静默降级。
+    fun requireExecutable(): String = resolve() ?: throw IllegalStateException(ADB_NOT_FOUND_HINT)
+
+    // ④ PATH：按平台分隔符切开，去掉首尾空白与 Windows 习惯的引号包裹，再逐个拼 adb[.exe]。
+    private fun findOnPath(): String? {
+        val raw = adbEnv.getenv("PATH")?.takeIf { it.isNotBlank() } ?: return null
+        val delimiter = if (isWindows) ';' else ':'
+        return raw.split(delimiter)
+            .asSequence()
+            .map { it.trim().trim('"') }
+            .filter { it.isNotEmpty() }
+            .map { join(it, exe) }
+            .firstOrNull { adbEnv.isRegularFile(it) }
+    }
+
+    // ⑤ Q4-B：只探标准相对位置，26 次 isRegularFile、不递归、不全盘搜。
+    // 不用 Paths.get 拼路径：单测在 Linux runner 上也要能验证 Windows 分支，必须与宿主分隔符无关。
+    private fun findOnDriveRoots(): String? {
+        for (letter in 'C'..'Z') {
+            val candidate = "${letter}:\\Android\\sdk\\platform-tools\\$exe"
+            if (adbEnv.isRegularFile(candidate)) return candidate
+        }
+        return null
+    }
+
+    private fun join(base: String, vararg rest: String): String =
+        (listOf(base.trimEnd('\\', '/')) + rest).joinToString(pathSeparator)
 
     fun devicesOutput(): AdbOutput = command(listOf(executable(), "devices"))
 
@@ -87,6 +142,14 @@ internal class AdbBridge(
 
     companion object {
         private val DEVICE_LINE = Regex("""^\S+\s+device\s*$""")
+        private val SDK_HOME_KEYS = listOf("ANDROID_HOME", "ANDROID_SDK_ROOT")
+
+        // 找不到 adb / 找不到设备共用这一条（Q3 合并、Q5-② 分步排查）：
+        // 一句结论 + 三步排查，既不区分「未安装」与「未连接」，又让用户知道从哪查起。
+        const val ADB_NOT_FOUND_HINT: String =
+            "未检测到手机。请依次排查：① USB 线是否连接；" +
+                "② 手机是否开启「USB 调试」并授权；" +
+                "③ 是否已安装 Android SDK（或将 adb 加入 PATH）。"
 
         // 解析 `adb shell ls -l` 的一行；格式不认识就返回 null（不猜测、不误判）。
         fun parseLsLine(line: String): RemotePhoto? {
