@@ -216,7 +216,7 @@ fun endFieldError(
     validate: (LocalDateTime?, LocalDateTime?) -> String?,
 ): String? = rangeError(form, validate)?.takeIf { it == RANGE_ORDER_MESSAGE }
 
-// 点顶部按钮前的拦截原因；null = 可以执行。
+// 点底部按钮前的拦截原因；null = 可以执行。
 // 顺序由硬到软（与 rejectReason / exportBlockReason 同口径）：
 // 正在跑 → 没有源目录 → 区间不合法（空值 / V5 / 上限）→ 没选手机目录。
 // 把「没选手机目录」放最后，是为了让「区间填错」时先说区间，不拿另一个问题盖住它。

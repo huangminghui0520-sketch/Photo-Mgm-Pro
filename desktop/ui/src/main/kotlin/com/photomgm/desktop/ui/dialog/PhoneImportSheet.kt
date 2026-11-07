@@ -1,7 +1,7 @@
 // ui/dialog/PhoneImportSheet.kt —— 手机导入照片弹窗
 //
-// ★ 顶部是**唯一执行入口**（裁定 F2）：「从手机同步到电脑源目录」按钮画在 header 里、
-//   滚动区之外，内容再长也始终可见；底部操作条只留「取消」，不出现第二个开始按钮。
+// ★ 底部动作区是**唯一执行入口**：取消在左、执行在右（原裁定 F2 的"顶部唯一入口"已改判）。
+//   两个按钮都画在滚动区之外，内容再长也始终可见；标题行只留标题与关闭，不再放开始按钮。
 // ★ 只读「同步到」一行随区间实时更新，让用户点之前就看见落点；规则本体在 shared/domain，
 //   经 DesktopCore 门面转发（F6），UI 不 import domain.*。
 // ★ 弹窗内进度条：不改 Busy / BusyOverlay，也不碰 AppShell 的忙碌覆盖层。
@@ -151,7 +151,7 @@ fun PhoneImportSheet(
     val phoneOptions = remember(mode, manualDirs) { actions.phoneDirs(mode) + manualDirs }
 
     // 区间类校验（V5 / 上限 / 空值）是**实时**的：改日期或点时分都重算。
-    // 顶部按钮的 enabled、字段下方的提示行、结束字段的标红边框都读这一份结果 ——
+    // 底部按钮的 enabled、字段下方的提示行、结束字段的标红边框都读这一份结果 ——
     // 三处各算一遍的话，迟早出现"按钮灰着但没有原因"。
     val validateRange = actions.phoneValidateRange
     val rangeErr = rangeError(form, validateRange)
@@ -200,7 +200,7 @@ fun PhoneImportSheet(
                     .clip(RoundedCornerShape(PmRadius.panel))
                     .background(PmColor.surface),
             ) {
-                // ── 顶部常驻：唯一执行入口 ──────────────────────────────────
+                // ── 标题行：标题 + 关闭（底部按钮是唯一执行入口） ──────────────
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -209,16 +209,6 @@ fun PhoneImportSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("手机导入照片", style = PmType.display, color = PmColor.ink)
-                    Spacer(Modifier.width(PmSpace.l))
-                    PmButton(
-                        "从手机同步到电脑源目录",
-                        { launchSync(form) },
-                        kind = ButtonKind.PRIMARY,
-                        icon = Icons.Filled.FolderOpen,
-                        // 区间不合法时直接禁用（§3.5）：让"能不能点"在点之前就有答案，
-                        // 而不是点完在结果条里报一句。原因由下方提示行给出。
-                        enabled = !running && rangeErr == null,
-                    )
                     Spacer(Modifier.weight(1f))
                     PmIconButton(Icons.Filled.Close, "关闭", { onUi(ui.copy(sheet = null)) })
                 }
@@ -255,7 +245,7 @@ fun PhoneImportSheet(
                             onDateAnchor = { endDateAnchor.value = it },
                             onTimeAnchor = { endTimeAnchor.value = it },
                         )
-                        // 实时提示：与顶部按钮的 disabled 同源（同一次 rangeError），
+                        // 实时提示：与底部按钮的 disabled 同源（同一次 rangeError），
                         // 不会出现"按钮灰了但屏幕上没有任何原因"。
                         if (rangeErr != null) {
                             Spacer(Modifier.height(PmSpace.xs))
@@ -405,7 +395,7 @@ fun PhoneImportSheet(
                 }
 
                 Hairline()
-                // 底部操作条：只有「取消」。同步进行中点它同时取消任务，已写入文件与状态都保留。
+                // 底部操作条：取消 + 执行。同步进行中点「取消」同时取消任务，已写入文件与状态都保留。
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = PmSpace.xl, vertical = PmSpace.m),
                     verticalAlignment = Alignment.CenterVertically,
@@ -425,6 +415,16 @@ fun PhoneImportSheet(
                             onUi(ui.copy(sheet = null))
                         },
                         kind = ButtonKind.GHOST,
+                    )
+                    Spacer(Modifier.width(PmSpace.m))
+                    PmButton(
+                        "从手机同步到电脑源目录",
+                        { launchSync(form) },
+                        kind = ButtonKind.PRIMARY,
+                        icon = Icons.Filled.FolderOpen,
+                        // 区间不合法时直接禁用（§3.5）：让"能不能点"在点之前就有答案，
+                        // 而不是点完在结果条里报一句。原因由上方提示行给出。
+                        enabled = !running && rangeErr == null,
                     )
                 }
             }
