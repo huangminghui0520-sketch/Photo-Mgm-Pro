@@ -199,6 +199,22 @@ fun UnmatchedCard(
 }
 
 /**
+ * 卡片底色：悬停时深一档，移出即恢复；纯函数，颜色规则可被单测钉住。
+ *
+ * 描边加实（见 CardFrame 的 borderTone）是既有的悬停表达，这里只叠一层底色，
+ * 两者说同一件事：鼠标现在停在这张卡上。不改尺寸、不加边框、不动栅格。
+ * warm（未匹配池）不换成 surface2 —— 那会把"暖色底+边 = 未匹配"洗成一张普通灰卡
+ * （见文件头"描边语义"），所以只把原色 warnSoft 加深，色相不变。
+ */
+internal fun eventCardBackground(isHovered: Boolean, warm: Boolean): Color =
+    when {
+        warm && isHovered -> PmColor.warnSoft.copy(alpha = 0.85f)
+        warm -> PmColor.warnSoft.copy(alpha = 0.55f)
+        isHovered -> PmColor.surface2
+        else -> PmColor.surface
+    }
+
+/**
  * 卡片外壳：白底 + 1 dp 描边 + 统一内边距。
  *
  * `hasPhotos` = 这个单元已经挂了照片 → 红边（见文件头"描边语义"）；
@@ -231,7 +247,7 @@ private fun CardFrame(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(if (warm) PmColor.warnSoft.copy(alpha = 0.55f) else PmColor.surface)
+            .background(eventCardBackground(hovered, warm))
             .border(1.dp, borderTone, shape)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
