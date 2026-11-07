@@ -86,6 +86,8 @@ internal object PhoneConnection {
 
     // 失败文案按方式分开（§9.3 明确要求不能合并成一句「连不上手机」）：
     // ADB 要 USB 调试授权，盘符要文件传输模式，两者都失败时两条都给。
+    // NONE 的 ADB 侧文案直接引用 [AdbBridge.ADB_NOT_FOUND_HINT]（Q5-② 的一句提示 + 分步排查），
+    // 不复制字符串：否则「未安装 SDK / 未连 / 未授权」的排查步骤会在两处各维护一份、迟早漂移。
     fun failureText(kind: ConnectionKind): String = when (kind) {
         ConnectionKind.ADB ->
             "ADB 连接失败：请确认已安装 platform-tools、手机开启 USB 调试并点了「允许 USB 调试」。"
@@ -93,7 +95,6 @@ internal object PhoneConnection {
             "USB 盘符读取失败：请把 USB 模式切到「传输文件」并确认手机以大容量存储出现；" +
                 "原生 MTP 设备不分配盘符，暂不支持，可在弹窗里手动选择本机已挂载的目录。"
         ConnectionKind.NONE ->
-            "未检测到手机，请检查 USB 连接 / 驱动 / USB 调试：" +
-                "ADB 需要「允许 USB 调试」；盘符方式需要「传输文件」模式（原生 MTP 不支持）。"
+            AdbBridge.ADB_NOT_FOUND_HINT + "盘符方式需要「传输文件」模式（原生 MTP 不支持）。"
     }
 }

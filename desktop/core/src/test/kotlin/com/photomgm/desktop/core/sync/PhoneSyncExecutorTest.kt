@@ -477,7 +477,20 @@ class PhoneConnectionTest {
         assertTrue(PhoneConnection.failureText(ConnectionKind.ADB).contains("USB 调试"))
         assertTrue(PhoneConnection.failureText(ConnectionKind.USB_DRIVE).contains("MTP"))
         val none = PhoneConnection.failureText(ConnectionKind.NONE)
-        assertTrue(none.contains("允许 USB 调试") && none.contains("传输文件"))
+        // 盘符侧提示仍在；ADB 侧不再单独写一份，改为引用合并提示（引用式校验，防两处文案漂移）。
+        assertTrue(none.startsWith(AdbBridge.ADB_NOT_FOUND_HINT) && none.contains("传输文件"))
+    }
+
+    @Test
+    fun `ADB不可用且盘符不可见时文案为合并提示加分步排查`() {
+        // 真机断手机 + adb 找不到的真实落点：DesktopCore 用 hasDevice() 当 adbAvailable，
+        // 两者都 false → resolve(AUTO) = NONE → 用户看到的就是这条文案。
+        val none = PhoneConnection.failureText(ConnectionKind.NONE)
+        assertTrue(none.startsWith(AdbBridge.ADB_NOT_FOUND_HINT), "必须以合并提示开头（接线生效）")
+        for (mark in listOf("①", "②", "③")) {
+            assertTrue(none.contains(mark), "缺少分步排查 $mark")
+        }
+        assertTrue(none.contains("传输文件"), "盘符用户的「切传输文件」提示不能丢")
     }
 
     @Test
