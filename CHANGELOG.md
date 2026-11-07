@@ -1,5 +1,8 @@
 # Changelog
 
+<!-- Keep a Changelog 格式，版本号遵循语义化版本 -->
+[Keep a Changelog]: https://keepachangelog.com/zh-CN/1.1.0/
+
 ## [1.0.0] - 2026-11-07
 
 ### 新增
