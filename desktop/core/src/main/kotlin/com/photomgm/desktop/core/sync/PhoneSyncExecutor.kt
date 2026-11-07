@@ -1,10 +1,12 @@
 // desktop/core/sync/PhoneSyncExecutor.kt —— 一次手机导入的完整链路
 //
-// 顺序（指令 §2.2）：解析连接 → 建子文件夹 → 读状态与冲突检测 → 拉临时暂存区 →
-// 按 EXIF 优先 / mtime 兜底筛选 → SyncDecider 逐文件判定 → 进度 → 取消 → 更新状态。
+// 顺序（指令 §2.2）：解析连接 → 建子文件夹 → 读状态与冲突检测 → 按文件名粗筛区间外照片 →
+// 分批拉临时暂存区 → 按 EXIF 优先 / mtime 兜底筛选 → SyncDecider 逐文件判定 → 进度 → 取消 → 更新状态。
 //
 // ★ 三条不可动摇的边界：
-//   ① 筛选在**暂存区**做，不按手机侧 mtime 直接判断（ADB pull 会改写 mtime）；
+//   ① 筛选分两级：pull 前只按**文件名**粗筛（解析不出时间一律放行），pull 后由 EXIF 终判；
+//      **绝不按手机侧 mtime 直接判断**（ADB pull 会改写 mtime，且 mtime 与拍摄时间可能不一致，
+//      用它排除会误杀 —— F3「EXIF 优先于 mtime」用例就是这个坑）；
 //   ② 一次同步锁一份 [PhoneSource]（不混用 ADB 与盘符）；
 //   ③ 取消只在**文件边界**停下，已写入文件与 sync-state.json 都保留。
 //
@@ -17,8 +19,13 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.time.DateTimeException
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Comparator
 
 internal data class PhoneSyncJob(
@@ -66,6 +73,9 @@ internal class PhoneSyncExecutor(
     private val stagingDir: () -> Path,
     private val nowText: () -> String,
     private val normalize: (String) -> String = { it },
+    // 批拉大小：一次 adb pull 拉多少个文件。单次 adb 进程启动约 300 ms，是真正的瓶颈；
+    // 50 只是折中（峰值暂存占用 ≈ 50 张照片），可按实测调整。
+    private val batchSize: Int = DEFAULT_BATCH_SIZE,
     private val log: (String) -> Unit = {},
 ) {
 
@@ -156,26 +166,44 @@ internal class PhoneSyncExecutor(
 
         // 结束分钟按「整分钟包含」处理：23:59 表示 23:59:59，而不是 23:59:00。
         val endExclusive = job.end.plusMinutes(1)
-        var done = 0
-        for (photo in photos) {
-            // ⑥ 取消：只在文件边界停下，已经写入的文件与其记录都保留。
+
+        // ⑥ pull 前粗筛 + 批拉：文件名里带 yyyyMMdd_HHmmss 且落在区间外的照片直接不拉；
+        // 解析不出时间的一律放行 → 交给后面的 EXIF 终判，所以 F3「EXIF 优先于 mtime」不会被误杀。
+        val startMs = job.start.atZone(AppZone.ID).toInstant().toEpochMilli()
+        val endExclusiveMs = endExclusive.atZone(AppZone.ID).toInstant().toEpochMilli()
+        val candidates = photos.filter { shouldPull(it, startMs, endExclusiveMs) }
+        filtered += photos.size - candidates.size
+
+        val batch = batchSize.coerceAtLeast(1)
+        // 粗筛跳过的同样算「已处理」，进度总数仍是 photos.size。
+        var done = photos.size - candidates.size
+        for ((i, photo) in candidates.withIndex()) {
+            // ⑦ 取消：只在文件边界停下，已经写入的文件与其记录都保留。
             if (isCancelled()) {
                 cancelled = true
                 note("已取消：保留已写入的 $written 张，可稍后继续。")
                 break
             }
+            val batchStart = i / batch * batch
+            if (i == batchStart) {
+                // 批首：先清掉上一批的暂存（峰值占用 ≈ 一批，不是整批照片），再把这一批一次拉下来。
+                for (k in maxOf(0, batchStart - batch) until batchStart) {
+                    runCatching { Files.deleteIfExists(staging.resolve(candidates[k].name)) }
+                }
+                source.pullMany(candidates.subList(batchStart, minOf(batchStart + batch, candidates.size)), staging)
+            }
             done++
             val staged = staging.resolve(photo.name)
-            val pulled = runCatching { source.pullTo(photo, staged) && Files.isRegularFile(staged) }
-                .getOrDefault(false)
-            if (!pulled) {
+            // 批拉的单文件成败不看退出码（实测一批里缺一个文件时 RC=1，同批其余仍照拉），
+            // 只认「暂存区里到底有没有这个文件」。
+            if (!runCatching { Files.isRegularFile(staged) }.getOrDefault(false)) {
                 failed++
                 note("拉取失败：${photo.name}")
                 onProgress(PhoneSyncProgress(done, photos.size, written, skipped, renamed, photo.name, connection))
                 continue
             }
 
-            // ⑦ 时间筛选：EXIF DateTimeOriginal 优先，mtime 兜底；两者都无则跳过。
+            // ⑧ 时间筛选：EXIF DateTimeOriginal 优先，mtime 兜底；两者都无则跳过。
             val ms = runCatching { timeOf(staged, photo) }.getOrNull()
             if (ms == null) {
                 filtered++
@@ -190,7 +218,7 @@ internal class PhoneSyncExecutor(
                 continue
             }
 
-            // ⑧ 判据：先比大小，大小相同才算哈希；结果落到目标子文件夹。
+            // ⑨ 判据：先比大小，大小相同才算哈希；结果落到目标子文件夹。
             val dest = target.resolve(photo.name)
             val incomingSize = runCatching { Files.size(staged) }.getOrDefault(photo.size)
             val existingSize = if (Files.isRegularFile(dest)) {
@@ -252,7 +280,7 @@ internal class PhoneSyncExecutor(
             onProgress(PhoneSyncProgress(done, photos.size, written, skipped, renamed, photo.name, connection))
         }
 
-        // ⑨ 状态：正常完成与取消都写（取消时 complete=false，但记录保留 → 可续传）。
+        // ⑩ 状态：正常完成与取消都写（取消时 complete=false，但记录保留 → 可续传）。
         SyncState.write(
             target,
             SyncState(
@@ -264,7 +292,7 @@ internal class PhoneSyncExecutor(
             ),
         )
 
-        // ⑩ 清理暂存区（只删本次创建的目录，失败只记日志，不影响产物）。
+        // ⑪ 清理暂存区（只删本次创建的目录，失败只记日志，不影响产物）。
         runCatching {
             Files.walk(staging).use { s ->
                 s.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
@@ -284,5 +312,35 @@ internal class PhoneSyncExecutor(
             cancelled = cancelled,
             logs = logs,
         )
+    }
+
+    // 文件名优先：解析得出时间就按它粗筛，解析不出就放行（交给 ⑧ 的 EXIF 终判）。
+    // 刻意不看 mtime：mtime 与拍摄时间可能不一致（换机拷贝、备份恢复、第三方导出），
+    // 用它排除会把「EXIF 在区间内」的照片误杀 —— F3 用例锁的就是这条。
+    private fun shouldPull(photo: RemotePhoto, startMs: Long, endExclusiveMs: Long): Boolean {
+        val nameTime = parseTimeFromFileName(photo.name) ?: return true
+        return nameTime in startMs until endExclusiveMs
+    }
+
+    // 从文件名解析 `yyyyMMdd_HHmmss`，失败返回 null（不抛异常）。
+    // 派生后缀（如 _original）不影响：只取第一处「8 位日期_6 位数字」。
+    private fun parseTimeFromFileName(name: String): Long? {
+        val match = FILE_TIME.find(name) ?: return null
+        return try {
+            val date = LocalDate.parse(match.groupValues[1], DateTimeFormatter.BASIC_ISO_DATE)
+            val time = LocalTime.parse(match.groupValues[2], TIME_HHMMSS)
+            ZonedDateTime.of(date, time, AppZone.ID).toInstant().toEpochMilli()
+        } catch (e: DateTimeException) {
+            null
+        }
+    }
+
+    private companion object {
+        // 批拉默认大小（构造参数可覆盖）。
+        const val DEFAULT_BATCH_SIZE = 50
+
+        // 8 位日期 + 下划线 + 6 位时间；后面跟派生后缀也能匹配。
+        val FILE_TIME = Regex("""(\d{8})_(\d{6})""")
+        val TIME_HHMMSS: DateTimeFormatter = DateTimeFormatter.ofPattern("HHmmss")
     }
 }

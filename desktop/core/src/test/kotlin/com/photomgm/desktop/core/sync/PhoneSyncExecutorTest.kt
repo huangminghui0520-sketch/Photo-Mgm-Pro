@@ -223,6 +223,53 @@ class PhoneSyncExecutorTest {
         assertTrue(h.sources.single().pulled.contains("IMG_001.jpg"), "先拉暂存区再判定")
     }
 
+    // ── pull 前文件名粗筛（零误杀：解析不出时间一律放行）──────────────────
+
+    @Test
+    fun `T1 文件名时间落在区间内则拉取并导入`(@TempDir temp: Path) {
+        val h = Harness(temp)
+        h.photo("IMG_20261104_235500.jpg")
+        h.exif = { epoch(2026, 11, 4, 23, 55) }
+        val out = h.run(start = at(2026, 11, 4, 23, 0), end = at(2026, 11, 4, 23, 59))
+        assertEquals(1, out.written)
+        assertEquals(0, out.filtered)
+        assertTrue(h.sources.single().pulled.contains("IMG_20261104_235500.jpg"))
+    }
+
+    @Test
+    fun `T2 文件名时间在区间外则完全不拉取`(@TempDir temp: Path) {
+        val h = Harness(temp)
+        h.photo("IMG_20261104_220000.jpg")
+        h.exif = { epoch(2026, 11, 4, 22, 0) }
+        val out = h.run(start = at(2026, 11, 4, 23, 0), end = at(2026, 11, 4, 23, 59))
+        assertEquals(0, out.written)
+        assertEquals(1, out.filtered)
+        assertEquals(0, out.failed)
+        assertTrue(h.sources.single().pulled.isEmpty(), "粗筛不通过就不该发生任何 pull")
+    }
+
+    @Test
+    fun `T3 文件名无时间则放行交给EXIF终判`(@TempDir temp: Path) {
+        val h = Harness(temp)
+        h.photo("photo.jpg")
+        // 夹具 mtime 是「当下」（2026-11-07，区间外）；无文件名时间时必须放行，不能被 mtime 拦下。
+        h.exif = { epoch(2026, 11, 4, 23, 10) }
+        val out = h.run(start = at(2026, 11, 4, 23, 0), end = at(2026, 11, 4, 23, 59))
+        assertEquals(1, out.written)
+        assertEquals(0, out.filtered)
+        assertTrue(h.sources.single().pulled.contains("photo.jpg"))
+    }
+
+    @Test
+    fun `T4 文件名的派生后缀不影响解析`(@TempDir temp: Path) {
+        val h = Harness(temp)
+        h.photo("IMG_20261104_235500_original.jpg")
+        h.exif = { epoch(2026, 11, 4, 23, 55) }
+        val out = h.run(start = at(2026, 11, 4, 23, 0), end = at(2026, 11, 4, 23, 59))
+        assertEquals(1, out.written)
+        assertTrue(h.sources.single().pulled.contains("IMG_20261104_235500_original.jpg"))
+    }
+
     @Test
     fun `V5 开始不早于结束被拒绝且不创建子文件夹`(@TempDir temp: Path) {
         val h = Harness(temp)

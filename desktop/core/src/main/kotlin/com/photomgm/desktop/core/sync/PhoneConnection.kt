@@ -31,8 +31,23 @@ internal interface PhoneSource {
     // 列出候选文件名（不保证全都是照片，筛选在暂存区做）。
     fun list(): List<RemotePhoto>
 
-    // 把远端文件拉到暂存区 [staging]；返回 false 表示该文件或连接不可用。
-    fun pullTo(photo: RemotePhoto, staging: Path): Boolean
+    // 把远端文件拉到暂存区；[targetFile] 是**目标文件路径**（不是目录）。
+    // 返回 false 表示该文件或连接不可用。
+    fun pullTo(photo: RemotePhoto, targetFile: Path): Boolean
+
+    // 批量拉取同一批候选文件到**暂存目录** [stagingDir]（每个文件落到 stagingDir/<name>）。
+    // 注意与 [pullTo] 的区别：那边收的是目标文件路径，这边收的是目录 —— 一次拉多个源时必须给目录。
+    // 默认实现逐张调用 [pullTo]（盘符源本来就只是文件拷贝，没有进程启动开销）；
+    // ADB 源覆盖成「一次 adb pull 多个源文件」，省掉每张约 300 ms 的进程启动（实测）。
+    // 返回值只表示「这一批是否全部干净」；**单文件成败一律以暂存区里有没有该文件为准**，
+    // 不能看整批退出码（实测一批里缺一个文件时 RC=1，同批其余仍照拉）。
+    fun pullMany(photos: List<RemotePhoto>, stagingDir: Path): Boolean {
+        var allOk = true
+        for (photo in photos) {
+            if (!pullTo(photo, stagingDir.resolve(photo.name))) allOk = false
+        }
+        return allOk
+    }
 }
 
 // UI 上的连接方式选择。
