@@ -3,7 +3,7 @@
 > 状态：**待审核**。本文件只描述方案，**未改动任何代码**（`git status` 干净，HEAD = `c0eef6b`）。
 > 审核通过后再按 §6 的 P0~P4 顺序落地，每阶段独立提交、可单独回滚。
 >
-> 上游文档：`docs/REPO-LAYOUT.md`（目录重组与共用核心风险矩阵）、`docs/WINDOWS-DESKTOP-PLAN.md`（PC 端技术方案）。
+> 上游文档：`docs/REPO-LAYOUT.md`（目录重组与共用核心风险矩阵）。
 
 ---
 
@@ -76,7 +76,7 @@ desktop/ui ──► desktop/core ──► algorithm ◄── android/app ◄�
 1. **`desktop/core` 一个模块干了五件事**：契约（api）、编排（logic）、平台（platform）、导出（export）、持久化（state）+ 手写 JSON（infra）。它的 `internal` 可见性让 UI 无法越层，这是优点；但它整体只能留在桌面端，导致 Android 无法复用其中真正通用的 60%。
 2. **Android 端没有"层"**：`android/app` 20 个文件里，`AppViewModel` 同时是编排器、状态容器、导出器、SAF 适配器、缩略图调度器。1165 行里约 700 行与平台无关，却因为和 `Context` 缠在一起而搬不动。
 3. **共享契约里混进了平台概念**：`Settings` 带 `window: WindowState`（窗口几何，Android 无意义）、`ExportRequest` 带 `ResumeVerifyMode`（文件夹断点校验，Android 走 ZIP 状态文件）。这说明"契约"当初是照着 PC 写的，不是照两端写的。
-   → **T09 已修**：`window` 留在桌面侧；`Path` 全部换成不透明 `String`；`ResumeVerifyMode` 单独成文件且不挂在请求上（细则见 `REFACTOR-EXECUTION-PLAN.md` §15.1）。**契约里现在出现 `window`/`Path`/`Uri` 即视为失败。**
+   → **T09 已修**：`window` 留在桌面侧；`Path` 全部换成不透明 `String`；`ResumeVerifyMode` 单独成文件且不挂在请求上。**契约里现在出现 `window`/`Path`/`Uri` 即视为失败。**
 
 ---
 

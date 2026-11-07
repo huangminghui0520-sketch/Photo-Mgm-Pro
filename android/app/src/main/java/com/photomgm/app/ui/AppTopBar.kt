@@ -1,6 +1,6 @@
 // app/ui/AppTopBar.kt —— 顶部栏：左侧「巡查日期」选择器 + 右侧「设置」按钮
 // ★ 2026-10-07 UI 重建：保持 Row + background 实现（不用 Surface 包整栏——
-//   iQOO/OriginOS 上 Surface 容器曾拦截子元素触摸，见 docs/UI-REDESIGN.md P1）。
+//   iQOO/OriginOS 上 Surface 容器曾拦截子元素触摸）。
 package com.photomgm.app.ui
 
 import androidx.compose.foundation.background

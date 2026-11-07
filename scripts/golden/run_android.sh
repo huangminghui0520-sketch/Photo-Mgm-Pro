@@ -17,7 +17,7 @@
 #    targetSdk 34 上会因分区存储 EACCES，导出会以"输出目录不可写"失败。
 #    App 私有外部目录 /sdcard/Android/data/<pkg>/files/... 两侧都可读写。
 #    代价：这条路径不是用户真实路径（真实是 SAF），所以 SAF 通道另做一次人工冒烟，
-#    见 docs/ANDROID-EMULATOR-BASELINE.md §7.3。
+#    该冒烟不在本脚本覆盖范围内（历史基线文档已移除）。
 #
 # 3) 每次跑前 `pm clear`
 #    App 有 parsed / classify / photos / coarse 四类缓存与"人工移动"表。复用旧数据会让
@@ -97,7 +97,7 @@ if ! printf '%s\n' "$accel" | grep -qi "is installed and usable"; then
 
        修完自检判据（必须出现 "is installed and usable"）：
          emulator -accel-check
-       详见 docs/ANDROID-EMULATOR-BASELINE.md §9 问题 1。
+       历史基线文档已移除；按上面 "is installed and usable" 判据自查。
 EOS
   exit 2
 fi

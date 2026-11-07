@@ -70,7 +70,7 @@ Photo-Mgm/
 │   ├── scripts/                     安装冒烟、导出核对等 PowerShell 脚本
 │   └── （★ 本目录下**不再有** settings.gradle.kts / build.gradle.kts / gradle.properties / gradlew / gradle/wrapper/）
 │
-├── docs/                         两端共享文档（UI 规格、桌面计划、兼容性矩阵…）
+├── docs/                         两端共享文档（仓库布局、跨平台架构、兼容测试）+ golden 基线
 ├── scripts/                      静态门禁 4 个（协程取消 / @Ignore 可溯源 / 隐式时区 / 共享层纯度）+ 黄金样本
 ├── .github/workflows/            ci.yml（门禁 + `gradle testAll` 覆盖 8 模块）、build-apk.yml（Android 出包）、
 │                                 build-desktop.yml（Windows 出包，不含单测）

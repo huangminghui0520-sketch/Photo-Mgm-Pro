@@ -134,8 +134,7 @@ python scripts/golden/compare.py \
 
 两个脚本的分工：`run_android.sh` 是**模拟器**版（含 accel-check / AVD 创建 / `-no-window` 启动），
 `run_android_real.sh` 是**真机**版（含 `MSYS_NO_PATHCONV`、独立素材目录、`pm clear` 后重新授权等真机坑）。
-完整方案与问题清单见 `docs/ANDROID-EMULATOR-BASELINE.md`（模拟器）
-与 **`docs/ANDROID-REAL-DEVICE-P2-REPORT.md`**（真机，含 P0 缺陷记录）。
+完整方案与问题清单已随历史文档移除；模拟器与真机两侧踩到的坑仍留在两个脚本的注释里。
 
 Android 基线与桌面端的判定口径不同，这点必须记住：
 
@@ -217,8 +216,8 @@ $ADB -s $S shell "content query --uri content://media/external/images/media --pr
 
 | 盲区 | 真实素材上的后果 | 现状 | 记录 |
 | --- | --- | --- | --- |
-| **同一地点 1 秒内连拍** | 去重把两张**内容不同**的连拍当成同一张，后者**被永久删除**（110 张只导出 54 张） | ✅ **已补成用例**（2026-11-02，见下） | `docs/DEDUP-ADJACENT-BURST-FIX.md` |
-| **GPS 被系统剥离** | 照片定位全部变 `null`，去重退化 | ❌ 结构上测不出（素材不经 MediaProvider/FUSE）；只能靠真机 `check_gps.py` | `docs/P0-GPS-MEDIA-LOCATION-FIX.md` |
+| **同一地点 1 秒内连拍** | 去重把两张**内容不同**的连拍当成同一张，后者**被永久删除**（110 张只导出 54 张） | ✅ **已补成用例**（2026-11-02，见下） | 历史文档已移除 |
+| **GPS 被系统剥离** | 照片定位全部变 `null`，去重退化 | ❌ 结构上测不出（素材不经 MediaProvider/FUSE）；只能靠真机 `check_gps.py` | 历史文档已移除 |
 
 ### 9.1 连拍用例（2026-11-02 补）
 

@@ -15,7 +15,7 @@
 偏移 8 小时；`user.dir` 写诊断报告）。重构期间靠人肉 grep 拦了几次，但
 "下一轮就会有人加回一行 `import algorithm.AlgorithmApi`"是必然的 —— 所以固化成本脚本。
 
-规则（5 条，与 docs/REFACTOR-EXECUTION-PLAN.md §20 一一对应）
+规则（5 条）
 --------------------------------------------------------------
   P1  平台 import：`shared/*/src/main` 不得 import android / androidx / java.awt /
       javax.swing / javax.imageio / javafx / com.photomgm.*（两端的实现包）。
