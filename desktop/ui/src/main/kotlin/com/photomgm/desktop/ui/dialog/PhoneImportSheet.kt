@@ -8,6 +8,7 @@
 package com.photomgm.desktop.ui.dialog
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -43,28 +44,46 @@ import com.photomgm.desktop.core.PhoneSyncRequest
 import com.photomgm.desktop.core.PhoneSyncResult
 import com.photomgm.desktop.ui.app.Actions
 import com.photomgm.desktop.ui.component.ButtonKind
-import com.photomgm.desktop.ui.component.DateTimeField
 import com.photomgm.desktop.ui.component.Field
 import com.photomgm.desktop.ui.component.Hairline
 import com.photomgm.desktop.ui.component.PmButton
+import com.photomgm.desktop.ui.component.PmCalendarPanel
+import com.photomgm.desktop.ui.component.PmDateField
 import com.photomgm.desktop.ui.component.PmIconButton
 import com.photomgm.desktop.ui.component.PmScrollArea
+import com.photomgm.desktop.ui.component.PmTimePicker
 import com.photomgm.desktop.ui.component.Segmented
 import com.photomgm.desktop.ui.component.Tone
 import com.photomgm.desktop.ui.component.bg
 import com.photomgm.desktop.ui.component.fg
+import com.photomgm.desktop.ui.model.CalendarTarget
 import com.photomgm.desktop.ui.model.PhoneImportForm
 import com.photomgm.desktop.ui.model.UiState
+import com.photomgm.desktop.ui.model.closeCalendar
 import com.photomgm.desktop.ui.model.conflictPrompt
 import com.photomgm.desktop.ui.model.defaultPhoneImportForm
 import com.photomgm.desktop.ui.model.dialogHeight
+import com.photomgm.desktop.ui.model.endFieldError
+import com.photomgm.desktop.ui.model.parsePhoneDate
+import com.photomgm.desktop.ui.model.parsePhoneTime
 import com.photomgm.desktop.ui.model.phoneImportRange
+import com.photomgm.desktop.ui.model.rangeError
 import com.photomgm.desktop.ui.model.syncBlockReason
 import com.photomgm.desktop.ui.model.syncTargetText
+import com.photomgm.desktop.ui.model.toggleCalendar
+import com.photomgm.desktop.ui.model.withEndDate
+import com.photomgm.desktop.ui.model.withEndHour
+import com.photomgm.desktop.ui.model.withEndMinute
+import com.photomgm.desktop.ui.model.withStartDate
+import com.photomgm.desktop.ui.model.withStartHour
+import com.photomgm.desktop.ui.model.withStartMinute
 import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius
+import com.photomgm.desktop.ui.theme.PmSize
 import com.photomgm.desktop.ui.theme.PmSpace
 import com.photomgm.desktop.ui.theme.PmType
+import java.time.LocalDate
+import java.time.LocalTime
 
 @Composable
 fun PhoneImportSheet(
@@ -94,6 +113,13 @@ fun PhoneImportSheet(
 
     val mode = PhoneLinkMode.values()[form.modeIndex.coerceIn(0, PhoneLinkMode.values().size - 1)]
     val phoneOptions = remember(mode, manualDirs) { actions.phoneDirs(mode) + manualDirs }
+
+    // 区间类校验（V5 / 上限 / 空值）是**实时**的：改日期或点时分都重算。
+    // 顶部按钮的 enabled、字段下方的提示行、结束字段的标红边框都读这一份结果 ——
+    // 三处各算一遍的话，迟早出现"按钮灰着但没有原因"。
+    val validateRange = actions.phoneValidateRange
+    val rangeErr = rangeError(form, validateRange)
+    val endErr = endFieldError(form, validateRange)
 
     // R5 冲突后用户点「仍要继续」：把确认标记带上再跑一次，绝不静默合并。
     fun launchSync(current: PhoneImportForm) {
@@ -143,7 +169,9 @@ fun PhoneImportSheet(
                     { launchSync(form) },
                     kind = ButtonKind.PRIMARY,
                     icon = Icons.Filled.FolderOpen,
-                    enabled = !running,
+                    // 区间不合法时直接禁用（§3.5）：让"能不能点"在点之前就有答案，
+                    // 而不是点完在结果条里报一句。原因由下方提示行给出。
+                    enabled = !running && rangeErr == null,
                 )
                 Spacer(Modifier.weight(1f))
                 PmIconButton(Icons.Filled.Close, "关闭", { onUi(ui.copy(sheet = null)) })
@@ -154,27 +182,34 @@ fun PhoneImportSheet(
                 Modifier.weight(1f, fill = false),
                 contentPadding = PaddingValues(start = PmSpace.xl, end = PmSpace.xl, top = PmSpace.l, bottom = PmSpace.m),
             ) {
-                Field(label = "照片时间区间", hint = "可编辑、可跨自然日；精确到分钟，秒不参与文件夹命名。") {
-                    Row(verticalAlignment = Alignment.Top) {
-                        DateTimeField(
-                            label = "开始",
-                            date = form.startDate,
-                            time = form.startTime,
-                            onDateChange = { form = form.copy(startDate = it, confirmConflict = false) },
-                            onTimeChange = { form = form.copy(startTime = it, confirmConflict = false) },
-                            enabled = !running,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(PmSpace.l))
-                        DateTimeField(
-                            label = "结束",
-                            date = form.endDate,
-                            time = form.endTime,
-                            onDateChange = { form = form.copy(endDate = it, confirmConflict = false) },
-                            onTimeChange = { form = form.copy(endTime = it, confirmConflict = false) },
-                            enabled = !running,
-                            modifier = Modifier.weight(1f),
-                        )
+                Field(
+                    label = "照片时间区间",
+                    hint = "点日期开日历；时分列点一下即生效（5 分钟一档）。可跨自然日，秒不参与文件夹命名。",
+                ) {
+                    RangePointRow(
+                        label = "开始",
+                        target = CalendarTarget.START,
+                        form = form,
+                        enabled = !running,
+                        invalid = false,
+                        fallbackDate = patrolDate,
+                        onForm = { form = it },
+                    )
+                    Spacer(Modifier.height(PmSpace.m))
+                    RangePointRow(
+                        label = "结束",
+                        target = CalendarTarget.END,
+                        form = form,
+                        enabled = !running,
+                        invalid = endErr != null,
+                        fallbackDate = patrolDate,
+                        onForm = { form = it },
+                    )
+                    // 实时提示：与顶部按钮的 disabled 同源（同一次 rangeError），
+                    // 不会出现"按钮灰了但屏幕上没有任何原因"。
+                    if (rangeErr != null) {
+                        Spacer(Modifier.height(PmSpace.xs))
+                        Text(rangeErr, style = PmType.caption, color = PmColor.danger)
                     }
                 }
 
@@ -342,6 +377,88 @@ fun PhoneImportSheet(
                     kind = ButtonKind.GHOST,
                 )
             }
+        }
+    }
+}
+
+// 一行时刻：日期（日历按钮）+ 时列 + 分列。
+//
+// ★ 两行都用同一个组合（而不是复用 DateTimeField）：DateTimeField 把日期与时分画成
+//   "标签在上、控件在下"的两层，两行并排会翻倍拉高；这里要的是一行三格。
+//   DateTimeField 保留为调试组件，见 component/DateTimeField.kt 文件头。
+//
+// ★ 日历**就地展开**（在本行下方）而不是走主页那套窗口像素浮层：
+//   弹窗本身已经是一个覆盖层，且卡片可拖动；再按窗口坐标挂一层浮层，
+//   一拖动就会出现"面板留在原地、卡片跑了"。就地展开时日历跟着卡片一起动。
+@Composable
+private fun RangePointRow(
+    label: String,
+    target: CalendarTarget,
+    form: PhoneImportForm,
+    enabled: Boolean,
+    invalid: Boolean,
+    fallbackDate: LocalDate,
+    onForm: (PhoneImportForm) -> Unit,
+) {
+    val isStart = target == CalendarTarget.START
+    // 半成品输入（"2026-11-0"）在日历上无法表达：取不到合法日期就退回巡查日期，
+    // 让日历至少能打开；一点格子就会把这个字段写成完整值，半成品自然被修好。
+    val date = (if (isStart) parsePhoneDate(form.startDate) else parsePhoneDate(form.endDate))
+        ?: fallbackDate
+    val time = (if (isStart) parsePhoneTime(form.startTime) else parsePhoneTime(form.endTime))
+        ?: LocalTime.MIDNIGHT
+    val open = form.calendarTarget == target
+    val shape = RoundedCornerShape(PmRadius.control)
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            // 标红只画边框、不加内边距：加内边距会让"结束"行比"开始"行矮进去几像素，
+            // 两行的日期按钮就不再对齐了。
+            .then(if (invalid) Modifier.border(1.dp, PmColor.danger, shape) else Modifier),
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
+            Box(
+                Modifier.width(28.dp).height(PmSize.control),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(label, style = PmType.label, color = if (invalid) PmColor.danger else PmColor.ink2)
+            }
+            Spacer(Modifier.width(PmSpace.s))
+            PmDateField(
+                date = date,
+                onChange = {
+                    if (enabled) onForm(if (isStart) form.withStartDate(it) else form.withEndDate(it))
+                },
+                open = open,
+                onToggle = { if (enabled) onForm(form.toggleCalendar(target)) },
+                // 就地展开，不需要窗口锚点。
+                onAnchor = {},
+            )
+            Spacer(Modifier.width(PmSpace.l))
+            PmTimePicker(
+                hour = time.hour,
+                minute = time.minute,
+                onHourChange = {
+                    if (enabled) onForm(if (isStart) form.withStartHour(it) else form.withEndHour(it))
+                },
+                onMinuteChange = {
+                    if (enabled) onForm(if (isStart) form.withStartMinute(it) else form.withEndMinute(it))
+                },
+                enabled = enabled,
+            )
+        }
+        if (open) {
+            Spacer(Modifier.height(PmSpace.xs))
+            PmCalendarPanel(
+                selected = date,
+                onPick = {
+                    onForm(
+                        (if (isStart) form.withStartDate(it) else form.withEndDate(it)).closeCalendar(),
+                    )
+                },
+                onClose = { onForm(form.closeCalendar()) },
+            )
         }
     }
 }

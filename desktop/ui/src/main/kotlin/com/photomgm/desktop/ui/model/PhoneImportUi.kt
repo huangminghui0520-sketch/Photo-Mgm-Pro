@@ -19,6 +19,37 @@ import java.time.format.DateTimeFormatter
 private val DATE_FMT: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 private val TIME_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
+/**
+ * 分钟列的步进：与 PmTimePicker 的列项**同一个来源**（界面读 [MINUTE_OPTIONS]，
+ * 单测断言 55 在里面），不给界面留一份自己的常量。
+ *
+ * ★ 为什么是 5 而不是 1：区间只用于文件夹命名与筛选边界，5 分钟粒度已够；
+ *   1 分钟要 60 项，选 23:55 得滚半屏。
+ */
+const val TIME_STEP_MINUTES: Int = 5
+
+/** 时列：0..23 共 24 项。 */
+val HOUR_OPTIONS: List<Int> = (0..23).toList()
+
+/** 分列：0,5,…,55 共 12 项。 */
+val MINUTE_OPTIONS: List<Int> = (0..55 step TIME_STEP_MINUTES).toList()
+
+/**
+ * 区间「先序」失败的文案。
+ *
+ * ★ 这条字符串的**权威来源是 shared/domain 的 SyncRangeFolder.validateRange**（UI 不许
+ *   import domain.*，见 P5 门禁），这里是为了「结束字段标红」这个纯 UI 判断复制的一份。
+ *   复制就会漂移，所以 PhoneImportUiTest 里有一条用例把本常量与真规则返回值**对齐断言**：
+ *   领域改文案而这里没跟，那条会红 —— 不让副本静默过期。
+ */
+const val RANGE_ORDER_MESSAGE: String = "开始时间必须早于结束时间"
+
+/** 区间超过上限的文案；同上，权威在 SyncRangeFolder，用例里对齐。 */
+const val RANGE_SPAN_MESSAGE: String = "时间区间过长"
+
+/** 两个日历最多开一个：单个可空字段天然表达互斥，不用两个 Boolean 去维护「另一个关掉」。 */
+enum class CalendarTarget { START, END }
+
 // 弹窗里用户可编辑的全部字段。
 // 日期与时刻一律存**字符串**：输入过程中必然出现「2026-11-0」这种半成品，
 // 用 LocalDateTime 存就得允许中间态为 null，反而把「没填完」和「填错了」混成一种。
@@ -34,6 +65,8 @@ data class PhoneImportForm(
     val modeIndex: Int = 0,
     // 用户已确认「另一目录 / 跨年同名」冲突（R5）。
     val confirmConflict: Boolean = false,
+    // 当前打开的是哪个日历；null = 都关着。只影响界面展开，不参与任何业务判断。
+    val calendarTarget: CalendarTarget? = null,
 )
 
 fun parsePhoneDate(text: String): LocalDate? =
@@ -71,6 +104,77 @@ fun phoneImportRange(form: PhoneImportForm): Pair<LocalDateTime, LocalDateTime>?
     val end = parsePhoneDateTime(form.endDate, form.endTime) ?: return null
     return start to end
 }
+
+// ── 日历 / 时分列的编辑（界面只调这些，不自己拼字符串） ──────────────────────
+//
+// ★ 为什么编辑器放 model 而不是界面里 `form.copy(startTime = "$h:$m")`：
+//   时与分是**两个控件改同一个字段**，谁都不能把另一半覆盖成默认值；
+//   拼接格式（补零）也只有一处。放这里才能被单测盯住（U2~U4/U8）。
+
+fun PhoneImportForm.startDateTime(): LocalDateTime? = parsePhoneDateTime(startDate, startTime)
+fun PhoneImportForm.endDateTime(): LocalDateTime? = parsePhoneDateTime(endDate, endTime)
+
+/** 打开某个日历。单字段赋值 = 另一个必然关闭（U2/U8 的互斥由类型保证，不靠调用方自觉）。 */
+fun PhoneImportForm.openCalendar(target: CalendarTarget): PhoneImportForm =
+    copy(calendarTarget = target)
+
+/** 点同一颗日期按钮两次 = 收起；点另一颗 = 换到那颗（不会两个都开）。 */
+fun PhoneImportForm.toggleCalendar(target: CalendarTarget): PhoneImportForm =
+    copy(calendarTarget = if (calendarTarget == target) null else target)
+
+fun PhoneImportForm.closeCalendar(): PhoneImportForm = copy(calendarTarget = null)
+
+fun PhoneImportForm.withStartDate(value: LocalDate): PhoneImportForm =
+    copy(startDate = value.format(DATE_FMT), confirmConflict = false)
+
+fun PhoneImportForm.withEndDate(value: LocalDate): PhoneImportForm =
+    copy(endDate = value.format(DATE_FMT), confirmConflict = false)
+
+// 时 / 分分开写：改一项必须保留另一项（23:59 点「22 时」应得 22:59，不是 22:00）。
+fun PhoneImportForm.withStartHour(hour: Int): PhoneImportForm =
+    copy(startTime = timeText(hour, startDateTime()?.minute ?: 0), confirmConflict = false)
+
+fun PhoneImportForm.withStartMinute(minute: Int): PhoneImportForm =
+    copy(startTime = timeText(startDateTime()?.hour ?: 0, minute), confirmConflict = false)
+
+fun PhoneImportForm.withEndHour(hour: Int): PhoneImportForm =
+    copy(endTime = timeText(hour, endDateTime()?.minute ?: 0), confirmConflict = false)
+
+fun PhoneImportForm.withEndMinute(minute: Int): PhoneImportForm =
+    copy(endTime = timeText(endDateTime()?.hour ?: 0, minute), confirmConflict = false)
+
+private fun timeText(hour: Int, minute: Int): String =
+    LocalTime.of(hour.coerceIn(0, 23), minute.coerceIn(0, 59)).format(TIME_FMT)
+
+/**
+ * 分钟落到 5 分钟档的**档位下沿**（59 → 55）。
+ *
+ * ★ 为什么需要它：默认结束时刻是 23:59（V1），而分列只有 0,5,…,55 ——
+ *   59 落在「55 档」里。列高亮取档位下沿，用户看到的是"当前值所在的档"，
+ *   而不是"什么都没选中"；真要精确到 59 仍由 [withEndHour] 保留（改时不偷偷改分钟）。
+ */
+fun snapToStep(minute: Int, step: Int = TIME_STEP_MINUTES): Int {
+    if (step <= 0) return minute.coerceIn(0, 59)
+    val snapped = minute - Math.floorMod(minute, step)
+    return snapped.coerceIn(0, 59)
+}
+
+/** 区间规则本体在 shared/domain，经门面转发（F6）；这里只转发，不重写。 */
+fun rangeError(
+    form: PhoneImportForm,
+    validate: (LocalDateTime?, LocalDateTime?) -> String?,
+): String? = validate(form.startDateTime(), form.endDateTime())
+
+/**
+ * 结束字段是否要标红：只认「开始不早于结束」这一条。
+ *
+ * ★ 上限超了（>31 天）不标红：那不是结束**填错**，是区间太长 ——
+ *   标在结束字段上会让人以为要改结束值，实际要改的是区间意图。它只出现在提示行里。
+ */
+fun endFieldError(
+    form: PhoneImportForm,
+    validate: (LocalDateTime?, LocalDateTime?) -> String?,
+): String? = rangeError(form, validate)?.takeIf { it == RANGE_ORDER_MESSAGE }
 
 // 点顶部按钮前的拦截原因；null = 可以执行。
 // 顺序由硬到软（与 rejectReason / exportBlockReason 同口径）：
