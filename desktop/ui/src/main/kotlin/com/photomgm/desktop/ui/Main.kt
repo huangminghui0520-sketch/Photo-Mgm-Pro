@@ -59,6 +59,7 @@ import kotlinx.coroutines.delay
 import java.awt.GraphicsEnvironment
 import java.nio.file.Path
 import java.nio.file.Paths
+import javax.swing.SwingUtilities
 
 private data class Options(
     val smoke: Boolean = false,
@@ -118,6 +119,7 @@ fun main(args: Array<String>) {
             // --sheet 只用于截图走查：把某个覆盖层直接打开，业务逻辑一律不动。
             val forced: Sheet? = when (opts.sheet?.lowercase()) {
                 "settings" -> Sheet.Settings
+                "phone" -> Sheet.PhoneImport
                 "photos", "event" -> {
                     val pending = snapshot.events.firstOrNull { it.photoIds.isNotEmpty() }
                         ?: snapshot.events.firstOrNull { it.isPending }
@@ -270,6 +272,23 @@ private fun rememberActions(
         setDedupMode = { mode: DedupKeepMode -> core.setDedupMode(mode) },
         openLedger = { core.state.value.lastExport?.let { core.openLedger(it) } },
         revealExportDir = { core.state.value.lastExport?.let { core.revealExportDir(it) } },
+        // 手机导入：纯函数经 DesktopCore 门面转发（F6），UI 不 import domain.*。
+        // 进度/完成回调来自后台执行器线程，必须切回 EDT 再写 Compose 状态。
+        phoneFolderNameFor = core::folderNameFor,
+        phoneValidateRange = core::validateRange,
+        phoneDefaultRange = core::defaultRange,
+        phoneDirs = core::listPhoneDirs,
+        pickPhoneDir = {
+            NativeDialogs.pickDirectory("选择手机照片目录（UMS 盘符或本机已挂载的目录）")
+        },
+        startPhoneSync = { request, onProgress, onFinished ->
+            core.startPhoneSync(
+                request,
+                { p -> SwingUtilities.invokeLater { onProgress(p) } },
+                { r -> SwingUtilities.invokeLater { onFinished(r) } },
+            )
+        },
+        cancelPhoneSync = core::cancelPhoneSync,
         clearMessage = { core.clearMessage() },
     )
 }

@@ -12,7 +12,14 @@
 package com.photomgm.desktop.ui.app
 
 import algorithm.DedupKeepMode
+import com.photomgm.desktop.core.PhoneDirEntry
+import com.photomgm.desktop.core.PhoneLinkMode
+import com.photomgm.desktop.core.PhoneSyncProgress
+import com.photomgm.desktop.core.PhoneSyncRequest
+import com.photomgm.desktop.core.PhoneSyncResult
+import com.photomgm.desktop.core.PhoneSyncFormulas
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 class Actions(
     // ── 输入 ──────────────────────────────────────────────────────────────
@@ -40,6 +47,20 @@ class Actions(
     // ── 结果 ──────────────────────────────────────────────────────────────
     val openLedger: () -> Unit = {},
     val revealExportDir: () -> Unit = {},
+    // ── 手机导入照片 ──────────────────────────────────────────────────────
+    // 纯函数默认走 DesktopCore.kt 里的 PhoneSyncFormulas（同一份 domain 规则），
+    // 生产环境由 Main.kt 注入 core 门面；组件即使没有 core 实例也能渲染出正确的「同步到」。
+    val phoneFolderNameFor: (LocalDateTime, LocalDateTime) -> String = PhoneSyncFormulas::folderNameFor,
+    val phoneValidateRange: (LocalDateTime?, LocalDateTime?) -> String? = PhoneSyncFormulas::validateRange,
+    val phoneDefaultRange: (LocalDate) -> Pair<LocalDateTime, LocalDateTime> = PhoneSyncFormulas::defaultRange,
+    val phoneDirs: (PhoneLinkMode) -> List<PhoneDirEntry> = { emptyList() },
+    val pickPhoneDir: () -> String? = { null },
+    val startPhoneSync: (
+        PhoneSyncRequest,
+        (PhoneSyncProgress) -> Unit,
+        (PhoneSyncResult) -> Unit,
+    ) -> Unit = { _, _, _ -> },
+    val cancelPhoneSync: () -> Unit = {},
     // ── 通用 ──────────────────────────────────────────────────────────────
     val clearMessage: () -> Unit = {},
 )

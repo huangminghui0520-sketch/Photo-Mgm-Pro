@@ -55,8 +55,29 @@ import com.photomgm.desktop.core.platform.PcExifReader
 import com.photomgm.desktop.core.platform.PcFileHasher
 import com.photomgm.desktop.core.platform.PcPaths
 import com.photomgm.desktop.core.platform.PcPhotoSourceProvider
+import com.photomgm.desktop.core.sync.AdbBridge
+import com.photomgm.desktop.core.sync.AdbCommand
+import com.photomgm.desktop.core.sync.AdbOutput
+import com.photomgm.desktop.core.sync.AdbPhoneSource
+import com.photomgm.desktop.core.sync.ConnectionKind
+import com.photomgm.desktop.core.sync.ConnectionMode
+import com.photomgm.desktop.core.sync.ConnectionProbe
+import com.photomgm.desktop.core.sync.PhoneConnection
+import com.photomgm.desktop.core.sync.PhoneSource
+import com.photomgm.desktop.core.sync.PhoneSyncExecutor
+import com.photomgm.desktop.core.sync.PhoneSyncJob
+import com.photomgm.desktop.core.sync.PhoneSyncOutcome
+import com.photomgm.desktop.core.sync.PhoneSyncProgress as CoreSyncProgress
+import com.photomgm.desktop.core.sync.RemotePhoto
+import com.photomgm.desktop.core.sync.UsbDriveScanner
+import com.photomgm.desktop.core.sync.UsbPhoneSource
+import domain.sync.SyncRangeFolder
 import kotlinx.coroutines.flow.StateFlow
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -111,6 +132,29 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
         verifyMode = { verifyMode },
     )
 
+    // ── 手机导入（桌面独有，全部 internal sync 包只在这里装配） ──────────
+    // config 里的假件只用 JDK 类型表达，绝不把 internal 类型泄漏到 public 配置签名上。
+    private val adbBridge: AdbBridge = config.adbCommandOutput?.let { fake ->
+        AdbBridge(command = AdbCommand { args ->
+            val (exitCode, stdout) = fake(args)
+            AdbOutput(exitCode, stdout, "")
+        })
+    } ?: AdbBridge()
+
+    private val usbDriveScanner: UsbDriveScanner = run {
+        val roots = config.usbRoots
+        val readable = config.usbReadableDir
+        when {
+            roots != null && readable != null -> UsbDriveScanner(roots = roots, isReadableDir = readable)
+            roots != null -> UsbDriveScanner(roots = roots)
+            readable != null -> UsbDriveScanner(isReadableDir = readable)
+            else -> UsbDriveScanner()
+        }
+    }
+
+    @Volatile
+    private var phoneSyncHandle: OperationHandle? = null
+
     // ── 状态与用例 ────────────────────────────────────────────────────────
     private val logs: DebouncedTextStore = DebouncedTextStore(
         persist = { text -> logStorage.persist(text) },
@@ -163,6 +207,111 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
     /** 切换断点续传的产物校验强度（桌面独有，见 [app.api.ResumeVerifyMode]）。 */
     fun setVerifyMode(mode: app.api.ResumeVerifyMode) {
         verifyMode = mode
+    }
+
+    // ── 桌面独有：手机导入照片 ────────────────────────────────────────────
+    // F6：纯函数经门面转发到 shared/domain，UI 不 import domain.*；
+    // 执行链路锁在 internal sync 包里，:ui 只看得见本文件的 public DTO。
+
+    // 区间 → 子文件夹名（`04_2300__05_2359`）；纯函数转发，单一事实来源在 shared/domain。
+    fun folderNameFor(start: LocalDateTime, end: LocalDateTime): String =
+        PhoneSyncFormulas.folderNameFor(start, end)
+
+    // 区间校验；返回提示文案，null = 可以提交。
+    fun validateRange(start: LocalDateTime?, end: LocalDateTime?): String? =
+        PhoneSyncFormulas.validateRange(start, end)
+
+    // 弹窗首次打开时的默认区间：巡查日期 00:00 ~ 23:59。
+    fun defaultRange(patrolDate: LocalDate): Pair<LocalDateTime, LocalDateTime> =
+        PhoneSyncFormulas.defaultRange(patrolDate)
+
+    // 手机目录候选项；手动选的本机目录由 UI 追加（F4-A1）。
+    fun listPhoneDirs(mode: PhoneLinkMode): List<PhoneDirEntry> {
+        val out = ArrayList<PhoneDirEntry>()
+        if (mode != PhoneLinkMode.USB_DRIVE) {
+            ADB_CAMERA_DIRS.forEach { dir -> out += PhoneDirEntry("adb:$dir", "ADB · $dir") }
+        }
+        if (mode != PhoneLinkMode.ADB) {
+            usbDriveScanner.visibleDrives().forEach { drive ->
+                out += PhoneDirEntry(drive, "盘符 · $drive")
+                UsbDriveScanner.candidateDirs(drive).forEach { sub ->
+                    out += PhoneDirEntry(sub, "盘符 · $sub")
+                }
+            }
+        }
+        return out
+    }
+
+    // 启动一次手机导入。回调在**后台执行器线程**上触发，UI 侧负责切回 EDT 再写 Compose 状态。
+    // 一次只存在一个任务：重复调用会先取消上一个，避免两批写同一个子文件夹。
+    fun startPhoneSync(
+        request: PhoneSyncRequest,
+        onProgress: (PhoneSyncProgress) -> Unit,
+        onFinished: (PhoneSyncResult) -> Unit,
+    ) {
+        if (closed.get()) {
+            onFinished(PhoneSyncResult.failure("程序已关闭，无法同步"))
+            return
+        }
+        phoneSyncHandle?.cancel()
+        val op = DesktopOperation()
+        phoneSyncHandle = op
+        val capturedPhoneDir = request.phoneDir
+        executor.execute {
+            try {
+                val sync = PhoneSyncExecutor(
+                    hasher = { p -> hasher(p.toString()) },
+                    timeOf = { p: Path, remote: RemotePhoto ->
+                        exifReader.readCaptureTimeMs(p.toString()) ?: remote.modifiedMs
+                    },
+                    sourceFactory = { kind, dir -> phoneSourceFor(kind, dir) },
+                    probe = {
+                        ConnectionProbe(
+                            adbAvailable = adbBridge.hasDevice(),
+                            usbVisible = usbDriveScanner.visibleDrives().isNotEmpty() ||
+                                runCatching { Files.isDirectory(Paths.get(capturedPhoneDir)) }.getOrDefault(false),
+                        )
+                    },
+                    stagingDir = {
+                        config.phoneSyncStaging?.invoke() ?: Files.createTempDirectory("photomgm-phone-sync-")
+                    },
+                    nowText = { config.phoneSyncNowText?.invoke() ?: clock.instant().toString() },
+                    normalize = PcPaths::normalize,
+                )
+                val outcome = sync.run(
+                    PhoneSyncJob(
+                        sourceDir = request.sourceDir,
+                        start = request.start,
+                        end = request.end,
+                        phoneDir = request.phoneDir,
+                        mode = request.mode.toCoreMode(),
+                        confirmConflict = request.confirmConflict,
+                    ),
+                    op::isCancelled,
+                ) { p: CoreSyncProgress -> onProgress(p.toUi()) }
+                onFinished(outcome.toUi())
+            } finally {
+                // 只清自己那一版句柄：旧任务收尾时若已经开始了新任务，不能把新句柄抹掉，
+                // 否则「取消」按钮会对新任务失效。
+                if (phoneSyncHandle === op) phoneSyncHandle = null
+            }
+        }
+    }
+
+    // 取消当前手机导入；只在文件边界停，已写入文件与 sync-state.json 都保留。
+    fun cancelPhoneSync() {
+        phoneSyncHandle?.cancel()
+    }
+
+    private fun phoneSourceFor(kind: ConnectionKind, phoneDir: String): PhoneSource? = when (kind) {
+        ConnectionKind.ADB -> {
+            // 盘符/手动目录被选中却解析到 ADB 时，退回默认相机目录，不把 Windows 路径当远端路径。
+            val remote = phoneDir.removePrefix("adb:").takeIf { it.startsWith("/") }
+                ?: ADB_CAMERA_DIRS.first()
+            AdbPhoneSource(adbBridge, remote)
+        }
+        ConnectionKind.USB_DRIVE -> UsbPhoneSource(phoneDir)
+        ConnectionKind.NONE -> null
     }
 
     // ── 设置 ──────────────────────────────────────────────────────────────
@@ -250,5 +399,130 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
 
         private fun daemonThread(r: Runnable, name: String): Thread =
             Thread(r, name).apply { isDaemon = true }
+    }
+}
+
+// ── 手机导入：:ui 与 :core 之间的公开契约 ────────────────────────────────────
+// 全部定义在本文件内，不新增 PhoneSyncApi.kt —— 方案 D 的改动清单只列 DesktopCore.kt。
+// 签名只用 java.time / String / Int / Boolean：:ui 不需要 import domain.*，也看不到
+// core/sync 里任何 internal 类型（P5 门禁 + :ui 只认根包 public 类型）。
+
+private val ADB_CAMERA_DIRS = listOf("/sdcard/DCIM/Camera", "/sdcard/DCIM", "/sdcard/Pictures")
+
+// UI 上的连接方式；与 internal 的 ConnectionMode 一一对应，避免把 internal 枚举暴露给 :ui。
+enum class PhoneLinkMode(val label: String) {
+    AUTO("自动（先 ADB，后 USB 盘符）"),
+    ADB("ADB（USB 调试）"),
+    USB_DRIVE("USB 盘符 / 手动目录"),
+}
+
+// 手机目录下拉的一项。[id] 会写进 sync-state.json，换目录即被冲突检测拦下。
+data class PhoneDirEntry(val id: String, val label: String)
+
+data class PhoneSyncRequest(
+    val sourceDir: String,
+    val start: LocalDateTime,
+    val end: LocalDateTime,
+    val phoneDir: String,
+    val mode: PhoneLinkMode,
+    // 用户已确认「另一目录 / 跨年同名」冲突。
+    val confirmConflict: Boolean = false,
+)
+
+data class PhoneSyncProgress(
+    val done: Int,
+    val total: Int,
+    val written: Int,
+    val skipped: Int,
+    val renamed: Int,
+    val current: String,
+    val connectionLabel: String,
+)
+
+data class PhoneSyncResult(
+    val folderName: String,
+    val targetDir: String?,
+    val connectionLabel: String,
+    val written: Int,
+    val skipped: Int,
+    val rewritten: Int,
+    val renamed: Int,
+    val filtered: Int,
+    val failed: Int,
+    val cancelled: Boolean,
+    // 需要用户确认才能继续（另一目录 / 跨年同名），不静默合并。
+    val conflict: String?,
+    val error: String?,
+    val summary: String,
+) {
+    companion object {
+        fun failure(text: String): PhoneSyncResult = PhoneSyncResult(
+            folderName = "", targetDir = null, connectionLabel = ConnectionKind.NONE.label,
+            written = 0, skipped = 0, rewritten = 0, renamed = 0, filtered = 0, failed = 0,
+            cancelled = false, conflict = null, error = text, summary = text,
+        )
+    }
+}
+
+// 纯函数转发对象：UI 的 model 层与单测可以**不持有 DesktopCore 实例**就调用同一套规则。
+// 规则本体只在 domain.sync.SyncRangeFolder 里定义一次（F6，单一事实来源）。
+object PhoneSyncFormulas {
+    fun folderNameFor(start: LocalDateTime, end: LocalDateTime): String =
+        SyncRangeFolder.folderName(start, end)
+
+    fun validateRange(start: LocalDateTime?, end: LocalDateTime?): String? =
+        SyncRangeFolder.validateRange(start, end)
+
+    fun defaultRange(patrolDate: LocalDate): Pair<LocalDateTime, LocalDateTime> =
+        SyncRangeFolder.defaultRange(patrolDate)
+}
+
+private fun PhoneLinkMode.toCoreMode(): ConnectionMode = when (this) {
+    PhoneLinkMode.AUTO -> ConnectionMode.AUTO
+    PhoneLinkMode.ADB -> ConnectionMode.ADB
+    PhoneLinkMode.USB_DRIVE -> ConnectionMode.USB_DRIVE
+}
+
+private fun CoreSyncProgress.toUi(): PhoneSyncProgress = PhoneSyncProgress(
+    done = done,
+    total = total,
+    written = written,
+    skipped = skipped,
+    renamed = renamed,
+    current = current,
+    connectionLabel = connection.label,
+)
+
+private fun PhoneSyncOutcome.toUi(): PhoneSyncResult = PhoneSyncResult(
+    folderName = folderName,
+    targetDir = targetDir?.toString(),
+    connectionLabel = connection.label,
+    written = written,
+    skipped = skipped,
+    rewritten = rewritten,
+    renamed = renamed,
+    filtered = filtered,
+    failed = failed,
+    cancelled = cancelled,
+    conflict = conflict,
+    error = error,
+    summary = resultText(this),
+)
+
+// 结果文案按「失败 > 冲突 > 取消 > 已是最新 > 正常完成」由硬到软，不把失败说成成功。
+private fun resultText(o: PhoneSyncOutcome): String = when {
+    o.error != null -> o.error.orEmpty()
+    o.conflict != null -> o.conflict.orEmpty()
+    o.cancelled -> "已取消：保留已写入的 ${o.written} 张，可稍后继续。"
+    o.written == 0 && o.skipped > 0 -> "已是最新：${o.skipped} 张已存在，无需重复导入。"
+    else -> buildString {
+        append("完成：写入 ${o.written} 张")
+        if (o.skipped > 0) append("、跳过 ${o.skipped} 张")
+        if (o.rewritten > 0) append("（其中重写 ${o.rewritten} 张")
+        if (o.renamed > 0) append(if (o.rewritten > 0) "、另存 ${o.renamed} 张" else "（其中另存 ${o.renamed} 张")
+        if (o.rewritten > 0 || o.renamed > 0) append("）")
+        if (o.filtered > 0) append("、区间外 ${o.filtered} 张")
+        if (o.failed > 0) append("、失败 ${o.failed} 张")
+        append("。")
     }
 }

@@ -70,6 +70,7 @@ import com.photomgm.desktop.ui.component.fg
 import com.photomgm.desktop.ui.dialog.AssignSheet
 import com.photomgm.desktop.ui.dialog.ConfirmReanalyzeSheet
 import com.photomgm.desktop.ui.dialog.DatePickerLayer
+import com.photomgm.desktop.ui.dialog.PhoneImportSheet
 import com.photomgm.desktop.ui.dialog.PhotosSheet
 import com.photomgm.desktop.ui.dialog.SettingsSheet
 import com.photomgm.desktop.ui.model.Busy
@@ -160,6 +161,7 @@ fun AppShell(
                 is Sheet.Photos -> "photos:${s.target}"
                 is Sheet.Assign -> "assign:${s.mode}:${s.photoIds.size}"
                 Sheet.ConfirmReanalyze -> "confirm"
+                Sheet.PhoneImport -> "phone-import"
             }
             UiLog.line(
                 "render w=$width h=$height tile=${com.photomgm.desktop.ui.model.tileSize(width)} " +
@@ -218,6 +220,7 @@ fun AppShell(
             Sheet.ConfirmReanalyze -> ConfirmReanalyzeSheet(state, ui, onUi, actions)
             is Sheet.Photos -> PhotosSheet(state, ui, onUi, actions, width, height)
             is Sheet.Assign -> AssignSheet(state, ui, onUi, actions, width, height)
+            Sheet.PhoneImport -> PhoneImportSheet(state, ui, onUi, actions, width, height)
         }
     }
 }

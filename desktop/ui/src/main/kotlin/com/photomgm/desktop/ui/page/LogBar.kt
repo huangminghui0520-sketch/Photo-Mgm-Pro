@@ -90,6 +90,14 @@ fun LogBar(
         verticalAlignment = Alignment.Top,
     ) {
         DateSection(state, ui, onUi, actions, onDateAnchor)
+        // F8：入口按钮在顶层 Row、日期列之后、Spacer(xl) 之前；DATE_COL_W 保持 312.dp 不变，
+        // 日期选择器的 onChange / open / onToggle / onAnchor 四个参数一行未动。
+        Spacer(Modifier.width(PmSpace.m))
+        PmButton(
+            "手机导入照片",
+            { onUi(ui.copy(sheet = Sheet.PhoneImport)) },
+            kind = ButtonKind.SECONDARY,
+        )
         Spacer(Modifier.width(PmSpace.xl))
         if (ui.logEntryVisible) {
             LogEntry(state, ui, onUi, actions, Modifier.weight(1f))

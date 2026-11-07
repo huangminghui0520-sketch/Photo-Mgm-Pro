@@ -33,6 +33,19 @@ import java.util.concurrent.Executor
  * @param verifyMode 断点续传的产物校验强度（桌面独有，见 [ResumeVerifyMode]）
  * @param photoIdSource 覆盖照片 id 分配（默认 `SHA-256(规范化路径)` + 线性探测）
  * @param imageEncoder 覆盖台账嵌图编码（默认 AWT ImageIO → JPEG）
+ *
+ * 手机导入的假件（第 3 步追加）：
+ *   core/sync 包整体是 internal，**不能**出现在 public data class 的签名里
+ *   （public property exposes its internal type）。所以注入的是它们的行为：
+ *   一个假 adb 进程输出、一组假盘符、一个假时钟文本、一个假暂存区。
+ *   DesktopCore 拿这些原始值去构造 internal 的 AdbBridge / UsbDriveScanner / PhoneSyncExecutor，
+ *   既保留「全链路可离线测」，又不把 internal 类型泄漏给 :ui。
+ *
+ * @param adbCommandOutput 假 `adb` 调用：入参是命令行，返回 (exitCode, stdout)；null = 真实进程
+ * @param usbRoots 假盘符根列表；null = `File.listRoots()`
+ * @param usbReadableDir 假「该目录可读」判定；null = 真实 Files 判定
+ * @param phoneSyncNowText 假 `sync-state.json` 的 updatedAt；null = `clock.instant()`
+ * @param phoneSyncStaging 假临时暂存区；null = `Files.createTempDirectory`
  */
 data class DesktopCoreConfig(
     val dataDir: Path? = null,
@@ -46,4 +59,9 @@ data class DesktopCoreConfig(
     val verifyMode: ResumeVerifyMode = ResumeVerifyMode.SIZE_AND_MTIME,
     val photoIdSource: app.port.PhotoIdSource? = null,
     val imageEncoder: app.port.ImageEncoder? = null,
+    val adbCommandOutput: ((List<String>) -> Pair<Int, String>)? = null,
+    val usbRoots: (() -> List<String>)? = null,
+    val usbReadableDir: ((String) -> Boolean)? = null,
+    val phoneSyncNowText: (() -> String)? = null,
+    val phoneSyncStaging: (() -> Path)? = null,
 )

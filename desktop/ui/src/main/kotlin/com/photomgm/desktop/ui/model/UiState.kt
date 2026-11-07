@@ -56,6 +56,9 @@ sealed interface Sheet {
 
     /** 重新分析会丢弃人工调整，需要确认。 */
     data object ConfirmReanalyze : Sheet
+
+    // 手机导入照片：从手机按时间区间同步到源目录下的子文件夹（桌面独有）。
+    data object PhoneImport : Sheet
 }
 
 /** 列表筛选（对应 hints / 空照片 / 待定事件这些真实业务信号）。 */
@@ -327,7 +330,7 @@ fun clickPhotoSelection(
 }
 
 private fun validSheet(sheet: Sheet?, state: AppState): Sheet? = when (sheet) {
-    null, Sheet.Settings, Sheet.ConfirmReanalyze -> sheet
+    null, Sheet.Settings, Sheet.ConfirmReanalyze, Sheet.PhoneImport -> sheet
     is Sheet.Photos -> if (validTarget(sheet.target, state)) sheet else null
     is Sheet.Assign -> {
         val ids = sheet.photoIds.filter { id -> state.photos.any { it.id == id } }
