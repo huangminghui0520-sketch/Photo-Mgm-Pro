@@ -236,7 +236,7 @@ done
 
 ### 2.7 桌面端打包流水线（M5 起只出包，不跑单测）
 
-`build-desktop.yml`：`windows-latest` + `gradle/actions/setup-gradle@v6`（8.10.2），只在 `desktop-v*`
+`build-desktop.yml`：`windows-latest` + `gradle/actions/setup-gradle@v6`（8.10.2），`push main`、`desktop-v*`
 标签与手动派发时跑，产出 MSI + `PhotoMgm-<ver>-portable.zip`。
 **M5 删掉了原「Unit tests (desktop core / cli / ui + shared domain / app)」step** ——
 单测已由 `ci.yml` 的 `gradle testAll` 在每次 push/PR 覆盖，这里再跑一遍是纯重复且多花 3~5 分钟。
@@ -370,7 +370,7 @@ CI 上的判定标准：
 
 - `ci.yml` 绿 = 结构约束（§2.6，含"无双根残留"）+ 四个门禁 + `gradle testAll` 覆盖全部 8 个模块；
 - `build-apk.yml` 绿 = 出 `Photo-Mgm-debug-apk` artifact（`v*` 标签则发 Release）；
-- `build-desktop.yml` 绿（仅 `desktop-v*` / 手动）= 出 `PhotoMgm-desktop-portable` artifact（**不含单测**）。
+- `build-desktop.yml` 绿（`push main` / `desktop-v*` / 手动）= 出 `PhotoMgm-desktop-portable` artifact（**不含单测**）。
 
 > **`testAll` 绿的真正判据**：不是"8 条 Task 行都出现"，而是 8 份 `build/test-results/**/TEST-*.xml`
 > 里 `tests>0`。`:desktop:cli` 没有 `src/test`，它的 `test` 必然 `NO-SOURCE`（不产 XML），
