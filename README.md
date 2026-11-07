@@ -245,4 +245,4 @@ cd <仓库根>
 
 * Android minSdk 26 / targetSdk 34 · Java 17
 
-* 当前版本：Android `v1.0.0`（versionCode 7）· Windows 桌面 `desktop-v1.0.0`
+* 当前版本：Android `v1.0.0`（versionCode 7）· Windows 桌面 `desktop-v1.1.0`
