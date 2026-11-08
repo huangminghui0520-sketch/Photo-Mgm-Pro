@@ -136,9 +136,49 @@ internal object SyncStateGuard {
     // 从带偏移的 ISO 文本读年份；解析不了返回 null（按「无冲突」保守处理）。
     fun yearOf(stamp: String): Int? = stamp.take(4).toIntOrNull()
 
+    // 把 [com.photomgm.desktop.core.sync.AdbPhoneSource.id] 拆成 (serial, 远端目录)。
+    //   "adb:<serial>:/sdcard/DCIM" → ("<serial>", "/sdcard/DCIM")   ← 1.0.2 起的格式
+    //   "adb:/sdcard/DCIM"          → (null, "/sdcard/DCIM")         ← 旧格式，无设备标识
+    //   盘符 / 手动目录（"D:/DCIM"、"E:/Other"）→ null，表示"不是手机源"，不参与序列号兼容判断。
+    //
+    // 分界判据是「**后面紧跟 `/` 的那个冒号**」，不能用 `split(":", limit = 3)`：
+    //   "adb:/sdcard/a:b" 用 limit=3 会切成 ["adb", "/sdcard/a", "b"]，把路径前半段误当 serial。
+    // 而 serial 不含 `/`、远端目录必以 `/` 开头（AdbPhoneSource.remoteDir 由调用方保证），
+    // 所以第一个「后接 `/`」的冒号就是分界点；按此判据还能正确切出无线调试的
+    // "adb:192.168.1.5:5555:/sdcard/DCIM"（前面那个冒号后面是 "5555"，不是 `/`）。
+    private fun parsePhoneDir(phoneDir: String): Pair<String?, String>? {
+        if (!phoneDir.startsWith("adb:")) return null
+        val rest = phoneDir.removePrefix("adb:")
+        var cut = rest.indexOf(':')
+        while (cut >= 0) {
+            if (cut + 1 < rest.length && rest[cut + 1] == '/') {
+                return rest.substring(0, cut).ifEmpty { null } to rest.substring(cut + 1)
+            }
+            cut = rest.indexOf(':', cut + 1)
+        }
+        return null to rest
+    }
+
+    // 旧格式兼容：仅当两者都是手机源、**指向同一目录**、且**至少一方没有 serial** 时视为同一来源。
+    //   adb:/sdcard/DCIM  vs  adb:<serial>:/sdcard/DCIM  → true（升级前后同机同目录，不报冲突）
+    //   adb:A:/sdcard/DCIM vs  adb:B:/sdcard/DCIM        → false（换机，两边都有 serial 且不同）
+    //   adb:/sdcard/DCIM  vs  adb:/sdcard/Pictures       → false（换目录，仍要拦）
+    //   D:/DCIM/Camera    vs  E:/OtherDCIM               → false（非手机源，走原来的整串比较）
+    // 最后一条是关键：盘符目录两边都 parse 成 null，若把"两边都无 serial"一律当兼容，
+    // 换盘符目录就会被静默放过（SyncStateTest 的 R5 用例正是这个形态）。
+    private fun samePhoneSource(a: String, b: String): Boolean {
+        val left = parsePhoneDir(a) ?: return false
+        val right = parsePhoneDir(b) ?: return false
+        if (left.second != right.second) return false
+        return left.first == null || right.first == null
+    }
+
     // 冲突检测：不静默合并、不静默续传，返回需要用户确认的原因。
     // 顺序：先看目录（更常见的误操作），再看年份（跨年同名）。
     // 记录不存在 / 本次显式确认覆盖 → null。
+    // phoneDir 判据：完全相同 → 无冲突；旧格式与新格式指向同一目录 → 视为升级，不报冲突
+    //   （本次同步结束时会用新格式回写 sync-state.json，下次比较即两边都带 serial）；
+    //   其余不同 → PHONE_DIR。换机（两边 serial 不同）落在这里，安全网不变。
     fun conflict(
         existing: SyncState?,
         phoneDir: String,
@@ -147,7 +187,9 @@ internal object SyncStateGuard {
         overwrite: Boolean = false,
     ): SyncConflict? {
         if (overwrite || existing == null) return null
-        if (existing.phoneDir != phoneDir) return SyncConflict.PHONE_DIR
+        if (existing.phoneDir != phoneDir && !samePhoneSource(existing.phoneDir, phoneDir)) {
+            return SyncConflict.PHONE_DIR
+        }
         val startYear = yearOf(existing.range.start)
         val endYear = yearOf(existing.range.end)
         if (startYear != null && startYear != start.year) return SyncConflict.YEAR

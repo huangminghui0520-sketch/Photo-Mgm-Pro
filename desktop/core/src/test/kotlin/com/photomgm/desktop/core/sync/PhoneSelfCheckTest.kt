@@ -265,6 +265,30 @@ class PhoneSelfCheckTest {
         )
     }
 
+    // ── ⑨ 设备在列表里但 offline（换机的典型残留） ──────────────────────
+
+    @Test
+    fun `S9 设备 offline 时提示连接不稳定而不是未检测到手机`() {
+        // 换机典型形态：旧机拔线后 `adb devices` 里残留一条 offline，新机还没被识别。
+        // offline 既不算 online 也不算 unauthorized，若不单独分支就会被并进「未检测到手机」，
+        // 把排查方向错指到线材和调试开关上。
+        val fake = FakeAdb(devicesStdout = "List of devices attached\n$SERIAL_ONLINE\toffline\n")
+        val result = newCore("adb", fake).selfCheck()
+
+        assertFalse(result.ok)
+        assertEquals(0, result.devicesOnline, "offline 设备不能算作在线")
+        assertFalse(result.unauthorized, "offline 不是未授权")
+        assertTrue(
+            result.hints.any { it.contains("连接不稳定") && it.contains("offline") },
+            "offline 应给出专属提示（含「连接不稳定」与「offline」），实测 ${result.hints}",
+        )
+        // 反向断言：绝不能退化成「未检测到手机」——那是这次修复要防的误报。
+        assertTrue(
+            result.hints.none { it.contains("未检测到手机") },
+            "offline 不该被说成未检测到手机，实测 ${result.hints}",
+        )
+    }
+
     private companion object {
         /** 在线设备的序列号：设备定向断言拿它比对 `-s` 的参数。 */
         const val SERIAL_ONLINE: String = "10AD2G1FLK001AQ"
