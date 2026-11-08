@@ -98,6 +98,11 @@ internal class AdbBridge(
     private val explicitPath: String? = null,
     private val adbEnv: AdbEnv = SystemAdbEnv(),
     private val command: AdbCommand = ProcessAdbCommand(),
+    // 定位结果的注入口：**仅测试与特殊部署使用，生产恒为 null**。
+    // 为什么需要它：`adbEnv` 与 `command` 已经可注入，但 `resolve()` 仍会走真实环境 ——
+    // 开发机命中 `D:\Android\sdk\…\adb.exe`、CI 上返回 null，同一个用例在两平台结论相反。
+    // 给了这个函数就完全接管定位（返回 null = 找不到 adb），①~⑤ 的真实探测不再执行。
+    private val resolveOverride: (() -> String?)? = null,
 ) {
 
     private val isWindows: Boolean = adbEnv.osName().contains("Windows", ignoreCase = true)
@@ -121,6 +126,8 @@ internal class AdbBridge(
 
     // 按 ①~⑤ 顺序定位，全找不到返回 null（「找不到」是正常状态，不是异常）。
     fun resolve(): String? {
+        // 测试/特殊部署注入：给了就完全接管定位，返回 null 即"找不到 adb"，不再走真实探测。
+        resolveOverride?.let { return it() }
         if (!explicitPath.isNullOrBlank() && adbEnv.isRegularFile(explicitPath)) return explicitPath
         for (key in SDK_HOME_KEYS) {
             val home = adbEnv.getenv(key)?.takeIf { it.isNotBlank() } ?: continue

@@ -41,7 +41,13 @@ import java.util.concurrent.Executor
  *   DesktopCore 拿这些原始值去构造 internal 的 AdbBridge / UsbDriveScanner / PhoneSyncExecutor，
  *   既保留「全链路可离线测」，又不把 internal 类型泄漏给 :ui。
  *
- * @param adbCommandOutput 假 `adb` 调用：入参是命令行，返回 (exitCode, stdout)；null = 真实进程
+ * @param adbCommandOutput 假 `adb` 调用：入参是命令行，返回 (exitCode, stdout, stderr)；null = 真实进程。
+ *   三元组而不是二元组，是因为自检要区分「没权限（stderr 含 Permission denied）」与「没这个目录」，
+ *   而真实 adb 的失败原因只出现在 stderr 上 —— 只给 stdout + 空 stderr 的话那条分支永远测不到
+ * @param adbResolvedPath 假 adb 解析结果；**null = 真实探测**
+ *   （显式路径 → ANDROID_HOME/ANDROID_SDK_ROOT → PATH → 仅 Windows 扫盘符）。
+ *   **非 null 时完全接管** `AdbBridge.resolve()`，返回 null 表示"找不到 adb"，
+ *   用于离线测试与特殊部署（免去"本机恰好装了 / 没装 SDK 导致两平台结论相反"的不可测性）
  * @param usbRoots 假盘符根列表；null = `File.listRoots()`
  * @param usbReadableDir 假「该目录可读」判定；null = 真实 Files 判定
  * @param phoneSyncNowText 假 `sync-state.json` 的 updatedAt；null = `clock.instant()`
@@ -59,7 +65,8 @@ data class DesktopCoreConfig(
     val verifyMode: ResumeVerifyMode = ResumeVerifyMode.SIZE_AND_MTIME,
     val photoIdSource: app.port.PhotoIdSource? = null,
     val imageEncoder: app.port.ImageEncoder? = null,
-    val adbCommandOutput: ((List<String>) -> Pair<Int, String>)? = null,
+    val adbCommandOutput: ((List<String>) -> Triple<Int, String, String>)? = null,
+    val adbResolvedPath: (() -> String?)? = null,
     val usbRoots: (() -> List<String>)? = null,
     val usbReadableDir: ((String) -> Boolean)? = null,
     val phoneSyncNowText: (() -> String)? = null,

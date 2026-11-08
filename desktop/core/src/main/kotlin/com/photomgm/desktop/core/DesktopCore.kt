@@ -135,11 +135,14 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
     // ── 手机导入（桌面独有，全部 internal sync 包只在这里装配） ──────────
     // config 里的假件只用 JDK 类型表达，绝不把 internal 类型泄漏到 public 配置签名上。
     private val adbBridge: AdbBridge = config.adbCommandOutput?.let { fake ->
-        AdbBridge(command = AdbCommand { args ->
-            val (exitCode, stdout) = fake(args)
-            AdbOutput(exitCode, stdout, "")
-        })
-    } ?: AdbBridge()
+        AdbBridge(
+            command = AdbCommand { args ->
+                val (exitCode, stdout, stderr) = fake(args)
+                AdbOutput(exitCode, stdout, stderr)
+            },
+            resolveOverride = config.adbResolvedPath,
+        )
+    } ?: AdbBridge(resolveOverride = config.adbResolvedPath)
 
     private val usbDriveScanner: UsbDriveScanner = run {
         val roots = config.usbRoots
