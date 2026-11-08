@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -106,6 +107,9 @@ import com.photomgm.desktop.ui.theme.PmRadius
 import com.photomgm.desktop.ui.theme.PmSize
 import com.photomgm.desktop.ui.theme.PmSpace
 import com.photomgm.desktop.ui.theme.PmType
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -148,7 +152,30 @@ fun PhoneImportSheet(
     val endTimeAnchor = remember { mutableStateOf<IntRect?>(null) }
 
     val mode = PhoneLinkMode.values()[form.modeIndex.coerceIn(0, PhoneLinkMode.values().size - 1)]
-    val phoneOptions = remember(mode, manualDirs) { actions.phoneDirs(mode) + manualDirs }
+
+    // ── 目录候选：异步探测 ────────────────────────────────────────────────
+    // ★ 绝不能在这里同步调 actions.phoneDirs(mode)：它内部要跑 `adb shell ls`（可能多次、
+    //   单次超时 15 s），写在 remember 里就是拿组合线程去等一次次进程往返，弹窗会整个卡死。
+    //   改法：先给空列表 → LaunchedEffect 里在 IO 线程取 → 回来替换，首帧不阻塞。
+    // ★ key 是 mode：切换连接方式要重跑，同时 remember(mode) 把旧结果一起清掉，
+    //   不会出现"切到 ADB 却还显示上一轮的盘符列表"。
+    var phoneDirChoices by remember(mode) { mutableStateOf(listOf<PhoneDirEntry>()) }
+    var dirsProbed by remember(mode) { mutableStateOf(false) }
+    LaunchedEffect(mode) {
+        dirsProbed = false
+        // 取不到（设备掉线、adb 进程异常…）就当"没发现"：列表空着比整个弹窗崩了好。
+        // 取消信号必须原样重抛 —— 丢掉它会让已取消的探测继续跑完并覆盖新一轮结果。
+        val fetched = try {
+            withContext(Dispatchers.IO) { actions.phoneDirs(mode) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (unexpected: Throwable) {
+            emptyList()
+        }
+        phoneDirChoices = fetched
+        dirsProbed = true
+    }
+    val phoneOptions = remember(phoneDirChoices, manualDirs) { phoneDirChoices + manualDirs }
 
     // 区间类校验（V5 / 上限 / 空值）是**实时**的：改日期或点时分都重算。
     // 底部按钮的 enabled、字段下方的提示行、结束字段的标红边框都读这一份结果 ——
@@ -295,7 +322,12 @@ fun PhoneImportSheet(
                             onToggle = { dirsExpanded = !dirsExpanded },
                             options = phoneOptions.map { it.id to it.label },
                             onSelect = { form = form.copy(phoneDir = it, confirmConflict = false); dirsExpanded = false },
-                            emptyText = "未检测到手机目录：可手动选择本机目录，或检查 USB 连接 / USB 调试授权。",
+                            // 探测没回来之前不下"没发现"的结论：那两秒里手机可能正连上。
+                            emptyText = if (!dirsProbed) {
+                                "正在检测手机目录…"
+                            } else {
+                                "未发现照片目录，请检查手机连接。"
+                            },
                         )
                     }
 

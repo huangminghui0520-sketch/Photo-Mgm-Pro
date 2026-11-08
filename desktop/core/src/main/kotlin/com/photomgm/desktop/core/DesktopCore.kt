@@ -226,10 +226,15 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
         PhoneSyncFormulas.defaultRange(patrolDate)
 
     // 手机目录候选项；手动选的本机目录由 UI 追加（F4-A1）。
+    //
+    // ★ 这里会真的去问手机（`ls` 若干次，单次最长 15 s 超时），**绝不能**在 Compose 的组合
+    //   里同步调用：UI 侧已改为 LaunchedEffect + Dispatchers.IO 异步取（见 PhoneImportSheet）。
+    // ★ 发现结果为空时回退 ADB_CAMERA_DIRS，保证下拉不会突然变空（老设备上仍然能用）。
     fun listPhoneDirs(mode: PhoneLinkMode): List<PhoneDirEntry> {
         val out = ArrayList<PhoneDirEntry>()
         if (mode != PhoneLinkMode.USB_DRIVE) {
-            ADB_CAMERA_DIRS.forEach { dir -> out += PhoneDirEntry("adb:$dir", "ADB · $dir") }
+            val dirs = discoverPhoneDirs().ifEmpty { ADB_CAMERA_DIRS }
+            dirs.forEach { dir -> out += PhoneDirEntry("adb:$dir", "ADB · $dir") }
         }
         if (mode != PhoneLinkMode.ADB) {
             usbDriveScanner.visibleDrives().forEach { drive ->
@@ -302,6 +307,11 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
     fun cancelPhoneSync() {
         phoneSyncHandle?.cancel()
     }
+
+    // 动态发现手机上的照片目录（列表页与下拉共用）。
+    // AdbPhoneSource 的 remoteDir 只是构造参数，发现过程与它无关，这里给兜底清单的第一项。
+    private fun discoverPhoneDirs(): List<String> =
+        AdbPhoneSource(adbBridge, ADB_CAMERA_DIRS.first()).discoverPhotoDirs()
 
     private fun phoneSourceFor(kind: ConnectionKind, phoneDir: String): PhoneSource? = when (kind) {
         ConnectionKind.ADB -> {
@@ -407,7 +417,9 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
 // 签名只用 java.time / String / Int / Boolean：:ui 不需要 import domain.*，也看不到
 // core/sync 里任何 internal 类型（P5 门禁 + :ui 只认根包 public 类型）。
 
-private val ADB_CAMERA_DIRS = listOf("/sdcard/DCIM/Camera", "/sdcard/DCIM", "/sdcard/Pictures")
+// 兜底相机目录清单：单一事实来源在 AdbBridge 的 companion（发现逻辑也在那边用同一份），
+// 这里只做别名，避免两处各抄一份迟早漂移。
+private val ADB_CAMERA_DIRS: List<String> = AdbBridge.DEFAULT_CAMERA_DIRS
 
 // UI 上的连接方式；与 internal 的 ConnectionMode 一一对应，避免把 internal 枚举暴露给 :ui。
 enum class PhoneLinkMode(val label: String) {
