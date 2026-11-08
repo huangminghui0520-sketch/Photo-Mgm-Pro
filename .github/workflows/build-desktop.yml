@@ -25,9 +25,9 @@ concurrency:
 
 env:
   # 与 desktop/ui/build.gradle.kts 的 packageVersion 保持一致（改版本时两处同改）
-  # ★ 2026-11-07 升 1.0.1（标签 desktop-v1.0.1，含算法修复 + PC UI 优化）。
+  # ★ 2026-11-08 升 1.0.2（标签 desktop-v1.0.2，含 ADB 换机修复 + 缩略图滚轮 + 筛选门控）。
   #   MSI 与 portable zip 的产物名一律随本变量走，不在此处写死。
-  DESKTOP_VERSION: 1.0.1
+  DESKTOP_VERSION: 1.0.2
 
 jobs:
   build:

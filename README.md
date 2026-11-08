@@ -45,8 +45,8 @@
 
 | 产物 | 说明 |
 |---|---|
-| `PhotoMgm-1.0.1-portable.zip` | 免安装便携版，解压即用 |
-| `PhotoMgm-1.0.1.msi` | 安装包，支持自动升级 |
+| `PhotoMgm-1.0.2-portable.zip` | 免安装便携版，解压即用 |
+| `PhotoMgm-1.0.2.msi` | 安装包，支持自动升级 |
 
 便携版内含裁剪后的 JRE，**无需单独安装 Java**。
 
@@ -242,7 +242,7 @@ Photo-Mgm/
 | 平台 | 当前版本 |
 |---|---|
 | Android | `v1.0.1`（versionCode 8） |
-| Windows 桌面 | `desktop-v1.0.1` |
+| Windows 桌面 | `desktop-v1.0.2` |
 
 版本历史见 [CHANGELOG.md](CHANGELOG.md) 与 [Releases](https://github.com/huangminghui0520-sketch/Photo-Mgm-Pro/releases)。
 
