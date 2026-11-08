@@ -208,9 +208,9 @@ fun UnmatchedCard(
  */
 internal fun eventCardBackground(isHovered: Boolean, warm: Boolean): Color =
     when {
-        warm && isHovered -> PmColor.warnSoft.copy(alpha = 0.85f)
-        warm -> PmColor.warnSoft.copy(alpha = 0.55f)
-        isHovered -> PmColor.surface2
+        warm && isHovered -> PmColor.warnSoft.copy(alpha = 1.00f)
+        warm -> PmColor.warnSoft.copy(alpha = 0.45f)
+        isHovered -> PmColor.stage
         else -> PmColor.surface
     }
 
