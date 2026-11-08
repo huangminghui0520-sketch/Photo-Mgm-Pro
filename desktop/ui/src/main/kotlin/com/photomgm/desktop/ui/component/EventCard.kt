@@ -45,6 +45,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -75,12 +76,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -91,6 +96,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import app.api.EventSnapshot
 import app.api.PhotoInfo
 import com.photomgm.desktop.ui.format.hhmm
@@ -111,6 +117,9 @@ import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius
 import com.photomgm.desktop.ui.theme.PmSpace
 import com.photomgm.desktop.ui.theme.PmType
+
+/** 竖直滚轮一格映射的横向滚动量（px）；只取 scrollDelta.y，不影响水平滚轮的原生行为。 */
+private const val SCROLL_FACTOR = 50f
 
 @Composable
 fun EventCard(
@@ -329,6 +338,7 @@ private fun CardHeader(
  *   滚动让每一张都能翻到，而「+N」仍然回答"一共比首屏多几张"。
  * ★ 滚动条只在这条真能滚时才画：装得下时画一条满长的灰条，会让人以为右边还有东西。
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun PhotoStrip(
     photos: List<PhotoInfo>,
@@ -372,11 +382,20 @@ private fun PhotoStrip(
     // 全部照片都进列表；末位「+N」= 比首屏格数多出来的张数（滚到末尾才看到）。
     val overflow = (photos.size - maxTiles).coerceAtLeast(0)
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxWidth()) {
         LazyRow(
             state = listState,
-            modifier = Modifier.fillMaxWidth().height(tile.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(tile.dp)
+                .onPointerEvent(PointerEventType.Scroll) { event ->
+                    val delta = event.changes.first().scrollDelta.y
+                    if (delta != 0f) {
+                        scope.launch { listState.scrollBy(delta * SCROLL_FACTOR) }
+                    }
+                },
             horizontalArrangement = Arrangement.spacedBy(TILE_GAP.dp),
         ) {
             items(photos, key = { it.id }) { photo ->
