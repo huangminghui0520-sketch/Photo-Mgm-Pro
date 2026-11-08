@@ -57,6 +57,10 @@ internal data class PhoneSyncOutcome(
     val rewritten: Int = 0,
     val renamed: Int = 0,
     val filtered: Int = 0,
+    // 「为什么被筛掉」的两类归因：filtered 恒等于二者之和，既有测试与 DTO 仍只认总数。
+    // 带默认值：本类有 8 个早退返回点，加字段不该逼它们逐个补参数。
+    val outOfRange: Int = 0,
+    val unreadable: Int = 0,
     val failed: Int = 0,
     val cancelled: Boolean = false,
     // 需要用户确认才能继续（另一目录 / 跨年同名）；不静默合并。
@@ -158,7 +162,9 @@ internal class PhoneSyncExecutor(
         var skipped = 0
         var rewritten = 0
         var renamed = 0
-        var filtered = 0
+        var filtered = 0       // 保留：总数，供既有测试与 DTO
+        var outOfRange = 0     // 时间确定落在区间外（含文件名粗筛）
+        var unreadable = 0     // EXIF 与 mtime 都读不到拍摄时间
         var failed = 0
         var cancelled = false
         val records = LinkedHashMap<String, SyncFileRecord>()
@@ -172,7 +178,9 @@ internal class PhoneSyncExecutor(
         val startMs = job.start.atZone(AppZone.ID).toInstant().toEpochMilli()
         val endExclusiveMs = endExclusive.atZone(AppZone.ID).toInstant().toEpochMilli()
         val candidates = photos.filter { shouldPull(it, startMs, endExclusiveMs) }
-        filtered += photos.size - candidates.size
+        // 文件名里解析得出时间、且确定在区间外 → 归「区间外」；还没 pull，不属于「读不到时间」。
+        outOfRange += photos.size - candidates.size
+        filtered = outOfRange + unreadable
 
         val batch = batchSize.coerceAtLeast(1)
         // 粗筛跳过的同样算「已处理」，进度总数仍是 photos.size。
@@ -204,16 +212,19 @@ internal class PhoneSyncExecutor(
             }
 
             // ⑧ 时间筛选：EXIF DateTimeOriginal 优先，mtime 兜底；两者都无则跳过。
+            // ★ 只拆「为什么跳过」的归因，跳过行为本身与筛选条件一字未改。
             val ms = runCatching { timeOf(staged, photo) }.getOrNull()
             if (ms == null) {
-                filtered++
+                unreadable++
+                filtered = outOfRange + unreadable
                 note("无拍摄时间，跳过：${photo.name}")
                 onProgress(PhoneSyncProgress(done, photos.size, written, skipped, renamed, photo.name, connection))
                 continue
             }
             val wall = Instant.ofEpochMilli(ms).atZone(AppZone.ID).toLocalDateTime()
             if (wall.isBefore(job.start) || !wall.isBefore(endExclusive)) {
-                filtered++
+                outOfRange++
+                filtered = outOfRange + unreadable
                 onProgress(PhoneSyncProgress(done, photos.size, written, skipped, renamed, photo.name, connection))
                 continue
             }
@@ -308,6 +319,8 @@ internal class PhoneSyncExecutor(
             rewritten = rewritten,
             renamed = renamed,
             filtered = filtered,
+            outOfRange = outOfRange,
+            unreadable = unreadable,
             failed = failed,
             cancelled = cancelled,
             logs = logs,

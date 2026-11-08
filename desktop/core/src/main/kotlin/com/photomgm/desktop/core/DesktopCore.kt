@@ -565,6 +565,8 @@ data class PhoneSyncResult(
     val rewritten: Int,
     val renamed: Int,
     val filtered: Int,
+    val outOfRange: Int = 0,
+    val unreadable: Int = 0,
     val failed: Int,
     val cancelled: Boolean,
     // 需要用户确认才能继续（另一目录 / 跨年同名），不静默合并。
@@ -619,6 +621,8 @@ private fun PhoneSyncOutcome.toUi(): PhoneSyncResult = PhoneSyncResult(
     rewritten = rewritten,
     renamed = renamed,
     filtered = filtered,
+    outOfRange = outOfRange,
+    unreadable = unreadable,
     failed = failed,
     cancelled = cancelled,
     conflict = conflict,
@@ -638,7 +642,17 @@ private fun resultText(o: PhoneSyncOutcome): String = when {
         if (o.rewritten > 0) append("（其中重写 ${o.rewritten} 张")
         if (o.renamed > 0) append(if (o.rewritten > 0) "、另存 ${o.renamed} 张" else "（其中另存 ${o.renamed} 张")
         if (o.rewritten > 0 || o.renamed > 0) append("）")
-        if (o.filtered > 0) append("、区间外 ${o.filtered} 张")
+        // 「筛掉」不是一个原因：确定在区间外 vs 拍摄时间根本读不到，给用户的下一步动作不同。
+        // o.filtered 仍是两者之和（总数语义不变），但这句话按两个归因分别拼。
+        when {
+            o.outOfRange > 0 && o.unreadable > 0 ->
+                append("、区间外 ${o.outOfRange} 张、${o.unreadable} 张无法读取拍摄时间")
+            o.outOfRange > 0 ->
+                append("、区间外 ${o.outOfRange} 张")
+            o.unreadable > 0 ->
+                append("、${o.unreadable} 张无法读取拍摄时间（可能是 PNG/WEBP/HEIC 或 EXIF 被剥离）")
+            else -> {} // 两类都没有就不追加，避免「区间外 0 张」这种冗余
+        }
         if (o.failed > 0) append("、失败 ${o.failed} 张")
         append("。")
     }
