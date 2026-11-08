@@ -3,6 +3,23 @@
 <!-- Keep a Changelog 格式，版本号遵循语义化版本 -->
 [Keep a Changelog]: https://keepachangelog.com/zh-CN/1.1.0/
 
+## [1.0.1] - 2026-11-07
+
+### 修复
+
+- 「仅原图」模式仍输出带水印主图（`groupDupContent` tie 全纳入，共享层修复，双端受益）
+- 日历弹窗不贴按钮下方（改为水平居中 + 贴下方）
+- 时间选择为内嵌列（改为点击弹窗）
+- 事件缩略图不可横向滚动（改为 `LazyRow`）
+- 事件卡片无悬停反馈（增加背景高亮）
+- 手机导入弹窗执行按钮位置不符合操作流（移至底部动作区）
+
+### 变更
+
+- Android `versionCode`：`7 → 8`
+- Android `versionName`：`1.0.0 → 1.0.1`
+- Windows `packageVersion`：`1.0.0 → 1.0.1`
+
 ## [1.0.0] - 2026-11-07
 
 ### 新增
