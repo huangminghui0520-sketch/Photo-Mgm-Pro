@@ -49,11 +49,11 @@ class PhoneSelfCheckTest {
     // ── 假 adb ────────────────────────────────────────────────────────────
 
     /**
-     * 假 adb 的**全部**应答都在这里，按 `argv[1]` 分派。
+     * 假 adb 的**全部**应答都在这里，按真实子命令分派。
      *
-     * 分派键取 `argv[1]` 而不是整条 argv：`argv[0]` 是 `resolve()` 的返回值
-     * （Windows 上真实进程名会是 `adb.exe`，而测试里注入的是 `"adb"`），
-     * 用它当键会让用例的结论依赖宿主平台。
+     * 分派键不取 `argv[1]`：`argv[0]` 是 `resolve()` 的返回值（Windows 上真实进程名会是
+     * `adb.exe`，测试里注入的是 `"adb"`），用它当键会让结论依赖宿主平台；而 `argv[1]` 在
+     * 加了设备定向（`-s <serial>`）之后会变成 `"-s"` —— 所以先跳过这一对，再取子命令。
      *
      * @param versionStdout `adb version` 的 stdout（版本号由 `AdbBridge` 用正则取第一处 `x.y.z`）
      * @param devicesStdout `adb devices` 的 stdout（含表头，与真机输出同形）
@@ -66,12 +66,19 @@ class PhoneSelfCheckTest {
         private val devicesExit: Int = 0,
         private val onShell: (List<String>) -> Triple<Int, String, String> = { Triple(1, "", "") },
     ) {
+        /** 每次 `adb shell …` 的**原始 argv**，供用例断言设备定向真的带上了（`-s <serial>`）。 */
+        val shellArgvs: MutableList<List<String>> = mutableListOf()
+
         fun respond(argv: List<String>): Triple<Int, String, String> {
-            return when (argv.getOrNull(1)) {
+            val sub = if (argv.getOrNull(1) == "-s") argv.getOrNull(3) else argv.getOrNull(1)
+            return when (sub) {
                 "version" -> Triple(0, versionStdout, "")
                 "start-server" -> Triple(0, "", "")
                 "devices" -> Triple(devicesExit, devicesStdout, "")
-                "shell" -> onShell(argv)
+                "shell" -> {
+                    shellArgvs += argv
+                    onShell(argv)
+                }
                 else -> Triple(1, "", "unexpected argv: $argv")
             }
         }
@@ -96,7 +103,7 @@ class PhoneSelfCheckTest {
     }
 
     /** 一台在线设备的 `adb devices` 正文（真机输出是 `<serial>\tdevice`，含表头）。 */
-    private val oneDeviceOnline: String = "List of devices attached\n10AD2G1FLK001AQ\tdevice\n"
+    private val oneDeviceOnline: String = "List of devices attached\n$SERIAL_ONLINE\tdevice\n"
 
     /** shell 探针：只有「直接 ls /sdcard/DCIM」能列出一张 .jpg，其余一律「没有」。 */
     private fun directoryProbe(stdout: String = "IMG_20260101_120000.jpg") =
@@ -127,6 +134,15 @@ class PhoneSelfCheckTest {
             "发现结果应包含 /sdcard/DCIM，实测 ${result.photoDirs}",
         )
         assertTrue(result.hints.isEmpty(), "全绿时 hints 必须为空，实测 ${result.hints}")
+
+        // 设备定向：`adb devices` 里出现多台时，不带 `-s` 的 `shell` 会被 adb 自己拒绝
+        // （表现为目录全空、拉取全失败）。这条断言把"每条 shell 都绑到那唯一一台在线设备"锁住，
+        // 避免以后有人把 `-s` 去掉而测试照样绿。
+        assertTrue(fake.shellArgvs.isNotEmpty(), "全绿路径必然问过手机，shell 调用不该为空")
+        assertTrue(
+            fake.shellArgvs.all { it.getOrNull(1) == "-s" && it.getOrNull(2) == SERIAL_ONLINE },
+            "所有 shell 调用都必须带 -s $SERIAL_ONLINE，实测 ${fake.shellArgvs}",
+        )
     }
 
     // ── ② adb 版本低于门槛 ───────────────────────────────────────────────
@@ -247,5 +263,10 @@ class PhoneSelfCheckTest {
             result.hints.any { it.contains("没有受支持的照片") },
             "目录可读但无照片时应明说，实测 ${result.hints}",
         )
+    }
+
+    private companion object {
+        /** 在线设备的序列号：设备定向断言拿它比对 `-s` 的参数。 */
+        const val SERIAL_ONLINE: String = "10AD2G1FLK001AQ"
     }
 }

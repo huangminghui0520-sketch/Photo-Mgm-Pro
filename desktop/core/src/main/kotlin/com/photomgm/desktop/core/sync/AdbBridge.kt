@@ -103,6 +103,13 @@ internal class AdbBridge(
     // 开发机命中 `D:\Android\sdk\…\adb.exe`、CI 上返回 null，同一个用例在两平台结论相反。
     // 给了这个函数就完全接管定位（返回 null = 找不到 adb），①~⑤ 的真实探测不再执行。
     private val resolveOverride: (() -> String?)? = null,
+    // 设备定向：非 null 时**与设备交互**的命令都带 `-s <serial>`。
+    // ★ 为什么必须有：`adb devices` 里出现多台（旧机没拔、模拟器、无线调试残留）时，
+    //   不带 `-s` 的 `adb shell` / `adb pull` 会被 adb 自己拒绝（多设备歧义），
+    //   表现为目录全空、拉取全失败 —— 代码层原本没有任何手段指定"这次操作的是哪台"。
+    // ★ `devices` / `version` / `start-server` 是 **server 级**命令，加了 `-s` 会报错，所以不走 [adbArgv]。
+    // ★ 默认 null = 不定向：单机场景的 argv 与旧行为逐字一致。
+    internal val serial: String? = null,
 ) {
 
     private val isWindows: Boolean = adbEnv.osName().contains("Windows", ignoreCase = true)
@@ -144,6 +151,43 @@ internal class AdbBridge(
 
     // 需要「找到」语义的调用方用这个：空手而归时抛一条带分步排查的异常，避免静默降级。
     fun requireExecutable(): String = resolve() ?: throw IllegalStateException(ADB_NOT_FOUND_HINT)
+
+    // 设备级命令的 argv：`adb [-s <serial>] <args…>`。
+    // ★ serial == null 时不插任何东西，argv 与改造前**逐字一致**（单机零影响）。
+    // ★ 只在 `-s` 之前插入，不重排其它参数：`adb pull REMOTE… LOCAL` 的变参顺序不能动。
+    private fun adbArgv(vararg args: String): List<String> {
+        val base = ArrayList<String>(args.size + 3)
+        base += executable()
+        serial?.let {
+            base += "-s"
+            base += it
+        }
+        base += args
+        return base
+    }
+
+    /**
+     * 返回绑定到指定设备的**新实例**（本类不可变，注入件原样复制）。
+     *
+     * @param s 设备序列号；null = 不定向（单机 / 兜底路径）。
+     */
+    internal fun withSerial(s: String?): AdbBridge = AdbBridge(
+        explicitPath = explicitPath,
+        adbEnv = adbEnv,
+        command = command,
+        resolveOverride = resolveOverride,
+        serial = s,
+    )
+
+    /**
+     * 取第一台 `device` 状态设备的序列号；没有在线设备时返回 null。
+     *
+     * 只有 `device` 状态可用：`unauthorized` / `offline` 的条目带 `-s` 也执行不了，
+     * 选了等于把"没权限"变成"命令失败"，提示反而更难懂。
+     * 多台在线时取第一台 —— 与 adb 自己的歧义报错相反，这里**显式**选一台，不靠 adb 猜。
+     */
+    internal fun primarySerial(): String? =
+        deviceStates().firstOrNull { it.state == "device" }?.serial
 
     // ④ PATH：按平台分隔符切开，去掉首尾空白与 Windows 习惯的引号包裹，再逐个拼 adb[.exe]。
     private fun findOnPath(): String? {
@@ -226,7 +270,7 @@ internal class AdbBridge(
     }
 
     fun listRemote(dir: String): AdbOutput =
-        command(listOf(executable(), "shell", "ls", "-l", dir))
+        command(adbArgv("shell", "ls", "-l", dir))
 
     // 通用 shell 入口：`adb shell <args...>`，参数**原样**塞进 argv（不经宿主 shell）。
     // 两个用途：① `ls -d <dir>/*/` 数一层子目录（glob 由**设备侧** shell 展开）；
@@ -234,10 +278,10 @@ internal class AdbBridge(
     // ★ 不经宿主 shell 展开也顺手避开了 MSYS/Git-Bash 把 `/sdcard/x` 改写成本机路径的老问题：
     //   ProcessBuilder 直接给 argv，参数不经过 bash 的路径转换（仓内既有调用同一姿势）。
     fun shellRaw(vararg args: String): AdbOutput =
-        command(listOf(executable(), "shell") + args.toList())
+        command(adbArgv("shell") + args.toList())
 
     fun pull(remotePath: String, localTarget: Path): AdbOutput =
-        command(listOf(executable(), "pull", remotePath, localTarget.toString()))
+        command(adbArgv("pull", remotePath, localTarget.toString()))
 
     // 一次 adb pull 拉多个源文件到同一目录：`pull [-a] REMOTE... LOCAL` 的 REMOTE 是变参。
     // 实测（V2232A / adb 37.0.1）：14 个源一次 678 ms，逐张 5616 ms（8.3×），
@@ -246,7 +290,7 @@ internal class AdbBridge(
     // 逐文件成败一律由调用方按「暂存区有没有这个文件」判定，不要看 exitCode。
     // 50 个源约 3 KB 命令行，远低于 Windows 32 KB 的 CreateProcess 上限。
     fun pullMultiple(remotePaths: List<String>, localDir: Path): AdbOutput =
-        command(listOf(executable(), "pull") + remotePaths + localDir.toString())
+        command(adbArgv("pull") + remotePaths + localDir.toString())
 
     companion object {
         private val DEVICE_LINE = Regex("""^\S+\s+device\s*$""")
@@ -414,12 +458,16 @@ internal class AdbBridge(
 
 // ADB 数据源：一次同步里 [PhoneSource] 的唯一实例，list 与 pull 都走同一台设备。
 // remoteDir 作为 [id] 写进 sync-state.json，换目录即被 SyncStateGuard 判为冲突。
+// ★ [id] 还带上了 bridge 的设备序列号：`SyncStateGuard` 只比 id 字符串，
+//   不带 serial 时两台手机的 `/sdcard/DCIM` 是同一个 id —— 换机不会报冲突，
+//   旧机的续传记录会被静默沿用。serial 为 null（单机 / 未定向）时保持旧格式，
+//   避免升级后单机用户也吃一次迁移冲突。
 internal class AdbPhoneSource(
     private val bridge: AdbBridge,
     private val remoteDir: String,
 ) : PhoneSource {
 
-    override val id: String = "adb:$remoteDir"
+    override val id: String = bridge.serial?.let { "adb:$it:$remoteDir" } ?: "adb:$remoteDir"
     override val kind: ConnectionKind = ConnectionKind.ADB
 
     // 列候选照片。

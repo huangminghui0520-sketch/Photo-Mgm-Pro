@@ -319,8 +319,10 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
 
     // 动态发现手机上的照片目录（列表页与下拉共用）。
     // AdbPhoneSource 的 remoteDir 只是构造参数，发现过程与它无关，这里给兜底清单的第一项。
-    private fun discoverPhoneDirs(useFallback: Boolean = true): List<String> =
-        AdbPhoneSource(adbBridge, ADB_CAMERA_DIRS.first()).discoverPhotoDirs(useFallback)
+    // ★ [bridge] 由调用方传**已定向**的实例：多设备（旧机没拔 / 模拟器 / 无线调试残留）时，
+    //   不带 `-s` 的 `ls` 会被 adb 拒绝，目录会全空 —— 表现成"没找到 DCIM"，其实是"不知道该问哪台"。
+    private fun discoverPhoneDirs(bridge: AdbBridge, useFallback: Boolean = true): List<String> =
+        AdbPhoneSource(bridge, ADB_CAMERA_DIRS.first()).discoverPhotoDirs(useFallback)
 
     /**
      * 手机环境自检：adb server 可用性 + 设备授权 + 相册目录可读性，各给一句可执行的提示。
@@ -359,11 +361,15 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
 
         var photoDirs: List<String> = emptyList()
         if (online > 0) {
-            photoDirs = discoverPhoneDirs(useFallback = false)
+            // 设备定向：复用上面刚解析的 states（不再多跑一次 `adb devices`）。
+            // ★ 发现与兜底探针**必须绑同一台设备**：只给其中一条路加 `-s` 的话，
+            //   多设备时"发现说没有、探针说没权限"这类结论会互相打架。
+            val bound = adbBridge.withSerial(states.firstOrNull { it.state == "device" }?.serial)
+            photoDirs = discoverPhoneDirs(bound, useFallback = false)
             if (photoDirs.isEmpty()) {
                 val probes = listOf(
-                    adbBridge.shellRaw("ls", "/sdcard/DCIM"),
-                    adbBridge.shellRaw("ls", "/storage/emulated/0/DCIM"),
+                    bound.shellRaw("ls", "/sdcard/DCIM"),
+                    bound.shellRaw("ls", "/storage/emulated/0/DCIM"),
                 )
                 when {
                     probes.any { it.stderr.contains("Permission denied", ignoreCase = true) } ->
@@ -394,7 +400,9 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
             // 盘符/手动目录被选中却解析到 ADB 时，退回默认相机目录，不把 Windows 路径当远端路径。
             val remote = phoneDir.removePrefix("adb:").takeIf { it.startsWith("/") }
                 ?: ADB_CAMERA_DIRS.first()
-            AdbPhoneSource(adbBridge, remote)
+            // 同步开始前重新选一次设备：换机后这里拿到的是**新机**的 serial，
+            // AdbPhoneSource.id 随之变化 → SyncStateGuard 会报 PHONE_DIR 冲突（换机安全网）。
+            AdbPhoneSource(adbBridge.withSerial(adbBridge.primarySerial()), remote)
         }
         ConnectionKind.USB_DRIVE -> UsbPhoneSource(phoneDir)
         ConnectionKind.NONE -> null
