@@ -355,8 +355,17 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
         if (unauthorized) {
             hints += "手机已连接但未授权：请在手机上点「允许 USB 调试」后再试。"
         }
-        if (online == 0 && !unauthorized) {
-            hints += AdbBridge.ADB_NOT_FOUND_HINT
+        if (online == 0) {
+            when {
+                // 上面那条已经把「没授权」讲清楚了，这里不再补第二句。
+                unauthorized -> Unit
+                // offline：设备还在列表里，但 adb 连不上它。换机的典型形态 ——
+                // 旧机拔线后残留一条 offline、新机还没被识别。此时说「未检测到手机」
+                // 会把排查方向指向线材与调试开关，实际只要唤醒屏幕 / 重插一次。
+                states.any { it.state == "offline" } ->
+                    hints += "手机连接不稳定（offline）：请唤醒屏幕或换一根数据线，然后点「重新检测」再试。"
+                else -> hints += AdbBridge.ADB_NOT_FOUND_HINT
+            }
         }
 
         var photoDirs: List<String> = emptyList()

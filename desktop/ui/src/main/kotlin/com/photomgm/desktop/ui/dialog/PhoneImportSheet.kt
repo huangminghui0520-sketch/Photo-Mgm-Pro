@@ -160,9 +160,14 @@ fun PhoneImportSheet(
     //   改法：先给空列表 → LaunchedEffect 里在 IO 线程取 → 回来替换，首帧不阻塞。
     // ★ key 是 mode：切换连接方式要重跑，同时 remember(mode) 把旧结果一起清掉，
     //   不会出现"切到 ADB 却还显示上一轮的盘符列表"。
+    // ★ 再叠一个 probeTick：换机 / 重插线之后弹窗可能还开着，而 mode 没变 —— 那时目录列表
+    //   仍是上一台的。给用户一个显式重探入口（下拉旁的「重新检测」），不做自动轮询：
+    //   自动检测要么新增一条 Actions 通道（要动 ui/app 的 Actions 与 Main 接线），
+    //   要么在 UI 里定时起 adb 进程，两者都超出本轮改动范围（P1 另案）。
     var phoneDirChoices by remember(mode) { mutableStateOf(listOf<PhoneDirEntry>()) }
     var dirsProbed by remember(mode) { mutableStateOf(false) }
-    LaunchedEffect(mode) {
+    var probeTick by remember(mode) { mutableStateOf(0) }
+    LaunchedEffect(mode, probeTick) {
         dirsProbed = false
         // 取不到（设备掉线、adb 进程异常…）就当"没发现"：列表空着比整个弹窗崩了好。
         // 取消信号必须原样重抛 —— 丢掉它会让已取消的探测继续跑完并覆盖新一轮结果。
@@ -309,6 +314,15 @@ fun PhoneImportSheet(
                     Field(
                         label = "手机目录",
                         trailing = {
+                            // 「重新检测」贴着下拉放：换机 / 重插线后 mode 没变，列表不会自己刷新，
+                            // 这是用户唯一的显式重探入口。探测期间置灰，避免连点堆出多次 adb 往返。
+                            PmButton(
+                                if (dirsProbed) "重新检测" else "检测中…",
+                                { probeTick++ },
+                                kind = ButtonKind.GHOST,
+                                enabled = !running && dirsProbed,
+                            )
+                            Spacer(Modifier.width(PmSpace.xs))
                             PmButton(
                                 "手动选择本机目录",
                                 {
