@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +40,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -56,13 +58,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -73,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import app.api.AppState
 import app.api.EventSnapshot
 import app.api.PhotoInfo
@@ -111,6 +118,9 @@ import com.photomgm.desktop.ui.theme.PmColor
 import com.photomgm.desktop.ui.theme.PmRadius
 import com.photomgm.desktop.ui.theme.PmSpace
 import com.photomgm.desktop.ui.theme.PmType
+
+/** 竖直滚轮一格映射的横向滚动量（px）；与事件卡片的照片条同口径。 */
+private const val SCROLL_FACTOR = 50f
 
 @Composable
 fun PhotosSheet(
@@ -593,6 +603,7 @@ private fun SlotRow(slot: Int, photo: PhotoInfo?, active: PhotoInfo?, onMark: (I
  *   勾选自己乱跳"。现在点图永远只做单选或连选，勾选集合只可能被红勾改，行为可预测。
  *   红勾本身也够用：不知道快捷键的人点它、习惯 Ctrl 的人点它也得到同一个结果。
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun Strip(
     photos: List<PhotoInfo>,
@@ -615,8 +626,24 @@ private fun Strip(
     val checkPx = with(density) { CHECK_HIT_DP.dp.roundToPx() }
     // 红勾回调同样要读最新闭包：pointerInput 的 block 只在首次组合启动（见 component/Press.kt）。
     val toggleNow by rememberUpdatedState(onToggle)
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     LazyRow(
-        modifier = Modifier.fillMaxWidth().height(height.dp),
+        state = listState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height.dp)
+            .onPointerEvent(PointerEventType.Scroll) { event ->
+                val delta = event.changes.first().scrollDelta.y
+                if (delta != 0f) {
+                    // 只在当前方向还滚得动时接管滚轮：滚到头就放行，让父级继续滚动。
+                    val canScroll = if (delta > 0) listState.canScrollForward else listState.canScrollBackward
+                    if (canScroll) {
+                        scope.launch { listState.scrollBy(delta * SCROLL_FACTOR) }
+                        event.changes.forEach { it.consume() }
+                    }
+                }
+            },
         contentPadding = PaddingValues(horizontal = PmSpace.l, vertical = PmSpace.s),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,

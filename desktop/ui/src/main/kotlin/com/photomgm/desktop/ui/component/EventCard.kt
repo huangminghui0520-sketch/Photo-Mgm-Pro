@@ -393,7 +393,12 @@ private fun PhotoStrip(
                 .onPointerEvent(PointerEventType.Scroll) { event ->
                     val delta = event.changes.first().scrollDelta.y
                     if (delta != 0f) {
-                        scope.launch { listState.scrollBy(delta * SCROLL_FACTOR) }
+                        // 只在当前方向还滚得动时接管滚轮：滚到头就放行，让父级 LazyColumn 继续竖直滚动。
+                        val canScroll = if (delta > 0) listState.canScrollForward else listState.canScrollBackward
+                        if (canScroll) {
+                            scope.launch { listState.scrollBy(delta * SCROLL_FACTOR) }
+                            event.changes.forEach { it.consume() }
+                        }
                     }
                 },
             horizontalArrangement = Arrangement.spacedBy(TILE_GAP.dp),
