@@ -331,11 +331,11 @@ private fun CardHeader(
 }
 
 /**
- * 照片条：一行等高的格子，**可横向滚动**；末位是「+N」，标出首屏之外还有几张。
+ * 照片条：一行等高的格子，**可横向滚动**；末位常驻一个总数格，滚到末尾仍能看到这一组一共几张。
  *
  * ★ 为什么改成可滚动：照片多于首屏格数时，旧版只留「+N」把剩下的藏掉，
  *   复核"这个事件到底几张、有没有漏"时看不到具体是哪几张；
- *   滚动让每一张都能翻到，而「+N」仍然回答"一共比首屏多几张"。
+ *   滚动让每一张都能翻到，而末位的总数回答"这一组一共几张"。
  * ★ 滚动条只在这条真能滚时才画：装得下时画一条满长的灰条，会让人以为右边还有东西。
  */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -379,8 +379,7 @@ private fun PhotoStrip(
         return
     }
 
-    // 全部照片都进列表；末位「+N」= 比首屏格数多出来的张数（滚到末尾才看到）。
-    val overflow = (photos.size - maxTiles).coerceAtLeast(0)
+    // 全部照片都进列表；末位常驻总数格，不再按首屏格数算溢出。
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -406,9 +405,7 @@ private fun PhotoStrip(
             items(photos, key = { it.id }) { photo ->
                 PhotoThumb(photo, slots[photo.id], tile, canCopy, { mode -> onAssign(photo, mode) })
             }
-            if (overflow > 0) {
-                item(key = "overflow") { OverflowTile(overflow, tile) }
-            }
+            item(key = "count") { CountTile(photos.size, tile) }
         }
         // 叠在缩略图上沿而不是另起一行：不改变格子尺寸与卡片高度，滚起来才出现。
         if (listState.canScrollBackward || listState.canScrollForward) {
@@ -553,7 +550,7 @@ private fun ThumbAction(icon: ImageVector, label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun OverflowTile(count: Int, tile: Int) {
+private fun CountTile(count: Int, tile: Int) {
     Box(
         Modifier
             .size(tile.dp)
@@ -562,6 +559,6 @@ private fun OverflowTile(count: Int, tile: Int) {
             .border(1.dp, PmColor.line, RoundedCornerShape(PmRadius.control)),
         contentAlignment = Alignment.Center,
     ) {
-        Text("+$count", style = PmType.numeric, color = PmColor.ink3)
+        Text("$count", style = PmType.numeric, color = PmColor.ink3)
     }
 }
