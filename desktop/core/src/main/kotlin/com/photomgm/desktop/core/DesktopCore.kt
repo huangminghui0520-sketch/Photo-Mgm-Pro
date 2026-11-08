@@ -320,10 +320,12 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
         AdbPhoneSource(adbBridge, ADB_CAMERA_DIRS.first()).discoverPhotoDirs(useFallback)
 
     /**
-     * 手机环境自检：设备授权 + 相册目录可读性，各给一句可执行的提示。
+     * 手机环境自检：adb server 可用性 + 设备授权 + 相册目录可读性，各给一句可执行的提示。
      *
-     * ★ 调用方必须是**后台线程**（会跑 `adb devices` 与若干次 `ls`，单次最长 15 s）。
-     *   目前唯一调用点是 [listPhoneDirs]，而它由 UI 侧经 LaunchedEffect + Dispatchers.IO 触发。
+     * ★ 调用方必须是**后台线程**（会跑 `adb version` / `start-server` / `adb devices` 与若干次
+     *   `ls`，单次最长 15 s）。目前唯一调用点是 [listPhoneDirs]，而它由 UI 侧经
+     *   LaunchedEffect + Dispatchers.IO 触发 —— [AdbBridge.adbServerStatus] 的懒求值也借这条路，
+     *   所以启动与单测阶段都不会有外部进程。
      * ★ 不抛异常：所有探测都走 [AdbBridge] 的 [AdbOutput]，进程失败也只是 exitCode != 0。
      * ★ 「目录为空」不能直接下结论 —— [AdbPhoneSource.discoverPhotoDirs] 默认会回退到
      *   [ADB_CAMERA_DIRS]，所以这里显式传 useFallback = false，拿到"真的一张都没找到"，
@@ -331,6 +333,17 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
      */
     fun selfCheck(): SelfCheckResult {
         val hints = ArrayList<String>()
+        // ① adb server 自检（**懒求值的第一触发点**）：`AdbBridge.adbServerStatus` 是
+        //    `by lazy`，构造 bridge 时不起任何进程，读到这一行才真正跑 `adb version` +
+        //    `start-server`（不再 kill-server）。因为 selfCheck 只跑在
+        //    PhoneImportSheet 的 LaunchedEffect + Dispatchers.IO 路径上，首次求值也在后台线程。
+        // ★ 「未找到 adb」不在这里重复提示：下面 online == 0 时已经会加 ADB_NOT_FOUND_HINT，
+        //   两条一起加等于同一句话说两遍。判据用失败消息里是否含有那条 hint 常量（该消息由
+        //   AdbBridge.ensureAdbServer 拼出，不靠硬编码字符串漂移）。
+        adbBridge.adbServerStatus.exceptionOrNull()
+            ?.takeUnless { it.message.orEmpty().contains(AdbBridge.ADB_NOT_FOUND_HINT) }
+            ?.let { failure -> hints += failure.message ?: "adb server 自检失败（原因未知）。" }
+
         val states = adbBridge.deviceStates()
         val online = states.count { it.state == "device" }
         val unauthorized = states.any { it.state == "unauthorized" }

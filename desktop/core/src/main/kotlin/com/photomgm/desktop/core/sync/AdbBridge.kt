@@ -104,13 +104,20 @@ internal class AdbBridge(
     private val exe: String = if (isWindows) "adb.exe" else "adb"
     private val pathSeparator: String = if (isWindows) "\\" else "/"
 
-    // ── adb server 自检结果（构造时算一次） ────────────────────────────────
-    // ★ **只在构造时执行一次**：`adb version` 的结论是进程级的，与"这次插的是哪台手机"无关；
-    //   每次打开弹窗再跑一遍，只会让弹窗多等两次进程往返（15 s 超时 × 2 的最坏情况）。
+    // ── adb server 自检结果（**懒求值**，至多算一次） ──────────────────────
+    // ★ 为什么是 `by lazy` 而不是属性初始化器：构造 `AdbBridge` 的代价必须保持"零外部进程"。
+    //   初始化器写法会让每次 `DesktopCore` 构造真的去起 `adb version` / `start-server`，
+    //   连单测（`CorePipelineTest` / `WindowMemoryTest` 构造真 core、`AdbBridgeTest` 的 FakeEnv
+    //   恰好写了 D:\Android\sdk 这类真实存在的路径）都会在开发机上真起进程 ——
+    //   实测一次 `:desktop:core:test` 会起 57 个 adb 进程，单测从此不再离线自足。
+    // ★ 谁来触发求值：唯一读者是 `DesktopCore.selfCheck()`，而它只跑在
+    //   `PhoneImportSheet` 的 LaunchedEffect + Dispatchers.IO 路径上 → 首次求值发生在后台线程，
+    //   既不阻塞 UI，也不会在启动/单测阶段发生。
+    // ★ 结论是进程级的（`adb version` 与"这次插的是哪台手机"无关），所以整个 bridge 生命周期
+    //   只有一份（`by lazy` 默认 LazyThreadSafetyMode.SYNCHRONIZED，多线程下也只算一次）。
     // ★ 找不到 adb 时直接失败、**不**去裸跑 "adb version"：定位已经按 显式路径 → 环境变量
-    //   → PATH → 盘符 全试过了（见 resolve），再交给系统解析一次没有意义；
-    //   而且这条判断让离线单测（AdbBridgeTest 用 FakeEnv 构造桥）不会在开发机上真敲 adb。
-    val adbServerStatus: Result<String> = ensureAdbServer()
+    //   → PATH → 盘符 全试过了（见 resolve），再交给系统解析一次没有意义。
+    val adbServerStatus: Result<String> by lazy { ensureAdbServer() }
 
     // 按 ①~⑤ 顺序定位，全找不到返回 null（「找不到」是正常状态，不是异常）。
     fun resolve(): String? {
@@ -178,7 +185,8 @@ internal class AdbBridge(
      * 确保本机 adb server 可用：版本门槛 + 重启 server。
      *
      * 顺序：`adb version` 取版本号 → 低于 [MIN_ADB_VERSION] 直接失败（不重启旧 server）→
-     * `kill-server`（失败只记日志、不中断：本来就可能没在跑）→ `start-server`。
+     * `start-server`（幂等）。
+     * **不做 `kill-server`**：避免瞬断用户其它 adb 工具（Android Studio / logcat / scrcpy）的现有连接。
      *
      * 版本号解析不出来时记「版本未知」**不报错**：厂商魔改版/预览版的输出千奇百怪，
      * 因为正则没认出格式就拒绝整个功能，得不偿失。
@@ -200,8 +208,9 @@ internal class AdbBridge(
             )
         }
         val versionText = version ?: "版本未知"
-        val kill = command(listOf(exePath, "kill-server"))
-        if (kill.exitCode != 0) println("ADB-DIAG: kill-server 未成功（忽略）：${kill.stderr.trim()}")
+        // ★ 刻意**不** `kill-server`：它会把用户正在用的其它 adb 工具（Android Studio、logcat、
+        //   scrcpy）的连接瞬断一次，换来的是"重启一个本来就能用/自己会起来的 server"。
+        //   只做 `start-server`：没在跑就拉起来，在跑就原样返回（幂等）。
         val start = command(listOf(exePath, "start-server"))
         if (start.exitCode != 0) println("ADB-DIAG: start-server 未成功：${start.stderr.trim()}")
         val detail = if (start.exitCode == 0) "server 已就绪" else "server 未就绪"
@@ -312,22 +321,27 @@ internal class AdbBridge(
             )
         }
 
-        // 严格正则失配时的兜底：**从右往左**认字段（名字 ← 时间 ← 日期 ← 大小），
-        // 这样无论左边多了多少列（SELinux context、ACL、将来的新列）都不影响结果。
+        // 严格正则失配时的兜底：**先定位 日期+时间 这一对邻列**，再据此切出大小与名字。
+        // 为什么不是"从右往左数第 2/3 个 token"：文件名允许含空格（`my photo.jpg`），
+        // 从右数就永远对不上时间列，于是 strict 能给出 `my photo.jpg`、兜底却整行丢弃 ——
+        // 同一个输入两条解析路径结论不一致，正是本轮要修的跨 ROM/跨路径不一致。
+        // 左边无论多了多少列（SELinux context、ACL、将来的新列）都不影响：日期列只在
+        // 大小为数字、名字之前的那个位置出现一次，扫到第一对 (日期, 时间) 就是它。
         private fun parseLsEntryByTokens(text: String): LsEntry? {
             val tokens = text.split(WHITESPACE)
             if (tokens.size < 8) return parseFailure(text)
             if (!LS_PERM.matches(tokens[0])) return parseFailure(text)
-            val name = tokens.last()
-            if (!isPlausibleName(name)) return parseFailure(text)
-            val timeIdx = tokens.size - 2
-            val dateIdx = tokens.size - 3
+            // 日期列的下标：从第 2 列（token[0] 是权限）开始找第一处 `日期` 且**下一列是时间**。
+            val dateIdx = (1 until tokens.size - 1).firstOrNull { i ->
+                LS_DATE.matches(tokens[i]) && LS_TIME.matches(tokens[i + 1])
+            } ?: return parseFailure(text)
+            val timeIdx = dateIdx + 1
             val sizeIdx = dateIdx - 1
             if (sizeIdx < 1) return parseFailure(text)
-            if (!LS_TIME.matches(tokens[timeIdx]) || !LS_DATE.matches(tokens[dateIdx])) {
-                return parseFailure(text)
-            }
             val size = tokens[sizeIdx].toLongOrNull() ?: return parseFailure(text)
+            // 名字 = 时间列之后的**全部** token 拼回去（保留文件名里的空格）。
+            val name = tokens.drop(timeIdx + 1).joinToString(" ")
+            if (!isPlausibleName(name)) return parseFailure(text)
             return LsEntry(
                 isRegularFile = tokens[0][0] == '-',
                 name = name,
@@ -492,8 +506,14 @@ internal class AdbPhoneSource(
     // `ls -l` 认不全时的回退：只取文件名。
     // ★ 大小只能给 0L、mtime 只能给 null —— [RemotePhoto.size] 是非空 Long（定义在
     //   PhoneConnection.kt，本轮不在允许改动范围内），所以"大小未知"只能用 0 表达。
-    //   影响：SyncDecider 先比大小后哈希，size=0 与真实大小几乎必然不等 →
-    //   该目录下已存在的文件会被判为"大小不同"而重新拉取一次（见本轮修复报告"遗留风险"）。
+    // ★ 影响面（与实现核对过，别按直觉猜）：
+    //   · `size = 0L` **基本不影响**续传去重：PhoneSyncExecutor 的 `incomingSize` 取的是
+    //     暂存区文件的 `Files.size(staged)` 实测值，`photo.size` 只在 `Files.size()` 抛异常时
+    //     才作为兜底；`RemotePhoto.size` 全仓也只有这一处消费。
+    //   · 真正的影响是 `modifiedMs = null`：DesktopCore 的 `timeOf` 是
+    //     `EXIF 拍摄时间 ?: remote.modifiedMs`，两者都没有时 PhoneSyncExecutor 会把该文件
+    //     计入 filtered 并跳过 —— 截图 / 社交转存这类**没有 EXIF DateTimeOriginal** 的照片，
+    //     在这个目录下会被静默丢掉（本轮未授权修复，记为已知限制）。
     private fun listNamesOnly(): List<RemotePhoto> =
         listNames(remoteDir)
             .filter { it != "." && it != ".." }
