@@ -155,7 +155,9 @@ fun WorkspacePage(
                 }
 
                 // 未匹配池固定排在最后：它是"第 N+1 个待处理单元"，不是垃圾桶。
-                if (ui.filter != ReviewFilter.UNMATCHED && state.unmatchedPhotoIds.isNotEmpty()) {
+                // UNMATCHED 档显示未匹配卡片；NEEDS_REVIEW/NO_PHOTO/PENDING 三档不显示（收口语义）
+                if (state.unmatchedPhotoIds.isNotEmpty() &&
+                    (ui.filter == ReviewFilter.ALL || ui.filter == ReviewFilter.UNMATCHED)) {
                     item(key = "unmatched") {
                         UnmatchedCard(
                             photos = state.unmatchedPhotos,
@@ -179,7 +181,9 @@ fun WorkspacePage(
                     }
                 }
 
-                if (visible.isEmpty() && ui.filter != ReviewFilter.ALL) {
+                // UNMATCHED 且池非空时，未匹配卡片已渲染，不再显示空态
+                if (visible.isEmpty() && ui.filter != ReviewFilter.ALL &&
+                    !(ui.filter == ReviewFilter.UNMATCHED && state.unmatchedPhotoIds.isNotEmpty())) {
                     item(key = "empty-filter") {
                         EmptyBlock(
                             icon = Icons.Filled.Search,
