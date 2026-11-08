@@ -233,8 +233,14 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
     fun listPhoneDirs(mode: PhoneLinkMode): List<PhoneDirEntry> {
         val out = ArrayList<PhoneDirEntry>()
         if (mode != PhoneLinkMode.USB_DRIVE) {
-            val dirs = discoverPhoneDirs().ifEmpty { ADB_CAMERA_DIRS }
-            dirs.forEach { dir -> out += PhoneDirEntry("adb:$dir", "ADB · $dir") }
+            // 自检与目录发现是同一次 adb 旅程：自检复用发现的结果，不重复问一遍手机。
+            // 自检结论以「提示项」的形式塞进同一个列表（id 带 PHONE_DIR_HINT_PREFIX），
+            // 这样 UI 不必新增一个 action 签名就能把"为什么没有目录"讲清楚 ——
+            // 详见 PHONE_DIR_HINT_PREFIX 的注释。
+            val check = selfCheck()
+            check.hints.distinct().forEach { hint -> out += PhoneDirEntry(PHONE_DIR_HINT_PREFIX + hint, hint) }
+            check.photoDirs.ifEmpty { ADB_CAMERA_DIRS }
+                .forEach { dir -> out += PhoneDirEntry("adb:$dir", "ADB · $dir") }
         }
         if (mode != PhoneLinkMode.ADB) {
             usbDriveScanner.visibleDrives().forEach { drive ->
@@ -310,8 +316,62 @@ class DesktopCore internal constructor(private val config: DesktopCoreConfig) : 
 
     // 动态发现手机上的照片目录（列表页与下拉共用）。
     // AdbPhoneSource 的 remoteDir 只是构造参数，发现过程与它无关，这里给兜底清单的第一项。
-    private fun discoverPhoneDirs(): List<String> =
-        AdbPhoneSource(adbBridge, ADB_CAMERA_DIRS.first()).discoverPhotoDirs()
+    private fun discoverPhoneDirs(useFallback: Boolean = true): List<String> =
+        AdbPhoneSource(adbBridge, ADB_CAMERA_DIRS.first()).discoverPhotoDirs(useFallback)
+
+    /**
+     * 手机环境自检：设备授权 + 相册目录可读性，各给一句可执行的提示。
+     *
+     * ★ 调用方必须是**后台线程**（会跑 `adb devices` 与若干次 `ls`，单次最长 15 s）。
+     *   目前唯一调用点是 [listPhoneDirs]，而它由 UI 侧经 LaunchedEffect + Dispatchers.IO 触发。
+     * ★ 不抛异常：所有探测都走 [AdbBridge] 的 [AdbOutput]，进程失败也只是 exitCode != 0。
+     * ★ 「目录为空」不能直接下结论 —— [AdbPhoneSource.discoverPhotoDirs] 默认会回退到
+     *   [ADB_CAMERA_DIRS]，所以这里显式传 useFallback = false，拿到"真的一张都没找到"，
+     *   再去区分是没权限、没这个目录，还是目录里确实没有受支持的照片。
+     */
+    fun selfCheck(): SelfCheckResult {
+        val hints = ArrayList<String>()
+        val states = adbBridge.deviceStates()
+        val online = states.count { it.state == "device" }
+        val unauthorized = states.any { it.state == "unauthorized" }
+        if (unauthorized) {
+            hints += "手机已连接但未授权：请在手机上点「允许 USB 调试」后再试。"
+        }
+        if (online == 0 && !unauthorized) {
+            hints += AdbBridge.ADB_NOT_FOUND_HINT
+        }
+
+        var photoDirs: List<String> = emptyList()
+        if (online > 0) {
+            photoDirs = discoverPhoneDirs(useFallback = false)
+            if (photoDirs.isEmpty()) {
+                val probes = listOf(
+                    adbBridge.shellRaw("ls", "/sdcard/DCIM"),
+                    adbBridge.shellRaw("ls", "/storage/emulated/0/DCIM"),
+                )
+                when {
+                    probes.any { it.stderr.contains("Permission denied", ignoreCase = true) } ->
+                        hints += "读不到手机相册目录（Permission denied）：请把 USB 模式切到「PTP / 传输照片」后重试。"
+                    probes.all { it.exitCode != 0 } ->
+                        hints += "手机上没有找到 DCIM 目录：请检查开发者选项里的「USB 调试（安全设置）」是否开启。"
+                    else -> hints += "手机相册目录里没有受支持的照片。"
+                }
+            }
+        }
+
+        val result = SelfCheckResult(
+            ok = online > 0 && photoDirs.isNotEmpty(),
+            devicesOnline = online,
+            unauthorized = unauthorized,
+            photoDirs = photoDirs,
+            hints = hints,
+        )
+        println(
+            "ADB-DIAG: selfCheck ok=${result.ok} online=$online unauthorized=$unauthorized " +
+                "dirs=${photoDirs.size} hints=${hints.size}",
+        )
+        return result
+    }
 
     private fun phoneSourceFor(kind: ConnectionKind, phoneDir: String): PhoneSource? = when (kind) {
         ConnectionKind.ADB -> {
@@ -430,6 +490,35 @@ enum class PhoneLinkMode(val label: String) {
 
 // 手机目录下拉的一项。[id] 会写进 sync-state.json，换目录即被冲突检测拦下。
 data class PhoneDirEntry(val id: String, val label: String)
+
+/**
+ * 自检提示项在 [PhoneDirEntry.id] 上的前缀。
+ *
+ * 「手机目录为什么是空的」必须能讲清楚，而 :ui 只认 `Actions.phoneDirs` 这一条通道
+ * （Actions 的签名本轮不在允许改动范围内）。所以自检结论复用同一个返回类型：
+ * id 带本前缀的项**不是可选目录**，UI 必须把它渲染成一行提示文字、不进可点击列表。
+ * 这样 [PhoneSyncRequest.phoneDir] 永远不会收到提示文案。
+ */
+const val PHONE_DIR_HINT_PREFIX: String = "hint:"
+
+/**
+ * 手机环境自检结论（[DesktopCore.selfCheck]）。
+ *
+ * 字段只用 JVM 基础类型 + `List<String>`：:ui 拿到它不需要 import `core/sync` 里的任何
+ * internal 类型，也不碰 `domain.*`（P5 门禁口径与 [PhoneDirEntry] 一致）。
+ */
+data class SelfCheckResult(
+    /** 设备在线**且**至少发现一个照片目录。 */
+    val ok: Boolean,
+    /** `adb devices` 里状态恰为 device 的条数。 */
+    val devicesOnline: Int,
+    /** 存在 unauthorized 设备（手机上还没点「允许 USB 调试」）。 */
+    val unauthorized: Boolean,
+    /** 动态发现的照片目录（不回退默认清单，因此可能是空的）。 */
+    val photoDirs: List<String>,
+    /** 给用户看的提示，按发现顺序；空列表 = 没发现问题。 */
+    val hints: List<String>,
+)
 
 data class PhoneSyncRequest(
     val sourceDir: String,

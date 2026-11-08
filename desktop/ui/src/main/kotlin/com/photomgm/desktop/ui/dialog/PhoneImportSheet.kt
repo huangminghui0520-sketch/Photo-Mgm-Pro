@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.roundToIntRect
 import app.api.AppState
+import com.photomgm.desktop.core.PHONE_DIR_HINT_PREFIX
 import com.photomgm.desktop.core.PhoneDirEntry
 import com.photomgm.desktop.core.PhoneLinkMode
 import com.photomgm.desktop.core.PhoneSyncProgress
@@ -175,7 +176,14 @@ fun PhoneImportSheet(
         phoneDirChoices = fetched
         dirsProbed = true
     }
-    val phoneOptions = remember(phoneDirChoices, manualDirs) { phoneDirChoices + manualDirs }
+    // 自检提示项（id 带 PHONE_DIR_HINT_PREFIX）**不是可选目录**：拆出来单独渲染成文字。
+    // 不拆的话用户能在下拉里"选中"一句提示，把提示文案写进 phoneDir。
+    val phoneHints = remember(phoneDirChoices) {
+        phoneDirChoices.filter { it.id.startsWith(PHONE_DIR_HINT_PREFIX) }.map { it.label }.distinct()
+    }
+    val phoneOptions = remember(phoneDirChoices, manualDirs) {
+        phoneDirChoices.filterNot { it.id.startsWith(PHONE_DIR_HINT_PREFIX) } + manualDirs
+    }
 
     // 区间类校验（V5 / 上限 / 空值）是**实时**的：改日期或点时分都重算。
     // 底部按钮的 enabled、字段下方的提示行、结束字段的标红边框都读这一份结果 ——
@@ -329,6 +337,14 @@ fun PhoneImportSheet(
                                 "未发现照片目录，请检查手机连接。"
                             },
                         )
+                        // 自检失败时把原因摊开说（未授权 / 权限不足 / 没有 DCIM / USB 调试安全设置），
+                        // 不要只留一个空下拉让用户猜。
+                        if (phoneHints.isNotEmpty()) {
+                            Spacer(Modifier.height(PmSpace.xs))
+                            phoneHints.forEach { hint ->
+                                Text(hint, style = PmType.caption, color = PmColor.warn)
+                            }
+                        }
                     }
 
                     Spacer(Modifier.height(PmSpace.m))

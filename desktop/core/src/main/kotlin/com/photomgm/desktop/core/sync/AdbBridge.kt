@@ -46,6 +46,10 @@ internal data class LsEntry(
     val modifiedMs: Long?,
 )
 
+// `adb devices` 的一行：序列号 + 状态（device / unauthorized / offline…）。
+// 单独抽出来是因为环境自检要把 unauthorized 与「压根没连」区分开：两种情况的提示语不同。
+internal data class AdbDevice(val serial: String, val state: String)
+
 internal fun interface AdbCommand {
     operator fun invoke(args: List<String>): AdbOutput
 }
@@ -100,6 +104,14 @@ internal class AdbBridge(
     private val exe: String = if (isWindows) "adb.exe" else "adb"
     private val pathSeparator: String = if (isWindows) "\\" else "/"
 
+    // ── adb server 自检结果（构造时算一次） ────────────────────────────────
+    // ★ **只在构造时执行一次**：`adb version` 的结论是进程级的，与"这次插的是哪台手机"无关；
+    //   每次打开弹窗再跑一遍，只会让弹窗多等两次进程往返（15 s 超时 × 2 的最坏情况）。
+    // ★ 找不到 adb 时直接失败、**不**去裸跑 "adb version"：定位已经按 显式路径 → 环境变量
+    //   → PATH → 盘符 全试过了（见 resolve），再交给系统解析一次没有意义；
+    //   而且这条判断让离线单测（AdbBridgeTest 用 FakeEnv 构造桥）不会在开发机上真敲 adb。
+    val adbServerStatus: Result<String> = ensureAdbServer()
+
     // 按 ①~⑤ 顺序定位，全找不到返回 null（「找不到」是正常状态，不是异常）。
     fun resolve(): String? {
         if (!explicitPath.isNullOrBlank() && adbEnv.isRegularFile(explicitPath)) return explicitPath
@@ -150,6 +162,53 @@ internal class AdbBridge(
     fun hasDevice(output: AdbOutput = devicesOutput()): Boolean =
         output.exitCode == 0 && output.stdout.lineSequence().any { DEVICE_LINE.matches(it.trimEnd()) }
 
+    // `adb devices` 逐行解析成 (序列号, 状态)。过滤表头、空行与 `* daemon …` 提示行。
+    // 与 [hasDevice] 分开：那个只要一个布尔（"能不能用"），自检要区分 unauthorized / offline。
+    fun deviceStates(output: AdbOutput = devicesOutput()): List<AdbDevice> =
+        output.stdout.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("*") && !it.startsWith("List of devices") }
+            .mapNotNull { line ->
+                val parts = line.split(WHITESPACE)
+                if (parts.size < 2) null else AdbDevice(parts[0], parts[1])
+            }
+            .toList()
+
+    /**
+     * 确保本机 adb server 可用：版本门槛 + 重启 server。
+     *
+     * 顺序：`adb version` 取版本号 → 低于 [MIN_ADB_VERSION] 直接失败（不重启旧 server）→
+     * `kill-server`（失败只记日志、不中断：本来就可能没在跑）→ `start-server`。
+     *
+     * 版本号解析不出来时记「版本未知」**不报错**：厂商魔改版/预览版的输出千奇百怪，
+     * 因为正则没认出格式就拒绝整个功能，得不偿失。
+     *
+     * @return 成功时带一句可展示的结论（含版本号与 server 状态），失败时带可读的排查提示。
+     */
+    fun ensureAdbServer(): Result<String> {
+        val exePath = resolve() ?: return Result.failure(
+            IllegalStateException("未找到 adb 可执行文件，已跳过 adb server 自检。$ADB_NOT_FOUND_HINT"),
+        )
+        val versionOut = command(listOf(exePath, "version"))
+        val version = VERSION.find(versionOut.stdout)?.value
+        if (version != null && !atLeastVersion(version, MIN_ADB_VERSION)) {
+            return Result.failure(
+                IllegalStateException(
+                    "adb 版本过低：$version（要求 ≥ $MIN_ADB_VERSION）。" +
+                        "请更新 Android SDK Platform-Tools 后重试。",
+                ),
+            )
+        }
+        val versionText = version ?: "版本未知"
+        val kill = command(listOf(exePath, "kill-server"))
+        if (kill.exitCode != 0) println("ADB-DIAG: kill-server 未成功（忽略）：${kill.stderr.trim()}")
+        val start = command(listOf(exePath, "start-server"))
+        if (start.exitCode != 0) println("ADB-DIAG: start-server 未成功：${start.stderr.trim()}")
+        val detail = if (start.exitCode == 0) "server 已就绪" else "server 未就绪"
+        println("ADB-DIAG: adb $versionText · $detail")
+        return Result.success("adb $versionText（$detail）")
+    }
+
     fun listRemote(dir: String): AdbOutput =
         command(listOf(executable(), "shell", "ls", "-l", dir))
 
@@ -177,6 +236,14 @@ internal class AdbBridge(
         private val DEVICE_LINE = Regex("""^\S+\s+device\s*$""")
         private val SDK_HOME_KEYS = listOf("ANDROID_HOME", "ANDROID_SDK_ROOT")
         private val WHITESPACE = Regex("""\s+""")
+
+        // adb server 的版本门槛。低于它的 platform-tools 在 `ls -d` 与 `pull` 变参上有已知缺陷，
+        // 表现正好是"列不出目录 / 只拉到第一张"这类难以归因的症状。
+        const val MIN_ADB_VERSION: String = "1.0.40"
+
+        // `adb version` 首行形如 "Android Debug Bridge version 1.0.41" 或
+        // "Version 37.0.1-1234567"：都取第一处 `x.y.z`。
+        private val VERSION = Regex("""\d+\.\d+\.\d+""")
 
         // 找不到 adb / 找不到设备共用这一条（Q3 合并、Q5-② 分步排查）：
         // 一句结论 + 三步排查，既不区分「未安装」与「未连接」，又让用户知道从哪查起。
@@ -278,6 +345,18 @@ internal class AdbBridge(
 
         private fun isPlausibleName(name: String): Boolean =
             name.isNotBlank() && name != "." && name != ".."
+
+        // 逐段比较 `a.b.c`：段数不同时缺的按 0 补齐（"1.0.40" vs "1.0.41-rc1" 已被 VERSION 截断）。
+        private fun atLeastVersion(actual: String, min: String): Boolean {
+            val left = actual.split('.').map { it.toIntOrNull() ?: 0 }
+            val right = min.split('.').map { it.toIntOrNull() ?: 0 }
+            for (index in 0 until maxOf(left.size, right.size)) {
+                val mine = left.getOrElse(index) { 0 }
+                val need = right.getOrElse(index) { 0 }
+                if (mine != need) return mine > need
+            }
+            return true
+        }
 
         // 手机侧时间格式常见两种：`2026-11-04 23:55` 与 `2026-11-04 23:55:12`。
         private fun parseLsTime(date: String, time: String): Long? = runCatching {
