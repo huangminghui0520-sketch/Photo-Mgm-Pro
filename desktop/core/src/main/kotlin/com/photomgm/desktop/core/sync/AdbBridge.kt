@@ -339,8 +339,12 @@ internal class AdbBridge(
             val sizeIdx = dateIdx - 1
             if (sizeIdx < 1) return parseFailure(text)
             val size = tokens[sizeIdx].toLongOrNull() ?: return parseFailure(text)
-            // 名字 = 时间列之后的**全部** token 拼回去（保留文件名里的空格）。
-            val name = tokens.drop(timeIdx + 1).joinToString(" ")
+            // 名字 = 时间列之后的**原文子串**。
+            // 不能用 `tokens.drop(...).joinToString(" ")` 拼回：`split(WHITESPACE)` 已经把
+            // 连续空格折叠成一个，join 只会还原成单空格 —— 文件名含连续空格
+            // （`my  photo.jpg`）时得到的 name 与远端真实名字不符，`adb pull` 直接拉不到，
+            // 表现为该文件记 failed，比"整行丢弃"更难归因。
+            val name = restAfterToken(text, timeIdx)
             if (!isPlausibleName(name)) return parseFailure(text)
             return LsEntry(
                 isRegularFile = tokens[0][0] == '-',
@@ -359,6 +363,22 @@ internal class AdbBridge(
 
         private fun isPlausibleName(name: String): Boolean =
             name.isNotBlank() && name != "." && name != ".."
+
+        // 跳过 `text` 里前 `index + 1` 个 token（连同 token 之间/之前的空白），返回剩余原文并 trim。
+        // 为什么不用 `split`：`split(WHITESPACE)` 会把连续空格折叠，再 `join` 只能还原成单空格，
+        // 而文件名里的连续空格是远端真实名字的一部分。这里按字符游标走一遍，原文一个字节都不改。
+        // token 数不足时返回空串，交由调用方用 [isPlausibleName] 判掉。
+        private fun restAfterToken(text: String, index: Int): String {
+            var pos = 0
+            var skipped = 0
+            while (skipped <= index) {
+                while (pos < text.length && text[pos].isWhitespace()) pos++
+                if (pos >= text.length) return ""
+                while (pos < text.length && !text[pos].isWhitespace()) pos++
+                skipped++
+            }
+            return text.substring(pos).trim()
+        }
 
         // 逐段比较 `a.b.c`：段数不同时缺的按 0 补齐（"1.0.40" vs "1.0.41-rc1" 已被 VERSION 截断）。
         private fun atLeastVersion(actual: String, min: String): Boolean {
@@ -512,8 +532,10 @@ internal class AdbPhoneSource(
     //     才作为兜底；`RemotePhoto.size` 全仓也只有这一处消费。
     //   · 真正的影响是 `modifiedMs = null`：DesktopCore 的 `timeOf` 是
     //     `EXIF 拍摄时间 ?: remote.modifiedMs`，两者都没有时 PhoneSyncExecutor 会把该文件
-    //     计入 filtered 并跳过 —— 截图 / 社交转存这类**没有 EXIF DateTimeOriginal** 的照片，
-    //     在这个目录下会被静默丢掉（本轮未授权修复，记为已知限制）。
+    //     计入 filtered 并跳过 —— 会中招的是**无 EXIF `DateTimeOriginal` 的格式**
+    //     （PNG / WEBP / HEIC 等），以及被剥离了 EXIF 的转存图；JPG 截图通常带 EXIF，
+    //     不受影响（vivo 实测 `Screenshot_20260416_191513.jpg → 1776338113000`）。
+    //     这个目录下这些文件会被静默丢掉（本轮未授权修复，记为已知限制）。
     private fun listNamesOnly(): List<RemotePhoto> =
         listNames(remoteDir)
             .filter { it != "." && it != ".." }
