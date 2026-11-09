@@ -25,3 +25,7 @@ scripts/**/*.sh text eol=lf
 gradlew text eol=lf
 # gradlew.bat 走 Windows cmd，保持 CRLF 更稳（cmd 对 LF-only 的 batch 有已知解析坑）。
 gradlew.bat text eol=crlf
+
+# 随包 adb 二进制：按 binary 处理，避免换行转换损坏可执行文件
+desktop/ui/appResources/**/*.exe binary
+desktop/ui/appResources/**/*.dll binary

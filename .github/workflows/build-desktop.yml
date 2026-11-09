@@ -39,6 +39,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # 随包 adb 三文件必须真实入库：binary 属性与 gitignore 白名单只在「文件已跟踪」时才有意义。
+      - name: Assert bundled adb tracked
+        shell: pwsh
+        run: |
+          $files = @(
+            "desktop/ui/appResources/common/tools/platform-tools/adb.exe",
+            "desktop/ui/appResources/common/tools/platform-tools/AdbWinApi.dll",
+            "desktop/ui/appResources/common/tools/platform-tools/AdbWinUsbApi.dll"
+          )
+          $fail = $false
+          foreach ($f in $files) {
+            git ls-files --error-unmatch $f 2>$null
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Not tracked in git: $f"
+              $fail = $true
+            }
+          }
+          if ($fail) { exit 1 }
+          Write-Host "All bundled adb files are tracked in git"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -80,6 +100,34 @@ jobs:
             exit 1
           }
           Write-Host "Bundled adb present: $adb"
+
+      # 供应链校验：三文件必须与诊断实测的 SHA256 一致，且带 Google LLC 的有效 Authenticode 签名。
+      - name: Verify bundled adb integrity
+        shell: pwsh
+        run: |
+          $tools = "desktop/ui/build/compose/binaries/main/app/PhotoMgm/app/resources/tools/platform-tools"
+          $expected = @{
+            "adb.exe"          = "b4a6b455702684652cccf7b46258b29e653538904359a58fd4931cf3ef286b3f"
+            "AdbWinApi.dll"    = "c1d653030b4bde65d3e07e4d0b0979e17be56df1436cdd15528630f27808050d"
+            "AdbWinUsbApi.dll" = "0710e894d9b40f71a670c13c694079d564c92c1279da382cfe4850983aaebe1b"
+          }
+          $fail = $false
+          foreach ($name in $expected.Keys) {
+            $path = Join-Path $tools $name
+            if (-not (Test-Path $path)) { Write-Error "Missing: $path"; $fail = $true; continue }
+            $actual = (Get-FileHash $path -Algorithm SHA256).Hash.ToLower()
+            if ($actual -ne $expected[$name]) {
+              Write-Error "SHA256 mismatch for ${name}: expected $($expected[$name]), got $actual"
+              $fail = $true
+            }
+            $sig = Get-AuthenticodeSignature $path
+            if ($sig.Status -ne "Valid" -or $sig.SignerCertificate.Subject -notmatch "Google") {
+              Write-Error "Invalid Authenticode signature for ${name}: $($sig.Status)"
+              $fail = $true
+            }
+          }
+          if ($fail) { exit 1 }
+          Write-Host "All bundled adb files verified: SHA256 + Authenticode OK"
 
       - name: Compress portable zip
         shell: pwsh

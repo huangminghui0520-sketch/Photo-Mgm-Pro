@@ -1,6 +1,8 @@
 # 打包/运行产物（build/ 与 .gradle/ 已由根 .gitignore 覆盖）
 *.msi
 *.exe
+# 随包 adb 是唯一允许入库的 exe，其余 *.exe 仍然忽略
+!ui/appResources/common/tools/platform-tools/adb.exe
 # 打包脚本的全部产物都落在这里：app-image 目录、裁剪运行时、冒烟日志
 packaging/build/
 packaging/output/
