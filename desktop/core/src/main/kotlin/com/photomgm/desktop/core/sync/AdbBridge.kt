@@ -1,6 +1,6 @@
 // desktop/core/sync/AdbBridge.kt —— 系统 adb 可执行文件的定位与调用（零新库）
 //
-// adb 来源：随包优先（tools/platform-tools/adb.exe，相对程序目录），兜底 ANDROID_HOME / ANDROID_SDK_ROOT / PATH / 盘符扫描；随包 adb 通过 Gradle task 注入 app-image 产物，不入系统 PATH。
+// adb 来源：随包优先（主候选 app/resources/tools/platform-tools/adb.exe，兼容旧 tools/ 落点），兜底 ANDROID_HOME / ANDROID_SDK_ROOT / PATH / 盘符扫描；随包 adb 由 appResourcesRootDir 注入产物，不入系统 PATH，portable 与 MSI 共用这条链路。
 // 随包命中即返回，不再往下探测（避免 PATH 里的旧版 adb 抢先）；全找不到时 [resolve] 返回 null，
 // [executable] 才退回裸 adb 名交给系统解析，[requireExecutable] 则抛带排查步骤的异常。
 // 用 ProcessBuilder（仓内已有先例：PcShellLauncher.kt:48、ShellActions.kt:21）。
@@ -64,8 +64,8 @@ internal interface AdbEnv {
      * 随包 adb 的完整路径；找不到返回 null。
      *
      * 默认返回 null = 「没有随包 adb」：单测的 FakeEnv 不覆写即完全离线、不碰真实文件系统
-     * （仓库根一旦有 tools/，生产探测会命中，但绝不让它污染 T1~T8 的定位结论）。
-     * 生产由 [SystemAdbEnv] 覆写，走 [detectAppDir] 的三层探测。
+     * （程序目录一旦有随包 adb，生产探测会命中，但绝不让它污染 T1~T8 的定位结论）。
+     * 生产由 [SystemAdbEnv] 覆写，走 [detectAppDir] 的三层探测，按候选优先级取第一个存在的文件。
      */
     fun bundledAdb(): String? = null
 }
@@ -81,25 +81,46 @@ internal class SystemAdbEnv : AdbEnv {
     override fun bundledAdb(): String? {
         val dir = detectAppDir()
         if (dir.isEmpty()) return null
-        val candidate = runCatching {
-            Paths.get(dir).resolve(BUNDLED_ADB_RELATIVE).toString()
-        }.getOrNull() ?: return null
+        val base = runCatching { Paths.get(dir) }.getOrNull() ?: return null
         // detectAppDir 已经按层判过一次，这里再判一次：目录可能来自「全没命中」的 userDir 兜底。
-        return candidate.takeIf { isRegularFile(candidate) }
+        // 主候选优先：app/resources/ 是 portable 与 MSI 的共同落点，旧 tools/ 仅作兼容。
+        for (relative in BUNDLED_ADB_CANDIDATES) {
+            val candidate = runCatching { base.resolve(relative).toString() }.getOrNull() ?: continue
+            if (isRegularFile(candidate)) return candidate
+        }
+        return null
     }
 }
 
-/** 随包 adb 相对程序目录的固定位置；Gradle 的 copyToolsToAppImage 注入的就是这个路径。 */
-private val BUNDLED_ADB_RELATIVE: Path = Paths.get("tools", "platform-tools", "adb.exe")
+/**
+ * 随包 adb 的候选落点（相对程序目录），**按优先级排列**。
+ *
+ * ① 主候选：`appResourcesRootDir` 把 `appResources/common/` 同步到 app-image 的 `app/resources/`；
+ *    `createDistributable` 与 `packageMsi` 共用 `prepareAppResources`，故 portable 与 MSI 都带这一份 adb。
+ * ② 兼容候选：方案 1 的旧落点；用户手动把 `tools/` 放到程序目录时仍能命中。
+ */
+private val APP_RESOURCES_ADB_RELATIVE: Path =
+    Paths.get("app", "resources", "tools", "platform-tools", "adb.exe")
+private val LEGACY_TOOLS_ADB_RELATIVE: Path =
+    Paths.get("tools", "platform-tools", "adb.exe")
+private val BUNDLED_ADB_CANDIDATES: List<Path> =
+    listOf(APP_RESOURCES_ADB_RELATIVE, LEGACY_TOOLS_ADB_RELATIVE)
 
-/** 目录里是否真的放着随包 adb（路径非法 / 无权限一律按「没有」处理，不抛异常）。 */
+/** 目录里是否真的放着任一候选的随包 adb（路径非法 / 无权限一律按「没有」处理，不抛异常）。 */
 private fun hasBundledAdb(dir: Path): Boolean =
-    runCatching { Files.isRegularFile(dir.resolve(BUNDLED_ADB_RELATIVE)) }.getOrDefault(false)
+    BUNDLED_ADB_CANDIDATES.any { relative ->
+        runCatching { Files.isRegularFile(dir.resolve(relative)) }.getOrDefault(false)
+    }
+
+/** 日志标签：主落点记 resources，兼容落点记 bundled，便于从诊断输出区分 adb 来源。 */
+private fun bundledTag(path: String): String = runCatching {
+    if (Paths.get(path).endsWith(APP_RESOURCES_ADB_RELATIVE)) "resources" else "bundled"
+}.getOrDefault("bundled")
 
 /**
  * 三层探测程序目录：① `jpackage.app-path` → ② 当前进程可执行文件 → ③ `user.dir`。
  *
- * 每层都先确认 `<dir>/tools/platform-tools/adb.exe` 是普通文件才返回该 dir；
+ * 每层都先确认该目录下存在任一随包 adb 候选才返回该 dir；
  * `Paths.get(appPath).parent == null`（相对路径 / 根级路径）时跳过该层；
  * 三层全没命中返回 userDir —— 由调用方再判一次文件，保证「没随包」就是没随包。
  */
@@ -193,7 +214,8 @@ internal class AdbBridge(
         //   就会读到真实随包路径，T1~T6 的定位结论随宿主文件系统漂移。
         resolveOverride?.let { override -> return logResolve(override(), "fallback") }
         // 随包优先：命中立即返回，不再往下探测，避免 PATH / SDK 里的旧版 adb 抢先。
-        adbEnv.bundledAdb()?.let { return logResolve(it, "bundled") }
+        // 日志按落点区分 resources（appResourcesRootDir 主候选）/ bundled（旧 tools/ 兼容候选）。
+        adbEnv.bundledAdb()?.let { return logResolve(it, bundledTag(it)) }
         return logResolve(resolveFallback(), "fallback")
     }
 

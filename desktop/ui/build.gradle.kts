@@ -62,6 +62,7 @@ compose.desktop {
         )
 
         nativeDistributions {
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("appResources"))
             // 目标格式：MSI 需 WiX 3.x；app-image 无需任何外部工具（M7-tech 用它验证）
             targetFormats(
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi,
@@ -88,24 +89,5 @@ compose.desktop {
                 upgradeUuid = "f6a1b2c3-9d4e-4f5a-8b7c-1e2d3f4a5b6c"
             }
         }
-    }
-}
-
-// ── 随包 adb ──────────────────────────────────────────────────────────────
-// app-image 产物目录是 desktop/ui/build/compose/binaries/main/app/PhotoMgm/，
-// 把仓库根 tools/（platform-tools/adb.exe + 两个 WinUSB dll）整目录同步到其下的 tools/。
-// 用 Sync 而非 doLast：Sync 会清掉目标目录多余文件，重复构建不会残留旧版二进制。
-// finalizedBy 保证 createDistributable 产完 app-image 之后才执行拷贝。
-tasks.register<Sync>("copyToolsToAppImage") {
-    from(rootProject.layout.projectDirectory.dir("tools"))
-    into(layout.buildDirectory.dir("compose/binaries/main/app/PhotoMgm/tools"))
-}
-// Compose Desktop 1.7.3 在 `Project.afterEvaluate` 里才注册 createDistributable
-// （compose-gradle-plugin-1.7.3.jar / ComposePlugin.apply → afterEvaluate），脚本主体求值时
-// 直接 tasks.named 会抛 "Task with name 'createDistributable' not found"。外包一层 afterEvaluate：
-// 插件的回调在 apply 阶段先注册，本回调后执行，任务此时已存在；finalizedBy 语义不变。
-afterEvaluate {
-    tasks.named("createDistributable") {
-        finalizedBy("copyToolsToAppImage")
     }
 }
