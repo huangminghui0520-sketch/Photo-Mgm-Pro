@@ -1,13 +1,12 @@
 // desktop/core/sync/AdbBridge.kt —— 系统 adb 可执行文件的定位与调用（零新库）
 //
-// 获取顺序（裁定 F5 + Q4-B）：① 显式配置路径 → ② ANDROID_HOME → ③ ANDROID_SDK_ROOT →
-// ④ PATH 上的 adb[.exe] → ⑤【仅 Windows】扫 C: 到 Z: 的 \Android\sdk\platform-tools\adb.exe →
-// ⑥ 兜底裸 adb（交给系统解析，找不到时由 [requireExecutable] 抛带排查步骤的异常）。
-// **不打包、不下载、不引入 adb 库**。用 ProcessBuilder（仓内已有先例：PcShellLauncher.kt:48、
-// ShellActions.kt:21）。
+// adb 来源：随包优先（tools/platform-tools/adb.exe，相对程序目录），兜底 ANDROID_HOME / ANDROID_SDK_ROOT / PATH / 盘符扫描；随包 adb 通过 Gradle task 注入 app-image 产物，不入系统 PATH。
+// 随包命中即返回，不再往下探测（避免 PATH 里的旧版 adb 抢先）；全找不到时 [resolve] 返回 null，
+// [executable] 才退回裸 adb 名交给系统解析，[requireExecutable] 则抛带排查步骤的异常。
+// 用 ProcessBuilder（仓内已有先例：PcShellLauncher.kt:48、ShellActions.kt:21）。
 //
-// ⑤ 的存在理由：普通用户双击运行时 ANDROID_HOME 通常是空的、PATH 里也没有 platform-tools，
-// 但 SDK 就装在 D:/Android/sdk 这类标准位置。只靠 ①②③ 会退化成裸 "adb" → 必然失败。
+// 盘符扫描的存在理由：普通用户双击运行时 ANDROID_HOME 通常是空的、PATH 里也没有 platform-tools，
+// 但 SDK 就装在 D:/Android/sdk 这类标准位置。只靠环境变量会退化成裸 "adb" → 必然失败。
 // macOS / Linux 的同类固定位置（/opt/homebrew/bin/adb、~/Android/Sdk/platform-tools 等）
 // 暂不实现，留 TODO。
 //
@@ -54,12 +53,21 @@ internal fun interface AdbCommand {
     operator fun invoke(args: List<String>): AdbOutput
 }
 
-// 定位 adb 只需要三种环境能力：读环境变量、判断普通文件、判别平台。
+// 定位 adb 只需要四种环境能力：读环境变量、判断普通文件、判别平台、找随包 adb。
 // 抽成最小接口后，单测可以完全离线验证解析顺序（不需要真有 SDK、不必真的存在 C:~Z: 各盘）。
 internal interface AdbEnv {
     fun getenv(name: String): String?
     fun isRegularFile(path: String): Boolean
     fun osName(): String
+
+    /**
+     * 随包 adb 的完整路径；找不到返回 null。
+     *
+     * 默认返回 null = 「没有随包 adb」：单测的 FakeEnv 不覆写即完全离线、不碰真实文件系统
+     * （仓库根一旦有 tools/，生产探测会命中，但绝不让它污染 T1~T8 的定位结论）。
+     * 生产由 [SystemAdbEnv] 覆写，走 [detectAppDir] 的三层探测。
+     */
+    fun bundledAdb(): String? = null
 }
 
 internal class SystemAdbEnv : AdbEnv {
@@ -69,6 +77,49 @@ internal class SystemAdbEnv : AdbEnv {
         runCatching { Files.isRegularFile(Paths.get(path)) }.getOrDefault(false)
 
     override fun osName(): String = System.getProperty("os.name").orEmpty()
+
+    override fun bundledAdb(): String? {
+        val dir = detectAppDir()
+        if (dir.isEmpty()) return null
+        val candidate = runCatching {
+            Paths.get(dir).resolve(BUNDLED_ADB_RELATIVE).toString()
+        }.getOrNull() ?: return null
+        // detectAppDir 已经按层判过一次，这里再判一次：目录可能来自「全没命中」的 userDir 兜底。
+        return candidate.takeIf { isRegularFile(candidate) }
+    }
+}
+
+/** 随包 adb 相对程序目录的固定位置；Gradle 的 copyToolsToAppImage 注入的就是这个路径。 */
+private val BUNDLED_ADB_RELATIVE: Path = Paths.get("tools", "platform-tools", "adb.exe")
+
+/** 目录里是否真的放着随包 adb（路径非法 / 无权限一律按「没有」处理，不抛异常）。 */
+private fun hasBundledAdb(dir: Path): Boolean =
+    runCatching { Files.isRegularFile(dir.resolve(BUNDLED_ADB_RELATIVE)) }.getOrDefault(false)
+
+/**
+ * 三层探测程序目录：① `jpackage.app-path` → ② 当前进程可执行文件 → ③ `user.dir`。
+ *
+ * 每层都先确认 `<dir>/tools/platform-tools/adb.exe` 是普通文件才返回该 dir；
+ * `Paths.get(appPath).parent == null`（相对路径 / 根级路径）时跳过该层；
+ * 三层全没命中返回 userDir —— 由调用方再判一次文件，保证「没随包」就是没随包。
+ */
+internal fun detectAppDir(): String {
+    val userDir: String = System.getProperty("user.dir").orEmpty()
+    val appPaths: List<String> = listOfNotNull(
+        System.getProperty("jpackage.app-path"),
+        runCatching { ProcessHandle.current().info().command().orElse(null) }.getOrNull(),
+    )
+    for (appPath in appPaths) {
+        if (appPath.isBlank()) continue
+        // parent == null → 该层给的是相对/根级路径，取不到程序目录，跳过。
+        val dir: Path = runCatching { Paths.get(appPath).parent }.getOrNull() ?: continue
+        if (hasBundledAdb(dir)) return dir.toString()
+    }
+    if (userDir.isNotEmpty()) {
+        val userPath = runCatching { Paths.get(userDir) }.getOrNull()
+        if (userPath != null && hasBundledAdb(userPath)) return userDir
+    }
+    return userDir
 }
 
 // 真实进程调用；15 秒超时防止未授权设备把 UI 卡住。
@@ -131,10 +182,24 @@ internal class AdbBridge(
     //   → PATH → 盘符 全试过了（见 resolve），再交给系统解析一次没有意义。
     val adbServerStatus: Result<String> by lazy { ensureAdbServer() }
 
-    // 按 ①~⑤ 顺序定位，全找不到返回 null（「找不到」是正常状态，不是异常）。
+    // ADB-RESOLVE 日志去重：resolve() 会被 executable() 高频调用（每条 adb 命令一次），
+    // 逐次打印会刷屏；只在「实际用的 adb」发生变化时打一行，返回值语义完全不变。
+    private var lastResolveLog: String? = null
+
+    // 「随包优先 → ①~⑤ 兜底」两段式定位，全找不到返回 null（「找不到」是正常状态，不是异常）。
     fun resolve(): String? {
         // 测试/特殊部署注入：给了就完全接管定位，返回 null 即"找不到 adb"，不再走真实探测。
-        resolveOverride?.let { return it() }
+        // ★ 保持最高优先级：注入口不能被随包探测绕过，否则开发机/CI 上仓库根一旦有 tools/
+        //   就会读到真实随包路径，T1~T6 的定位结论随宿主文件系统漂移。
+        resolveOverride?.let { override -> return logResolve(override(), "fallback") }
+        // 随包优先：命中立即返回，不再往下探测，避免 PATH / SDK 里的旧版 adb 抢先。
+        adbEnv.bundledAdb()?.let { return logResolve(it, "bundled") }
+        return logResolve(resolveFallback(), "fallback")
+    }
+
+    // ①~⑤ 兜底：显式路径 → ANDROID_HOME → ANDROID_SDK_ROOT → PATH → 盘符扫描。
+    // 与改造前 resolve() 的主体逐字等价（优先级不变），只抽成私有方法给随包让出第一顺位。
+    private fun resolveFallback(): String? {
         if (!explicitPath.isNullOrBlank() && adbEnv.isRegularFile(explicitPath)) return explicitPath
         for (key in SDK_HOME_KEYS) {
             val home = adbEnv.getenv(key)?.takeIf { it.isNotBlank() } ?: continue
@@ -144,6 +209,19 @@ internal class AdbBridge(
         findOnPath()?.let { return it }
         if (isWindows) findOnDriveRoots()?.let { return it }
         return null
+    }
+
+    // 标明实际用的 adb；同一条结论只打一次（synchronized 保证多线程下也不重复刷屏）。
+    // 只做日志副作用，原样返回 path —— 不缓存定位结果，环境变化后下一次 resolve 立刻生效。
+    private fun logResolve(path: String?, tag: String): String? {
+        val line = if (path == null) "ADB-RESOLVE: not found" else "ADB-RESOLVE: $tag $path"
+        synchronized(this) {
+            if (lastResolveLog != line) {
+                lastResolveLog = line
+                println(line)
+            }
+        }
+        return path
     }
 
     // ⑥ 兜底：返回裸命令名交给系统 PATH 解析（保持既有语义，不保证存在）。
@@ -254,7 +332,7 @@ internal class AdbBridge(
             return Result.failure(
                 IllegalStateException(
                     "adb 版本过低：$version（要求 ≥ $MIN_ADB_VERSION）。" +
-                        "请更新 Android SDK Platform-Tools 后重试。",
+                        "请检查 USB 连接和 USB 调试",
                 ),
             )
         }
@@ -310,7 +388,7 @@ internal class AdbBridge(
         const val ADB_NOT_FOUND_HINT: String =
             "未检测到手机。请依次排查：① USB 线是否连接；" +
                 "② 手机是否开启「USB 调试」并授权；" +
-                "③ 是否已安装 Android SDK（或将 adb 加入 PATH）。"
+                "③ 手机是否在「传输文件（MTP）」模式下。"
 
         // 相机/相册目录的**兜底**清单：动态发现全空时用它，保证下拉不空。
         // 单一事实来源：DesktopCore.kt 的 ADB_CAMERA_DIRS 直接引用本常量，不另抄一份。

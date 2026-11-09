@@ -103,7 +103,12 @@ class AdbBridgeTest {
         val error = assertThrows(IllegalStateException::class.java) {
             bridge(env).requireExecutable()
         }
-        assertTrue(error.message.orEmpty().contains("Android SDK"), "异常消息应指明 SDK 缺失")
+        // 第 ③ 步已从「是否已安装 Android SDK」改成「传输文件（MTP）模式」，断言同步换锚点。
+        val message = error.message.orEmpty()
+        assertTrue(
+            message.contains("传输文件") || message.contains("MTP"),
+            "异常消息应指向传输文件（MTP）模式排查，实测 $message",
+        )
     }
 
     // ── T8 提示文案形态 ─────────────────────────────────────────────────
