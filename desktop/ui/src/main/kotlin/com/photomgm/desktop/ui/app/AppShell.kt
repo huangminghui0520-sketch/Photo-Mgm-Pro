@@ -214,6 +214,19 @@ fun AppShell(
             )
         }
 
+        // 从手机导入弹窗自动引导到设置窗口后，关闭设置时回到原弹窗（方案 A2）。
+        // 返回标记一次消费即清空，避免反复回跳；正常从顶栏 / 快捷键打开设置时该字段为空，不受影响。
+        LaunchedEffect(ui.sheet, ui.settingsReturnTo) {
+            if (ui.sheet == null && ui.settingsReturnTo != null) {
+                onUi(
+                    ui.copy(
+                        sheet = ui.settingsReturnTo,
+                        settingsReturnTo = null,
+                    ),
+                )
+            }
+        }
+
         when (ui.sheet) {
             null -> Unit
             Sheet.Settings -> SettingsSheet(state, ui, onUi, actions, width, height)

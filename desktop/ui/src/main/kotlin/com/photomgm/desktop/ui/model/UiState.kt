@@ -157,6 +157,11 @@ data class UiState(
      *   是必须一眼分开的三件事，所以语气（OK/WARN/DANGER）属于数据，不该由界面猜。
      */
     val notice: LocalNotice? = null,
+
+    /** 本次会话是否已就「未设电脑源目录」自动引导过（会话级，进程重启重置）。 */
+    val hasPromptedSourceDir: Boolean = false,
+    /** 从设置窗口关闭后应回到的弹窗；由 AppShell 一次性消费后清空。 */
+    val settingsReturnTo: Sheet? = null,
 )
 
 /**

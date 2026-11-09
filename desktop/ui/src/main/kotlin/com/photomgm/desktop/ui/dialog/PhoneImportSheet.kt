@@ -82,6 +82,7 @@ import com.photomgm.desktop.ui.component.fg
 import com.photomgm.desktop.ui.component.pmPress
 import com.photomgm.desktop.ui.model.CalendarTarget
 import com.photomgm.desktop.ui.model.PhoneImportForm
+import com.photomgm.desktop.ui.model.Sheet
 import com.photomgm.desktop.ui.model.UiState
 import com.photomgm.desktop.ui.model.closeCalendar
 import com.photomgm.desktop.ui.model.closeTimePicker
@@ -151,6 +152,23 @@ fun PhoneImportSheet(
     val startTimeAnchor = remember { mutableStateOf<IntRect?>(null) }
     val endDateAnchor = remember { mutableStateOf<IntRect?>(null) }
     val endTimeAnchor = remember { mutableStateOf<IntRect?>(null) }
+
+    // 未设电脑源目录 → 本次会话自动引导一次到设置窗口（方案 A2）。
+    // ★ 用 Unit 作 key，只认「这个弹窗的一次组合」：从设置回来时弹窗会重建，
+    //   但引导标记已经置真，条件不再成立，所以不会来回跳。
+    // ★ 只 copy 这三个字段，其余沿用 ui 的当前值，避免把整份旧快照写回去覆盖 reduce 的结果。
+    // ★ 源目录取自核心快照（AppState），不是表单里的 remember —— 设置里添加后由 core 推新快照。
+    LaunchedEffect(Unit) {
+        if (state.settings.sourceDirs.isEmpty() && !ui.hasPromptedSourceDir) {
+            onUi(
+                ui.copy(
+                    hasPromptedSourceDir = true,
+                    settingsReturnTo = Sheet.PhoneImport,
+                    sheet = Sheet.Settings,
+                ),
+            )
+        }
+    }
 
     val mode = PhoneLinkMode.values()[form.modeIndex.coerceIn(0, PhoneLinkMode.values().size - 1)]
 
