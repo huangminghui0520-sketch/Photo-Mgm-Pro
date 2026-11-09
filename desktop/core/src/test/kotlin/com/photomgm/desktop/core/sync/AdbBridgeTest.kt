@@ -6,9 +6,14 @@ package com.photomgm.desktop.core.sync
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 
 class AdbBridgeTest {
 
@@ -118,6 +123,62 @@ class AdbBridgeTest {
         val hint = AdbBridge.ADB_NOT_FOUND_HINT
         for (mark in listOf("①", "②", "③")) {
             assertTrue(hint.contains(mark), "提示应包含排查步骤 $mark")
+        }
+    }
+
+    // ── T9~T11 随包 adb：属性优先 + SHA256 校验（B-3 第二阶段）──────────
+    //
+    // 直接实例化 SystemAdbEnv：FakeEnv 不覆写 bundledAdb()，走默认 null，
+    // 所以 T1~T8 的「定位顺序」结论不受本轮改动影响。夹具用源码树的真实 adb.exe 字节，
+    // 顺带钉住 BUNDLED_ADB_SHA256 常量没写错/没过期 —— 比注入一个假哈希更强。
+
+    /** 源码树里随包 adb 的真实字节；Gradle 测试工作目录是 desktop/core。 */
+    private val bundledAdbSource: Path =
+        Paths.get("..", "ui", "appResources", "common", "tools", "platform-tools", "adb.exe")
+
+    /** 系统属性是 JVM 全局状态，用完必须恢复，避免污染其它测试。 */
+    private fun withResourcesDir(dir: Path?, block: () -> Unit) {
+        val key = "compose.application.resources.dir"
+        val previous = System.getProperty(key)
+        if (dir == null) System.clearProperty(key) else System.setProperty(key, dir.toString())
+        try {
+            block()
+        } finally {
+            if (previous == null) System.clearProperty(key) else System.setProperty(key, previous)
+        }
+    }
+
+    /** 在 @TempDir 里摆一份 `<resources>/tools/platform-tools/adb.exe`。 */
+    private fun stageBundledAdb(temp: Path, corrupt: Boolean = false): Path {
+        val tools = Files.createDirectories(temp.resolve("tools").resolve("platform-tools"))
+        val adb = tools.resolve("adb.exe")
+        val bytes = Files.readAllBytes(bundledAdbSource)
+        if (corrupt) bytes[0] = (bytes[0].toInt() xor 0xFF).toByte()
+        Files.write(adb, bytes)
+        return adb
+    }
+
+    @Test
+    fun `T9 属性命中且 SHA256 正确时返回资源目录 adb`(@TempDir temp: Path) {
+        val adb = stageBundledAdb(temp)
+        withResourcesDir(temp) {
+            assertEquals(adb.toString(), SystemAdbEnv().bundledAdb())
+        }
+    }
+
+    @Test
+    fun `T10 属性命中但字节被改坏时返回 null 走兜底`(@TempDir temp: Path) {
+        stageBundledAdb(temp, corrupt = true)
+        withResourcesDir(temp) {
+            assertNull(SystemAdbEnv().bundledAdb())
+        }
+    }
+
+    @Test
+    fun `T11 属性为空时回落 detectAppDir 且不抛异常`() {
+        withResourcesDir(null) {
+            // 测试工作目录下不存在 app/resources/tools/platform-tools/adb.exe，兜底找不到随包。
+            assertNull(SystemAdbEnv().bundledAdb())
         }
     }
 }

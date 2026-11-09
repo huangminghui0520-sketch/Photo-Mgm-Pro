@@ -1,6 +1,6 @@
 // desktop/core/sync/AdbBridge.kt —— 系统 adb 可执行文件的定位与调用（零新库）
 //
-// adb 来源：随包优先（主候选 app/resources/tools/platform-tools/adb.exe，兼容旧 tools/ 落点），兜底 ANDROID_HOME / ANDROID_SDK_ROOT / PATH / 盘符扫描；随包 adb 由 appResourcesRootDir 注入产物，不入系统 PATH，portable 与 MSI 共用这条链路。
+// adb 来源：随包优先（先读 jpackage 注入的 compose.application.resources.dir，主落点 tools/platform-tools/adb.exe），属性不可用再走 detectAppDir 三层探测，最后兜底 ANDROID_HOME / ANDROID_SDK_ROOT / PATH / 盘符扫描；随包命中先校验 SHA256，失败打印告警并走兜底；随包 adb 由 appResourcesRootDir 注入产物，不入系统 PATH，portable 与 MSI 共用这条链路。
 // 随包命中即返回，不再往下探测（避免 PATH 里的旧版 adb 抢先）；全找不到时 [resolve] 返回 null，
 // [executable] 才退回裸 adb 名交给系统解析，[requireExecutable] 则抛带排查步骤的异常。
 // 用 ProcessBuilder（仓内已有先例：PcShellLauncher.kt:48、ShellActions.kt:21）。
@@ -25,6 +25,7 @@ package com.photomgm.desktop.core.sync
 
 import algorithm.AppZone
 import com.photomgm.desktop.core.platform.PcPhotoSourceProvider
+import domain.hash.Sha256
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -53,7 +54,7 @@ internal fun interface AdbCommand {
     operator fun invoke(args: List<String>): AdbOutput
 }
 
-// 定位 adb 只需要四种环境能力：读环境变量、判断普通文件、判别平台、找随包 adb。
+// 定位 adb 只需要五种环境能力：读环境变量、判断普通文件、判别平台、读系统属性、找随包 adb。
 // 抽成最小接口后，单测可以完全离线验证解析顺序（不需要真有 SDK、不必真的存在 C:~Z: 各盘）。
 internal interface AdbEnv {
     fun getenv(name: String): String?
@@ -61,11 +62,19 @@ internal interface AdbEnv {
     fun osName(): String
 
     /**
+     * 读取 JVM 系统属性；默认 null = 「没有该属性」。
+     *
+     * 带默认实现，单测的 FakeEnv 零改动即完全离线；生产由 [SystemAdbEnv] 覆写，读 jpackage
+     * 在 PhotoMgm.cfg 里注入的 `compose.application.resources.dir`，作为随包资源的权威路径。
+     */
+    fun systemProperty(name: String): String? = null
+
+    /**
      * 随包 adb 的完整路径；找不到返回 null。
      *
      * 默认返回 null = 「没有随包 adb」：单测的 FakeEnv 不覆写即完全离线、不碰真实文件系统
      * （程序目录一旦有随包 adb，生产探测会命中，但绝不让它污染 T1~T8 的定位结论）。
-     * 生产由 [SystemAdbEnv] 覆写，走 [detectAppDir] 的三层探测，按候选优先级取第一个存在的文件。
+     * 生产由 [SystemAdbEnv] 覆写，先读资源属性，未命中再走 [detectAppDir] 的三层探测。
      */
     fun bundledAdb(): String? = null
 }
@@ -78,49 +87,76 @@ internal class SystemAdbEnv : AdbEnv {
 
     override fun osName(): String = System.getProperty("os.name").orEmpty()
 
+    override fun systemProperty(name: String): String? = System.getProperty(name)
+
     override fun bundledAdb(): String? {
-        val dir = detectAppDir()
-        if (dir.isEmpty()) return null
-        val base = runCatching { Paths.get(dir) }.getOrNull() ?: return null
-        // detectAppDir 已经按层判过一次，这里再判一次：目录可能来自「全没命中」的 userDir 兜底。
-        // 主候选优先：app/resources/ 是 portable 与 MSI 的共同落点，旧 tools/ 仅作兼容。
-        for (relative in BUNDLED_ADB_CANDIDATES) {
-            val candidate = runCatching { base.resolve(relative).toString() }.getOrNull() ?: continue
-            if (isRegularFile(candidate)) return candidate
+        // ① 属性优先：jpackage 在 PhotoMgm.cfg 注入 resources 目录，是随包资源的权威路径。
+        val resourcesDir = systemProperty(RESOURCES_DIR_PROPERTY)
+        if (!resourcesDir.isNullOrBlank()) {
+            val candidate = runCatching {
+                Paths.get(resourcesDir, "tools", "platform-tools", "adb.exe")
+            }.getOrNull()
+            if (candidate != null && isRegularFile(candidate.toString())) {
+                return if (verifyBundledSha256(candidate)) {
+                    candidate.toString()
+                } else {
+                    // A 方案：校验失败不抛异常，返回 null 交给 resolve() 的 resolveFallback 兜底。
+                    println(CORRUPTED_ADB_LOG)
+                    null
+                }
+            }
         }
-        return null
+
+        // ② 属性不可用 / 没命中 → 既有 detectAppDir() 三层探测（本轮不改该函数）。
+        val appDir = detectAppDir()
+        if (appDir.isEmpty()) return null
+        val fromResources = runCatching {
+            Paths.get(appDir).resolve(APP_RESOURCES_ADB_RELATIVE)
+        }.getOrNull() ?: return null
+        if (!isRegularFile(fromResources.toString())) return null
+        return if (verifyBundledSha256(fromResources)) {
+            fromResources.toString()
+        } else {
+            println(CORRUPTED_ADB_LOG)
+            null
+        }
     }
 }
 
+/** jpackage 在 PhotoMgm.cfg 里注入的权威资源目录属性名。 */
+private const val RESOURCES_DIR_PROPERTY = "compose.application.resources.dir"
+
+/** 随包 adb.exe 的 SHA256（B-1 诊断实测值；CI `Verify bundled adb integrity` 用同一值）。 */
+private const val BUNDLED_ADB_SHA256 =
+    "b4a6b455702684652cccf7b46258b29e653538904359a58fd4931cf3ef286b3f"
+
+/** V3 人工验收锚点：故意改坏随包 adb 后，日志应出现这一行。 */
+private const val CORRUPTED_ADB_LOG = "ADB-RESOLVE: bundled adb corrupted, falling back"
+
 /**
- * 随包 adb 的候选落点（相对程序目录），**按优先级排列**。
+ * 随包 adb 的唯一候选落点（相对程序目录）。
  *
- * ① 主候选：`appResourcesRootDir` 把 `appResources/common/` 同步到 app-image 的 `app/resources/`；
- *    `createDistributable` 与 `packageMsi` 共用 `prepareAppResources`，故 portable 与 MSI 都带这一份 adb。
- * ② 兼容候选：方案 1 的旧落点；用户手动把 `tools/` 放到程序目录时仍能命中。
+ * `appResourcesRootDir` 把 `appResources/common/` 同步到 app-image 的 `app/resources/`；
+ * `createDistributable` 与 `packageMsi` 共用 `prepareAppResources`，故 portable 与 MSI 都带这一份 adb。
+ * 旧 `tools/platform-tools/adb.exe`（方案 1 的内部迁移落点）已随 B-3 删除：产物顶层从未有过
+ * `PhotoMgm/tools/`，且随包 adb 从未进入任何已发布 tag。
  */
 private val APP_RESOURCES_ADB_RELATIVE: Path =
     Paths.get("app", "resources", "tools", "platform-tools", "adb.exe")
-private val LEGACY_TOOLS_ADB_RELATIVE: Path =
-    Paths.get("tools", "platform-tools", "adb.exe")
-private val BUNDLED_ADB_CANDIDATES: List<Path> =
-    listOf(APP_RESOURCES_ADB_RELATIVE, LEGACY_TOOLS_ADB_RELATIVE)
 
-/** 目录里是否真的放着任一候选的随包 adb（路径非法 / 无权限一律按「没有」处理，不抛异常）。 */
+/** 目录里是否真的放着主候选的随包 adb（路径非法 / 无权限一律按「没有」处理，不抛异常）。 */
 private fun hasBundledAdb(dir: Path): Boolean =
-    BUNDLED_ADB_CANDIDATES.any { relative ->
-        runCatching { Files.isRegularFile(dir.resolve(relative)) }.getOrDefault(false)
-    }
+    runCatching { Files.isRegularFile(dir.resolve(APP_RESOURCES_ADB_RELATIVE)) }.getOrDefault(false)
 
-/** 日志标签：主落点记 resources，兼容落点记 bundled，便于从诊断输出区分 adb 来源。 */
-private fun bundledTag(path: String): String = runCatching {
-    if (Paths.get(path).endsWith(APP_RESOURCES_ADB_RELATIVE)) "resources" else "bundled"
-}.getOrDefault("bundled")
+/** 命中随包 adb 后先校验字节；读失败 / 哈希不符一律 false，绝不执行未校验的二进制。 */
+private fun verifyBundledSha256(path: Path): Boolean = runCatching {
+    Files.newInputStream(path).use { Sha256.ofStream(it) } == BUNDLED_ADB_SHA256
+}.getOrDefault(false)
 
 /**
  * 三层探测程序目录：① `jpackage.app-path` → ② 当前进程可执行文件 → ③ `user.dir`。
  *
- * 每层都先确认该目录下存在任一随包 adb 候选才返回该 dir；
+ * 每层都先确认该目录下存在唯一的随包 adb 主候选才返回该 dir；
  * `Paths.get(appPath).parent == null`（相对路径 / 根级路径）时跳过该层；
  * 三层全没命中返回 userDir —— 由调用方再判一次文件，保证「没随包」就是没随包。
  */
@@ -210,12 +246,13 @@ internal class AdbBridge(
     // 「随包优先 → ①~⑤ 兜底」两段式定位，全找不到返回 null（「找不到」是正常状态，不是异常）。
     fun resolve(): String? {
         // 测试/特殊部署注入：给了就完全接管定位，返回 null 即"找不到 adb"，不再走真实探测。
-        // ★ 保持最高优先级：注入口不能被随包探测绕过，否则开发机/CI 上仓库根一旦有 tools/
-        //   就会读到真实随包路径，T1~T6 的定位结论随宿主文件系统漂移。
+        // ★ 保持最高优先级：注入口不能被随包探测绕过，否则开发机/CI 上仓库根一旦有
+        //   app/resources/tools/platform-tools/ 就会读到真实随包路径，T1~T6 的结论随宿主文件系统漂移。
+        // ★ 注入口天然跳过 SHA256 校验（校验只在 bundledAdb() 内），测试用的假路径不会被误判为损坏。
         resolveOverride?.let { override -> return logResolve(override(), "fallback") }
-        // 随包优先：命中立即返回，不再往下探测，避免 PATH / SDK 里的旧版 adb 抢先。
-        // 日志按落点区分 resources（appResourcesRootDir 主候选）/ bundled（旧 tools/ 兼容候选）。
-        adbEnv.bundledAdb()?.let { return logResolve(it, bundledTag(it)) }
+        // 随包优先：命中且通过 SHA256 校验才返回，不再往下探测，避免 PATH / SDK 里的旧版 adb 抢先。
+        // 只剩一条主落点（appResourcesRootDir），日志统一记 resources。
+        adbEnv.bundledAdb()?.let { return logResolve(it, "resources") }
         return logResolve(resolveFallback(), "fallback")
     }
 
