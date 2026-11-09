@@ -320,7 +320,20 @@ fun PhoneImportSheet(
                         SelectBlock(
                             value = form.sourceDir,
                             expanded = sourceExpanded,
-                            onToggle = { sourceExpanded = !sourceExpanded },
+                            onToggle = {
+                                if (state.settings.sourceDirs.isEmpty()) {
+                                    // 用户主动点「请选择」而源目录为空 → 直接去设置；回来后由 AppShell 的返回标记接回本弹窗。
+                                    // 与自动引导不同：这是主动请求，不受 hasPromptedSourceDir「只一次」限制。
+                                    onUi(
+                                        ui.copy(
+                                            settingsReturnTo = Sheet.PhoneImport,
+                                            sheet = Sheet.Settings,
+                                        ),
+                                    )
+                                } else {
+                                    sourceExpanded = !sourceExpanded
+                                }
+                            },
                             options = state.settings.sourceDirs.map { it to it },
                             onSelect = { form = form.copy(sourceDir = it, confirmConflict = false); sourceExpanded = false },
                             emptyText = "尚未设置电脑源目录：关闭弹窗后到「设置 → 照片源目录」添加。",
