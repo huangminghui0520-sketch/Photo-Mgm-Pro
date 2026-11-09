@@ -242,7 +242,7 @@ Photo-Mgm/
 | 平台 | 当前版本 |
 |---|---|
 | Android | `v1.0.1`（versionCode 8） |
-| Windows 桌面 | `desktop-v1.0.2` |
+| Windows 桌面 | `desktop-v1.0.3` |
 
 版本历史见 [CHANGELOG.md](CHANGELOG.md) 与 [Releases](https://github.com/huangminghui0520-sketch/Photo-Mgm-Pro/releases)。
 

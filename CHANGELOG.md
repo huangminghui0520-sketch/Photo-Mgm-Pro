@@ -3,6 +3,19 @@
 <!-- Keep a Changelog 格式，版本号遵循语义化版本 -->
 [Keep a Changelog]: https://keepachangelog.com/zh-CN/1.1.0/
 
+## [1.0.3] - 2026-11-09（未发布）
+
+### 修复
+- 恢复「adb 版本过低」提示的正确指引（重新安装本应用），不再误报为 USB 连接问题
+- S2 测试补处置文案断言，防止同类回归
+
+### 变更
+- Windows `packageVersion` / `DESKTOP_VERSION`：`1.0.2 → 1.0.3`
+
+### 待发布
+- 供应链加固（第三方二进制来源/校验记录、`.gitattributes` binary 声明、adb 候选落点收紧）
+- CI 出包禁用构建缓存 + 产物存在性断言
+
 ## [1.0.2] - 2026-11-08
 
 ### 修复

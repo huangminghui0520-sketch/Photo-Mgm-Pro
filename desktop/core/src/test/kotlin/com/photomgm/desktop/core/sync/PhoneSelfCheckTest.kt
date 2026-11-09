@@ -158,6 +158,8 @@ class PhoneSelfCheckTest {
         assertTrue(hint != null, "应给出「版本过低」提示，实测 ${result.hints}")
         assertTrue(hint!!.contains("1.0.30"), "提示应带上实测版本号，实测 $hint")
         assertTrue(hint.contains(AdbBridge.MIN_ADB_VERSION), "提示应带上版本门槛常量，实测 $hint")
+        assertTrue(hint.contains("重新安装") || hint.contains("联系技术支持"),
+            "S2: 版本过低处置文案应指引重新安装，实际: $hint")
     }
 
     // ── ③ 本机找不到 adb ─────────────────────────────────────────────────

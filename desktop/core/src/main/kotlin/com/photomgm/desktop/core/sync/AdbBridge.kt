@@ -353,8 +353,8 @@ internal class AdbBridge(
         if (version != null && !atLeastVersion(version, MIN_ADB_VERSION)) {
             return Result.failure(
                 IllegalStateException(
-                    "adb 版本过低：$version（要求 ≥ $MIN_ADB_VERSION）。" +
-                        "请检查 USB 连接和 USB 调试",
+                    "随包 adb 版本过低（$version < $MIN_ADB_VERSION），" +
+                        "请重新安装本应用或联系技术支持。",
                 ),
             )
         }

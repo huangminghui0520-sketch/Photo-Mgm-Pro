@@ -27,7 +27,7 @@ env:
   # 与 desktop/ui/build.gradle.kts 的 packageVersion 保持一致（改版本时两处同改）
   # ★ 2026-11-08 升 1.0.2（标签 desktop-v1.0.2，含 ADB 换机修复 + 缩略图滚轮 + 筛选门控）。
   #   MSI 与 portable zip 的产物名一律随本变量走，不在此处写死。
-  DESKTOP_VERSION: 1.0.2
+  DESKTOP_VERSION: 1.0.3
 
 jobs:
   build:
@@ -63,11 +63,23 @@ jobs:
       # （物理位置零移动）。单根后不再需要"把桌面侧共享层产物重定向到 external/"的补丁：
       # 8 个模块各写自己的 build 目录，全仓一份产物，不存在两份构建互踩的问题。
       - name: Package app-image (createDistributable)
-        run: gradle :desktop:ui:createDistributable --console=plain
+        run: gradle :desktop:ui:createDistributable --console=plain --no-build-cache
 
       # ★ MSI 安装包：windows-latest runner 自带 WiX 3.14.1，jpackage 可直接出 MSI（无需额外安装）。
       - name: Package MSI installer (packageMsi)
-        run: gradle :desktop:ui:packageMsi --console=plain
+        run: gradle :desktop:ui:packageMsi --console=plain --no-build-cache
+
+      # ★ 随包 adb 是本版本的核心交付：出包命中构建缓存时可能恢复旧 app-image，
+      #   故在 Upload 之前断言产物内三文件齐全，让 Release 资产内容成为 CI 可复算判据。
+      - name: Assert bundled adb in artifacts
+        shell: pwsh
+        run: |
+          $adb = "desktop/ui/build/compose/binaries/main/app/PhotoMgm/app/resources/tools/platform-tools/adb.exe"
+          if (-not (Test-Path $adb)) {
+            Write-Error "Bundled adb missing: $adb"
+            exit 1
+          }
+          Write-Host "Bundled adb present: $adb"
 
       - name: Compress portable zip
         shell: pwsh
