@@ -29,3 +29,4 @@ gradlew.bat text eol=crlf
 # 随包 adb 二进制：按 binary 处理，避免换行转换损坏可执行文件
 desktop/ui/appResources/**/*.exe binary
 desktop/ui/appResources/**/*.dll binary
+*.md text eol=lf
